@@ -1,6 +1,11 @@
 from echozero.domain.types import Event
 from echozero.ui.qt.timeline.demo_app import build_demo_app
-from echozero.ui.qt.timeline.real_data_fixture import _event_label, _fixture_layer_color, _fmt_time, build_real_data_variants
+from echozero.ui.qt.timeline.real_data_fixture import (
+    _event_label,
+    _fixture_layer_color,
+    _fmt_time,
+    build_real_data_variants,
+)
 from echozero.ui.qt.timeline.style import TIMELINE_STYLE, fixture_color, fixture_take_action_label
 
 

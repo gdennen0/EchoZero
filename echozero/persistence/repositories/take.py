@@ -25,21 +25,21 @@ class TakeRepository(BaseRepository[Take]):
 
     def _from_row(self, row: sqlite3.Row) -> Take:
         """Convert a database row to a domain Take."""
-        source = self._deserialize_source(row['source_json'])
-        if row['data_json'] is None:
+        source = self._deserialize_source(row["source_json"])
+        if row["data_json"] is None:
             raise PersistenceError("Take has no data")
-        data = deserialize_take_data(json.loads(row['data_json']))
+        data = deserialize_take_data(json.loads(row["data_json"]))
 
         return Take(
-            id=row['id'],
-            label=row['label'],
+            id=row["id"],
+            label=row["label"],
             data=data,
-            origin=row['origin'],
+            origin=row["origin"],
             source=source,
-            created_at=datetime.fromisoformat(row['created_at']),
-            is_main=bool(row['is_main']),
-            is_archived=bool(row['is_archived']),
-            notes=row['notes'] or "",
+            created_at=datetime.fromisoformat(row["created_at"]),
+            is_main=bool(row["is_main"]),
+            is_archived=bool(row["is_archived"]),
+            notes=row["notes"] or "",
         )
 
     def create(self, layer_id: str, take: Take) -> None:
@@ -92,7 +92,7 @@ class TakeRepository(BaseRepository[Take]):
             try:
                 results.append(self._from_row(r))
             except Exception as exc:
-                logger.warning("Skipping corrupt take %s: %s", r['id'], exc)
+                logger.warning("Skipping corrupt take %s: %s", r["id"], exc)
         return results
 
     def update(self, take: Take) -> None:

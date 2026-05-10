@@ -198,12 +198,22 @@ def runtime_layer_record(
     else:
         provenance.pop("output_name", None)
 
-    source_pipeline = dict(existing.source_pipeline) if existing.source_pipeline is not None else None
+    source_pipeline = (
+        dict(existing.source_pipeline) if existing.source_pipeline is not None else None
+    )
     if layer.provenance.pipeline_id or layer.provenance.output_name:
         source_pipeline = {
             **(source_pipeline or {}),
-            **({"pipeline_id": layer.provenance.pipeline_id} if layer.provenance.pipeline_id else {}),
-            **({"output_name": layer.provenance.output_name} if layer.provenance.output_name else {}),
+            **(
+                {"pipeline_id": layer.provenance.pipeline_id}
+                if layer.provenance.pipeline_id
+                else {}
+            ),
+            **(
+                {"output_name": layer.provenance.output_name}
+                if layer.provenance.output_name
+                else {}
+            ),
         }
 
     return replace(

@@ -80,9 +80,7 @@ class StaleTracker:
         if not any(r.description == reason.description for r in self._reasons[block_id]):
             self._reasons[block_id].append(reason)
 
-    def add_reason_to_downstream(
-        self, block_ids: set[str], reason: StaleReason
-    ) -> None:
+    def add_reason_to_downstream(self, block_ids: set[str], reason: StaleReason) -> None:
         """Add the same reason to multiple blocks (downstream cascade)."""
         for block_id in block_ids:
             self.add_reason(block_id, reason)

@@ -123,7 +123,9 @@ def export_dev_state(
             for file_path in sorted(models_dir.rglob("*")):
                 if not file_path.is_file():
                     continue
-                archive.write(file_path, arcname=str(Path("models") / file_path.relative_to(models_dir)))
+                archive.write(
+                    file_path, arcname=str(Path("models") / file_path.relative_to(models_dir))
+                )
 
     return {
         "archive_path": archive_path,
@@ -138,8 +140,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     parsed = parser.parse_args(argv)
 
-    settings_path = None if parsed.skip_settings else (
-        parsed.settings_path or resolve_default_settings_export_path()
+    settings_path = (
+        None
+        if parsed.skip_settings
+        else (parsed.settings_path or resolve_default_settings_export_path())
     )
     models_dir = None if parsed.skip_models else (parsed.models_dir or installed_models_dir())
     result = export_dev_state(

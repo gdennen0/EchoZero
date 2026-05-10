@@ -24,7 +24,9 @@ def _contract_value(contract: object, field: str) -> Any:
     return getattr(contract, field, None)
 
 
-def validate_inference_contract(contract: InferenceContract | Mapping[str, Any]) -> ValidationReport:
+def validate_inference_contract(
+    contract: InferenceContract | Mapping[str, Any],
+) -> ValidationReport:
     report = ValidationReport()
     schema = _contract_value(contract, "schema")
     if schema != "echozero.shared.inference_contract.v1":
@@ -140,7 +142,10 @@ def validate_manifest_inference_section(
 
     run_data = _as_mapping(expected_run_data)
     expected_classification_mode = run_data.get("classificationMode")
-    if expected_classification_mode is not None and manifest.get("classificationMode") != expected_classification_mode:
+    if (
+        expected_classification_mode is not None
+        and manifest.get("classificationMode") != expected_classification_mode
+    ):
         report.add_error(
             "classification_mode_mismatch",
             "manifest.classificationMode",
@@ -174,7 +179,9 @@ def validate_manifest_inference_section(
             "manifest.taxonomy must match dataset version taxonomy",
         )
 
-    if expected_label_policy is not None and manifest.get("labelPolicy") != dict(expected_label_policy):
+    if expected_label_policy is not None and manifest.get("labelPolicy") != dict(
+        expected_label_policy
+    ):
         report.add_error(
             "label_policy_mismatch",
             "manifest.labelPolicy",

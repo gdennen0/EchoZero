@@ -56,31 +56,38 @@ def generate_waveform_for_version(
 
     # Build a one-off graph: LoadAudio → GenerateWaveform
     graph = Graph()
-    graph.add_block(Block(
-        id="load",
-        name="Load Audio",
-        block_type="LoadAudio",
-        category=BlockCategory.PROCESSOR,
-        input_ports=(),
-        output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
-        settings=BlockSettings({"file_path": audio_path}),
-    ))
-    graph.add_block(Block(
-        id="waveform",
-        name="Generate Waveform",
-        block_type="GenerateWaveform",
-        category=BlockCategory.PROCESSOR,
-        input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
-        output_ports=(Port("waveform_out", PortType.WAVEFORM, Direction.OUTPUT),),
-    ))
+    graph.add_block(
+        Block(
+            id="load",
+            name="Load Audio",
+            block_type="LoadAudio",
+            category=BlockCategory.PROCESSOR,
+            input_ports=(),
+            output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
+            settings=BlockSettings({"file_path": audio_path}),
+        )
+    )
+    graph.add_block(
+        Block(
+            id="waveform",
+            name="Generate Waveform",
+            block_type="GenerateWaveform",
+            category=BlockCategory.PROCESSOR,
+            input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
+            output_ports=(Port("waveform_out", PortType.WAVEFORM, Direction.OUTPUT),),
+        )
+    )
     graph.add_connection(Connection("load", "audio_out", "waveform", "audio_in"))
 
     # Register executors
     engine = ExecutionEngine(graph, bus)
     engine.register_executor("LoadAudio", LoadAudioProcessor(audio_info_fn=audio_info_fn))
-    engine.register_executor("GenerateWaveform", GenerateWaveformProcessor(
-        load_samples_fn=load_samples_fn,
-    ))
+    engine.register_executor(
+        "GenerateWaveform",
+        GenerateWaveformProcessor(
+            load_samples_fn=load_samples_fn,
+        ),
+    )
 
     # Plan and run
     planner = GraphPlanner()

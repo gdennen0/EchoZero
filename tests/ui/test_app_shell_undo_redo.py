@@ -43,7 +43,9 @@ def test_app_shell_runtime_undo_redo_restores_manual_event_edits_and_clears_redo
         runtime.add_song_from_path("Undo Song", audio_path)
 
         added_layer = runtime.add_layer(LayerKind.EVENT, "Manual Events")
-        manual_layer = next(layer for layer in added_layer.layers if layer.title == "Manual Events")
+        manual_layer = next(
+            layer for layer in added_layer.layers if layer.title == "Manual Events"
+        )
 
         created = runtime.dispatch(
             CreateEvent(
@@ -54,7 +56,9 @@ def test_app_shell_runtime_undo_redo_restores_manual_event_edits_and_clears_redo
         )
         created_layer = next(layer for layer in created.layers if layer.title == "Manual Events")
         assert len(created_layer.events) == 1
-        assert _runtime_layer_by_id(runtime, manual_layer.layer_id).takes[0].events[0].cue_number == 1
+        assert (
+            _runtime_layer_by_id(runtime, manual_layer.layer_id).takes[0].events[0].cue_number == 1
+        )
         assert runtime.can_undo() is True
         assert runtime.can_redo() is False
 
@@ -73,7 +77,9 @@ def test_app_shell_runtime_undo_redo_restores_manual_event_edits_and_clears_redo
             layer for layer in runtime.presentation().layers if layer.title == "Manual Events"
         )
         assert len(reloaded_layer.events) == 1
-        assert _runtime_layer_by_id(runtime, manual_layer.layer_id).takes[0].events[0].cue_number == 1
+        assert (
+            _runtime_layer_by_id(runtime, manual_layer.layer_id).takes[0].events[0].cue_number == 1
+        )
 
         runtime.undo()
         runtime.dispatch(
@@ -217,7 +223,9 @@ def test_app_flow_harness_launcher_undo_preserves_widget_viewport_for_same_timel
         harness._app.processEvents()
 
         viewport_layer = next(
-            layer for layer in harness.widget.presentation.layers if layer.title == "Viewport Events"
+            layer
+            for layer in harness.widget.presentation.layers
+            if layer.title == "Viewport Events"
         )
         event_id = viewport_layer.events[0].event_id
 
@@ -238,7 +246,9 @@ def test_app_flow_harness_launcher_undo_preserves_widget_viewport_for_same_timel
         harness.trigger_action("undo")
 
         restored_layer = next(
-            layer for layer in harness.widget.presentation.layers if layer.title == "Viewport Events"
+            layer
+            for layer in harness.widget.presentation.layers
+            if layer.title == "Viewport Events"
         )
         assert len(restored_layer.events) == 2
         assert abs(harness.widget.presentation.scroll_x - expected_scroll) < 0.5
@@ -247,7 +257,9 @@ def test_app_flow_harness_launcher_undo_preserves_widget_viewport_for_same_timel
         harness.trigger_action("redo")
 
         redone_layer = next(
-            layer for layer in harness.widget.presentation.layers if layer.title == "Viewport Events"
+            layer
+            for layer in harness.widget.presentation.layers
+            if layer.title == "Viewport Events"
         )
         assert len(redone_layer.events) == 1
         assert abs(harness.widget.presentation.scroll_x - expected_scroll) < 0.5

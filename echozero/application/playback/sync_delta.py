@@ -56,9 +56,7 @@ def classify_playback_sync_change(
         next_structure = _structure_signature(next_payload)
         next_mix = _mix_signature(next_payload)
         change_kind = (
-            PlaybackChangeKind.STRUCTURE
-            if next_structure or next_mix
-            else PlaybackChangeKind.NONE
+            PlaybackChangeKind.STRUCTURE if next_structure or next_mix else PlaybackChangeKind.NONE
         )
     else:
         previous_structure = _structure_signature(previous_payload)
@@ -84,10 +82,7 @@ def classify_playback_sync_change(
 
 def _structure_signature(payload: PlaybackSyncPayload) -> tuple[tuple[str, str], ...]:
     tracks = _select_playback_tracks(payload)
-    return tuple(
-        (track.track_id, track.source_key)
-        for track in tracks
-    )
+    return tuple((track.track_id, track.source_key) for track in tracks)
 
 
 def _mix_signature(payload: PlaybackSyncPayload) -> tuple[tuple[str, str], ...]:

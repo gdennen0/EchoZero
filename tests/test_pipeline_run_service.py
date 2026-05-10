@@ -96,7 +96,9 @@ class _FailingOrchestrator:
         return err(RuntimeError(f"boom: {runtime_bindings}"))
 
 
-def _build_service(*, analysis_service, persisted_calls: list[tuple[object, object]]) -> tuple[OperationProgressService, Session]:
+def _build_service(
+    *, analysis_service, persisted_calls: list[tuple[object, object]]
+) -> tuple[OperationProgressService, Session]:
     session = Session(id="session_1", project_id="project_1")
 
     def _prepare_run(action_id, params, object_id, object_type, persist_scope):
@@ -156,7 +158,11 @@ def test_pipeline_run_service_request_run_returns_immediately_and_completes():
         )
         assert visible is not None
         assert visible.operation_id == run_id
-        assert visible.message in {"Loading configuration", "Preparing pipeline", "Executing pipeline"}
+        assert visible.message in {
+            "Loading configuration",
+            "Preparing pipeline",
+            "Executing pipeline",
+        }
 
         analysis_service.release.set()
         final_state = service.wait_for_operation(run_id, timeout=5.0)

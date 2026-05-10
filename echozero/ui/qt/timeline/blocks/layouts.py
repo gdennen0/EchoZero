@@ -19,7 +19,9 @@ class MainRowLayout:
     metadata_rect: QRectF
 
     @staticmethod
-    def create(*, top: float, width: float, header_width: float, row_height: float) -> 'MainRowLayout':
+    def create(
+        *, top: float, width: float, header_width: float, row_height: float
+    ) -> "MainRowLayout":
         safe_height = max(24.0, float(row_height))
         header_left = 14.0
         controls_top = top + min(14.0, max(6.0, (safe_height - 18.0) * 0.35))
@@ -73,7 +75,9 @@ class TakeRowLayout:
     options_area_rect: QRectF
 
     @staticmethod
-    def create(*, top: float, width: float, header_width: float, row_height: float) -> 'TakeRowLayout':
+    def create(
+        *, top: float, width: float, header_width: float, row_height: float
+    ) -> "TakeRowLayout":
         row_rect = QRectF(0, top, width, row_height - 1)
         header_rect = QRectF(0, top, header_width, row_height - 1)
         content_rect = QRectF(header_width, top, width - header_width, row_height - 1)

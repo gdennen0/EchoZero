@@ -72,7 +72,9 @@ class ProjectLifecycleShell(Protocol):
 
     def _select_active_source_layer(self) -> None: ...
 
-    def _sync_runtime_audio_from_presentation(self, presentation: TimelinePresentation) -> None: ...
+    def _sync_runtime_audio_from_presentation(
+        self, presentation: TimelinePresentation
+    ) -> None: ...
 
     def run_object_action(
         self,
@@ -430,13 +432,19 @@ def list_ma3_timecode_pools(
     for raw_timecode in raw_timecodes:
         if isinstance(raw_timecode, tuple) and len(raw_timecode) >= 1:
             no = _optional_positive_int(raw_timecode[0])
-            name = None if len(raw_timecode) < 2 or raw_timecode[1] in {None, ""} else str(raw_timecode[1])
+            name = (
+                None
+                if len(raw_timecode) < 2 or raw_timecode[1] in {None, ""}
+                else str(raw_timecode[1])
+            )
         elif isinstance(raw_timecode, dict):
             no = _optional_positive_int(raw_timecode.get("number", raw_timecode.get("no")))
             raw_name = raw_timecode.get("name")
             name = None if raw_name in {None, ""} else str(raw_name)
         else:
-            no = _optional_positive_int(getattr(raw_timecode, "number", getattr(raw_timecode, "no", None)))
+            no = _optional_positive_int(
+                getattr(raw_timecode, "number", getattr(raw_timecode, "no", None))
+            )
             raw_name = getattr(raw_timecode, "name", None)
             name = None if raw_name in {None, ""} else str(raw_name)
         if no is not None:
@@ -701,9 +709,7 @@ def _resolve_song_import_pipeline_action_ids(
         preferences = settings_service.preferences()
     except Exception:
         return ()
-    return _canonical_import_pipeline_action_ids(
-        preferences.song_import.pipeline_action_ids
-    )
+    return _canonical_import_pipeline_action_ids(preferences.song_import.pipeline_action_ids)
 
 
 def _canonical_import_pipeline_action_ids(
@@ -774,7 +780,9 @@ def _selection_after_song_delete(
     shell: ProjectLifecycleShell,
     deleted_song_id: str,
 ) -> tuple[SongId | None, SongVersionId | None]:
-    current_song_id = str(shell.session.active_song_id) if shell.session.active_song_id is not None else None
+    current_song_id = (
+        str(shell.session.active_song_id) if shell.session.active_song_id is not None else None
+    )
     current_version_id = (
         SongVersionId(str(shell.session.active_song_version_id))
         if shell.session.active_song_version_id is not None
@@ -801,7 +809,9 @@ def _selection_after_song_version_delete(
     song_id: str,
     deleted_version_id: str,
 ) -> tuple[SongId | None, SongVersionId | None]:
-    current_song_id = str(shell.session.active_song_id) if shell.session.active_song_id is not None else None
+    current_song_id = (
+        str(shell.session.active_song_id) if shell.session.active_song_id is not None else None
+    )
     current_version_id = (
         str(shell.session.active_song_version_id)
         if shell.session.active_song_version_id is not None
@@ -826,7 +836,9 @@ def _selection_after_song_reorder(
     if not ordered_song_ids:
         return None, None
 
-    current_song_id = str(shell.session.active_song_id) if shell.session.active_song_id is not None else None
+    current_song_id = (
+        str(shell.session.active_song_id) if shell.session.active_song_id is not None else None
+    )
     if current_song_id in ordered_song_ids:
         selected_song_id = current_song_id
     else:
@@ -864,18 +876,12 @@ def _adjacent_version_record(
     versions: list[SongVersionRecord],
     deleted_version_id: str,
 ) -> SongVersionRecord | None:
-    remaining_versions = [
-        version for version in versions if version.id != deleted_version_id
-    ]
+    remaining_versions = [version for version in versions if version.id != deleted_version_id]
     if not remaining_versions:
         return None
 
     deleted_index = next(
-        (
-            index
-            for index, version in enumerate(versions)
-            if version.id == deleted_version_id
-        ),
+        (index for index, version in enumerate(versions) if version.id == deleted_version_id),
         len(versions) - 1,
     )
     if deleted_index < len(remaining_versions):

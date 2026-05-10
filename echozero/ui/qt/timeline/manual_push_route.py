@@ -231,9 +231,7 @@ class ManualPushRouteDialog(QDialog):
     ) -> None:
         self._syncing = True
         try:
-            self._track_by_coord = {
-                str(track.coord): track for track in flow.available_tracks
-            }
+            self._track_by_coord = {str(track.coord): track for track in flow.available_tracks}
             self._available_sequence_items = [
                 (int(sequence.number), self._sequence_label(sequence.number, sequence.name))
                 for sequence in flow.available_sequences
@@ -304,9 +302,8 @@ class ManualPushRouteDialog(QDialog):
                 else:
                     selected_coord = (
                         flow.target_track_coord
-                        if flow.target_track_coord in {
-                            str(track.coord) for track in flow.available_tracks
-                        }
+                        if flow.target_track_coord
+                        in {str(track.coord) for track in flow.available_tracks}
                         else None
                     )
                 if selected_coord is None and self._track_combo.count() > 1:
@@ -548,9 +545,7 @@ class ManualPushRouteDialog(QDialog):
         if is_empty_or_new:
             self._apply_mode_combo.setEnabled(False)
             self._set_combo_value(self._apply_mode_combo, "merge", default_index=0)
-            self._apply_mode_hint.setText(
-                "New or empty track selected: write mode is automatic."
-            )
+            self._apply_mode_hint.setText("New or empty track selected: write mode is automatic.")
             return
 
         self._apply_mode_combo.setEnabled(True)

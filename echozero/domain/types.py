@@ -167,6 +167,7 @@ class BlockSettings:
 
     def __hash__(self) -> int:
         import json
+
         try:
             # Convert to stable JSON string for hashing — handles lists, dicts, etc.
             return hash(json.dumps(dict(self._data), sort_keys=True, default=str))

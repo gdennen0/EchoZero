@@ -81,7 +81,9 @@ class EventLaneBlock:
         content_left = float(presentation.header_width)
         content_right = float(max(presentation.header_width + 1, presentation.viewport_width))
         visible_start_t = max(0.0, presentation.scroll_x / pps)
-        visible_end_t = max(visible_start_t, (presentation.scroll_x + max(1.0, content_right - content_left)) / pps)
+        visible_end_t = max(
+            visible_start_t, (presentation.scroll_x + max(1.0, content_right - content_left)) / pps
+        )
 
         with timed("timeline.paint.event_lane"):
             for event in presentation.events:

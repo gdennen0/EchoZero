@@ -49,7 +49,9 @@ class _TransferActionHost(Protocol):
     _input_dialog: type[QInputDialog]
     _message_box: type[QMessageBox]
 
-    def _handle_runtime_pipeline_action(self, action_id: str, params: dict[str, object]) -> bool: ...
+    def _handle_runtime_pipeline_action(
+        self, action_id: str, params: dict[str, object]
+    ) -> bool: ...
 
 
 class TimelineWidgetTransferWorkspaceMixin:
@@ -326,7 +328,9 @@ class TimelineWidgetTransferWorkspaceMixin:
     def _manual_push_track_label(track: ManualPushTrackOptionPresentation) -> str:
         name = track.name
         if track.timecode_name:
-            timecode_label = TimelineWidgetTransferWorkspaceMixin._manual_push_timecode_label(track)
+            timecode_label = TimelineWidgetTransferWorkspaceMixin._manual_push_timecode_label(
+                track
+            )
             name = f"{timecode_label} · {track.name}"
         parts = [name, f"({track.coord})"]
         if track.number is not None:

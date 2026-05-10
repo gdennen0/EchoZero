@@ -24,7 +24,9 @@ def test_train_run_and_model_artifact_persist_round_trip(tmp_path: Path):
     app = FoundryApp(tmp_path)
     dataset = app.datasets.create_dataset("Persistence Drums")
     version = app.datasets.ingest_from_folder(dataset.id, samples)
-    app.plan_version(version.id, validation_split=0.25, test_split=0.25, seed=17, balance_strategy="none")
+    app.plan_version(
+        version.id, validation_split=0.25, test_split=0.25, seed=17, balance_strategy="none"
+    )
     version = app.datasets.get_version(version.id)
     assert version is not None
 
@@ -104,7 +106,9 @@ def test_synthetic_provenance_persisted_and_surfaced(tmp_path: Path):
     app = FoundryApp(tmp_path)
     dataset = app.datasets.create_dataset("Synthetic Provenance Drums")
     version = app.datasets.ingest_from_folder(dataset.id, samples)
-    app.plan_version(version.id, validation_split=0.25, test_split=0.25, seed=17, balance_strategy="none")
+    app.plan_version(
+        version.id, validation_split=0.25, test_split=0.25, seed=17, balance_strategy="none"
+    )
 
     version_repo = DatasetVersionRepository(tmp_path)
     version = version_repo.get(version.id)
@@ -145,7 +149,9 @@ def test_synthetic_provenance_persisted_and_surfaced(tmp_path: Path):
     version.manifest = {
         **version.manifest,
         "synthetic_sample_ids": [synthetic_id],
-        "real_sample_ids": [sample.sample_id for sample in version.samples if not sample.is_synthetic],
+        "real_sample_ids": [
+            sample.sample_id for sample in version.samples if not sample.is_synthetic
+        ],
     }
     version.split_plan = SplitBalanceService().plan_splits(
         version,
@@ -157,7 +163,9 @@ def test_synthetic_provenance_persisted_and_surfaced(tmp_path: Path):
 
     persisted_version = version_repo.get(version.id)
     assert persisted_version is not None
-    persisted_sample = next(sample for sample in persisted_version.samples if sample.sample_id == synthetic_id)
+    persisted_sample = next(
+        sample for sample in persisted_version.samples if sample.sample_id == synthetic_id
+    )
     assert persisted_sample.is_synthetic is True
     assert persisted_sample.synthetic_provenance["generator"] == "fixture.synthetic"
     assert persisted_version.manifest["synthetic_sample_ids"] == [synthetic_id]
@@ -199,7 +207,9 @@ def test_run_list_includes_untracked_run_directories(tmp_path: Path):
     app = FoundryApp(tmp_path)
     dataset = app.datasets.create_dataset("Directory Drift Drums")
     version = app.datasets.ingest_from_folder(dataset.id, samples)
-    app.plan_version(version.id, validation_split=0.15, test_split=0.10, seed=42, balance_strategy="none")
+    app.plan_version(
+        version.id, validation_split=0.15, test_split=0.10, seed=42, balance_strategy="none"
+    )
     run = app.runs.create_run(
         version.id,
         {

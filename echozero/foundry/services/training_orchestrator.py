@@ -56,7 +56,9 @@ class TrainingOrchestrator:
         if embedded_id is None:
             return
         if not isinstance(embedded_id, str) or not embedded_id.strip():
-            raise ValueError("run_spec.data.datasetVersionId must be a non-empty string when provided")
+            raise ValueError(
+                "run_spec.data.datasetVersionId must be a non-empty string when provided"
+            )
         if embedded_id != dataset_version_id:
             raise ValueError(
                 "dataset_version_id and run_spec.data.datasetVersionId must match for training orchestration"

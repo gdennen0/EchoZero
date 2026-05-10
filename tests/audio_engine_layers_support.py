@@ -5,6 +5,7 @@ Connects the compatibility wrapper to the bounded audio-layer slice.
 
 from tests.audio_engine_shared_support import *  # noqa: F401,F403
 
+
 class TestResample:
     def test_same_rate_returns_same(self) -> None:
         buf = _sine(1000, sr=44100)
@@ -492,7 +493,6 @@ class TestMixer:
 # ===========================================================================
 # AudioEngine integration tests
 # ===========================================================================
-
 
 
 __all__ = [name for name in globals() if name.startswith("Test")]

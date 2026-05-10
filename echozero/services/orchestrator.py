@@ -191,7 +191,9 @@ class Orchestrator:
 
             song_version = session.song_versions.get(config.song_version_id)
             if song_version is None:
-                return err(ValidationError(f"SongVersionRecord not found: {config.song_version_id}"))
+                return err(
+                    ValidationError(f"SongVersionRecord not found: {config.song_version_id}")
+                )
 
         if on_progress:
             on_progress(
@@ -229,7 +231,9 @@ class Orchestrator:
                 if block.block_type == "SeparateAudio":
                     current_settings.setdefault("working_dir", session_working_dir)
                 changed = {
-                    key: value for key, value in runtime_bindings.items() if key in current_settings
+                    key: value
+                    for key, value in runtime_bindings.items()
+                    if key in current_settings
                 }
                 if not changed and block.block_type != "SeparateAudio":
                     continue
@@ -567,7 +571,9 @@ class Orchestrator:
         if not source.is_absolute():
             source = (session.working_dir / source).resolve()
         if not source.exists():
-            logger.warning("Audio output path does not exist; keeping original reference: %s", candidate)
+            logger.warning(
+                "Audio output path does not exist; keeping original reference: %s", candidate
+            )
             return candidate
 
         working_dir = session.working_dir.resolve()
@@ -605,7 +611,10 @@ class Orchestrator:
         block_id: str,
     ) -> str | None:
         for connection in pipeline.graph.connections:
-            if connection.target_block_id != block_id or connection.target_input_name != "audio_in":
+            if (
+                connection.target_block_id != block_id
+                or connection.target_input_name != "audio_in"
+            ):
                 continue
             upstream_output = raw_outputs.get(connection.source_block_id)
             if isinstance(upstream_output, dict):
@@ -813,9 +822,7 @@ class Orchestrator:
                 is_main = True
 
             layer_ids.append(layer_record_id)
-            layer_event_data = _normalize_event_data_for_take(
-                EventData(layers=(domain_layer,))
-            )
+            layer_event_data = _normalize_event_data_for_take(EventData(layers=(domain_layer,)))
             take_label = label or _next_default_take_label(
                 session.takes.list_by_layer(layer_record_id)
             )
@@ -943,7 +950,9 @@ class Orchestrator:
             is_main = True
 
         layer_ids.append(layer_record_id)
-        take_label = label or _next_default_take_label(session.takes.list_by_layer(layer_record_id))
+        take_label = label or _next_default_take_label(
+            session.takes.list_by_layer(layer_record_id)
+        )
         settings_snapshot: dict[str, Any] = {
             "pipeline_id": pipeline_id,
             "pipeline_config_id": pipeline_config_id,

@@ -5,6 +5,7 @@ Connects the compatibility wrapper to the bounded edge-case slice.
 
 from tests.session_shared_support import *  # noqa: F401,F403
 
+
 class TestEdgeCases:
     def test_close_without_save_does_not_raise(self, tmp_root):
         session = ProjectStorage.create_new("NoSave", working_dir_root=tmp_root)
@@ -20,6 +21,7 @@ class TestEdgeCases:
             SongVersionRepository,
             TakeRepository,
         )
+
         session = ProjectStorage.create_new("Types", working_dir_root=tmp_root)
         try:
             assert isinstance(session.projects, ProjectRepository)
@@ -50,11 +52,15 @@ class TestEdgeCases:
 
     def test_create_new_custom_settings(self, tmp_root):
         settings = ProjectSettingsRecord(
-            sample_rate=96000, bpm=160.0,
-            bpm_confidence=0.99, timecode_fps=29.97,
+            sample_rate=96000,
+            bpm=160.0,
+            bpm_confidence=0.99,
+            timecode_fps=29.97,
         )
         session = ProjectStorage.create_new(
-            "Custom", settings=settings, working_dir_root=tmp_root,
+            "Custom",
+            settings=settings,
+            working_dir_root=tmp_root,
         )
         try:
             assert session.project.settings == settings
@@ -166,6 +172,7 @@ class TestDirtyTrackerLastSavedAt:
 
     def test_last_saved_at_updates_on_each_clear(self):
         import time as _time
+
         tracker = DirtyTracker()
         tracker.mark_dirty()
         tracker.clear()
@@ -270,6 +277,7 @@ class TestAutosavePolling:
 
             # Poll with deadline instead of fixed sleep
             import time
+
             deadline = time.monotonic() + 2.0
             while session.is_dirty() and time.monotonic() < deadline:
                 time.sleep(0.02)
@@ -286,6 +294,7 @@ class TestAutosavePolling:
             session.start_autosave(interval_seconds=0.05)
 
             import time
+
             time.sleep(0.2)
 
             assert session.is_dirty() is False
@@ -301,6 +310,7 @@ class TestAutosavePolling:
             session.dirty_tracker.mark_dirty()
 
             import time
+
             time.sleep(0.2)
 
             assert session.is_dirty() is True

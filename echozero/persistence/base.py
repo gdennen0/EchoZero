@@ -12,7 +12,7 @@ from typing import Generic, TypeVar
 
 from echozero.errors import PersistenceError
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class BaseRepository(ABC, Generic[T]):

@@ -15,7 +15,6 @@ from echozero.domain.graph import Graph
 from echozero.domain.types import Block, BlockSettings, Connection, Port
 from echozero.errors import ValidationError
 
-
 # ---------------------------------------------------------------------------
 # PortRef / BlockHandle — references returned by Pipeline.add()
 # ---------------------------------------------------------------------------
@@ -46,8 +45,7 @@ class BlockHandle:
             return PortRef(self._block_id, name)
         available = ", ".join(self._output_ports.keys())
         raise AttributeError(
-            f"Block '{self._block_id}' has no output port '{name}'. "
-            f"Available: {available}"
+            f"Block '{self._block_id}' has no output port '{name}'. " f"Available: {available}"
         )
 
     def __repr__(self) -> str:
@@ -111,7 +109,9 @@ class Pipeline:
     def outputs(self) -> list[PipelineOutput]:
         return list(self._outputs)
 
-    def add(self, block_spec: "BlockSpec", *, id: str | None = None, **input_connections: Any) -> BlockHandle:
+    def add(
+        self, block_spec: "BlockSpec", *, id: str | None = None, **input_connections: Any
+    ) -> BlockHandle:
         """Add a block to the pipeline. Returns a handle for referencing outputs.
 
         Args:
@@ -223,4 +223,3 @@ class Pipeline:
                 f"output() expects a PortRef or BlockHandle, got {type(port_ref_or_handle).__name__}"
             )
         self._outputs.append(PipelineOutput(name, port_ref))
-

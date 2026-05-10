@@ -122,7 +122,10 @@ class RuntimeMixerService(MixerService):
         return self._session.mixer_state
 
     def resolve_audibility(self, layers: list[Layer]) -> list[AudibilityState]:
-        return [AudibilityState(layer_id=layer.id, is_audible=True, reason="normal") for layer in layers]
+        return [
+            AudibilityState(layer_id=layer.id, is_audible=True, reason="normal")
+            for layer in layers
+        ]
 
 
 class RuntimePlaybackService(PlaybackService):
@@ -137,7 +140,9 @@ class RuntimePlaybackService(PlaybackService):
     def prepare(self, timeline) -> PlaybackState:
         return self._session.playback_state
 
-    def update_runtime(self, timeline, transport: TransportState, audibility, sync: SyncState) -> PlaybackState:
+    def update_runtime(
+        self, timeline, transport: TransportState, audibility, sync: SyncState
+    ) -> PlaybackState:
         self._session.playback_state.status = (
             PlaybackStatus.PLAYING if transport.is_playing else PlaybackStatus.STOPPED
         )
@@ -185,19 +190,19 @@ def build_runtime_timeline_application(
     if runtime_audio is None:
         runtime_audio = build_playback_controller(audio_output_config)
     runtime_state = load_project_runtime_state(project_storage)
-    timeline, overlay, active_song_id, active_song_version_id = build_project_native_baseline_timeline(
-        project_storage,
-        active_song_id=runtime_state.active_song_id,
-        active_song_version_id=runtime_state.active_song_version_id,
+    timeline, overlay, active_song_id, active_song_version_id = (
+        build_project_native_baseline_timeline(
+            project_storage,
+            active_song_id=runtime_state.active_song_id,
+            active_song_version_id=runtime_state.active_song_version_id,
+        )
     )
     timeline.viewport.pixels_per_second = runtime_state.pixels_per_second
     timeline.viewport.scroll_x = runtime_state.scroll_x
     timeline.viewport.scroll_y = runtime_state.scroll_y
     max_playhead = max(0.0, float(timeline.end))
     playhead = (
-        min(runtime_state.playhead, max_playhead)
-        if max_playhead > 0.0
-        else runtime_state.playhead
+        min(runtime_state.playhead, max_playhead) if max_playhead > 0.0 else runtime_state.playhead
     )
     active_version = (
         project_storage.song_versions.get(str(active_song_version_id))
@@ -232,7 +237,9 @@ def build_runtime_timeline_application(
     if sync_service is not None:
         runtime_sync_service = sync_service
     elif sync_bridge is not None:
-        runtime_sync_service = MA3SyncAdapter(sync_bridge, state=session.sync_state, target_ref="show_manager")
+        runtime_sync_service = MA3SyncAdapter(
+            sync_bridge, state=session.sync_state, target_ref="show_manager"
+        )
     else:
         runtime_sync_service = InMemorySyncService(session.sync_state)
 

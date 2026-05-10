@@ -34,7 +34,9 @@ def test_query_service_reads_foundry_ui_state(tmp_path: Path):
     app = FoundryApp(tmp_path)
     dataset = app.datasets.create_dataset("Drums")
     version = app.datasets.ingest_from_folder(dataset.id, samples)
-    app.plan_version(version.id, validation_split=0.25, test_split=0.25, seed=9, balance_strategy="none")
+    app.plan_version(
+        version.id, validation_split=0.25, test_split=0.25, seed=9, balance_strategy="none"
+    )
 
     run = app.create_run(version.id, _build_run_spec(version.id))
     app.start_run(run.id)
@@ -128,7 +130,9 @@ def test_query_service_filters_project_review_dataset_versions_and_returns_lates
             sample_rate=22050,
             audio_standard="mono_wav_pcm16",
             class_map=["kick"],
-            samples=[DatasetSample(sample_id="sm_latest", audio_ref=str(latest_clip), label="kick")],
+            samples=[
+                DatasetSample(sample_id="sm_latest", audio_ref=str(latest_clip), label="kick")
+            ],
             manifest={"schema": "foundry.review_dataset_manifest.v1"},
             created_at=now - timedelta(minutes=1),
         )
@@ -142,7 +146,9 @@ def test_query_service_filters_project_review_dataset_versions_and_returns_lates
             sample_rate=22050,
             audio_standard="mono_wav_pcm16",
             class_map=["kick"],
-            samples=[DatasetSample(sample_id="sm_foreign", audio_ref=str(foreign_clip), label="kick")],
+            samples=[
+                DatasetSample(sample_id="sm_foreign", audio_ref=str(foreign_clip), label="kick")
+            ],
             manifest={"schema": "foundry.review_dataset_manifest.v1"},
             created_at=now - timedelta(minutes=2),
         )
@@ -171,9 +177,10 @@ def test_query_service_filters_project_review_dataset_versions_and_returns_lates
     assert latest.queue_source_kind == "ez_project"
     assert latest.project_ref == "project:active"
     assert latest.dataset_folder_path == cache_dir.resolve()
-    assert latest.version_artifact_path == (
-        tmp_path / "foundry" / "state" / "dataset_versions.json"
-    ).resolve()
+    assert (
+        latest.version_artifact_path
+        == (tmp_path / "foundry" / "state" / "dataset_versions.json").resolve()
+    )
 
 
 def test_foundry_app_query_methods_delegate_to_query_service(tmp_path: Path):

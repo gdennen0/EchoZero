@@ -12,8 +12,17 @@ from pathlib import Path
 
 import pytest
 
-from echozero.foundry.domain import CompatibilityReport, Dataset, DatasetVersion, ModelArtifact, TrainRun, TrainRunStatus
-from echozero.foundry.services.project_specialized_model_service import ProjectSpecializedModelService
+from echozero.foundry.domain import (
+    CompatibilityReport,
+    Dataset,
+    DatasetVersion,
+    ModelArtifact,
+    TrainRun,
+    TrainRunStatus,
+)
+from echozero.foundry.services.project_specialized_model_service import (
+    ProjectSpecializedModelService,
+)
 from echozero.models.runtime_bundle_index import (
     IndexedBinaryDrumBundle,
     load_binary_drum_bundle_index,
@@ -93,7 +102,9 @@ def test_project_specialized_model_service_runs_expected_flow_and_installs_globa
                 created_at=datetime.now(UTC),
             )
 
-        def derive_binary_dataset_version(self, source_version_id: str, *, positive_label: str) -> DatasetVersion:
+        def derive_binary_dataset_version(
+            self, source_version_id: str, *, positive_label: str
+        ) -> DatasetVersion:
             call_log.append(("derive", f"{source_version_id}:{positive_label}"))
             return DatasetVersion(
                 id=f"dsv_{positive_label}",
@@ -289,7 +300,9 @@ def test_project_specialized_model_service_can_promote_only_snare(
                 created_at=datetime.now(UTC),
             )
 
-        def derive_binary_dataset_version(self, source_version_id: str, *, positive_label: str) -> DatasetVersion:
+        def derive_binary_dataset_version(
+            self, source_version_id: str, *, positive_label: str
+        ) -> DatasetVersion:
             call_log.append(("derive", f"{source_version_id}:{positive_label}"))
             return DatasetVersion(
                 id=f"dsv_{positive_label}",
@@ -483,7 +496,9 @@ def test_project_specialized_model_service_restores_previous_global_index_on_lat
                 created_at=datetime.now(UTC),
             )
 
-        def derive_binary_dataset_version(self, source_version_id: str, *, positive_label: str) -> DatasetVersion:
+        def derive_binary_dataset_version(
+            self, source_version_id: str, *, positive_label: str
+        ) -> DatasetVersion:
             return DatasetVersion(
                 id=f"dsv_{positive_label}",
                 dataset_id=f"ds_{positive_label}",

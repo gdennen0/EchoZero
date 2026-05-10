@@ -16,11 +16,19 @@ import librosa
 import numpy as np
 import torch
 from sklearn.linear_model import SGDClassifier
-from sklearn.metrics import accuracy_score, confusion_matrix, log_loss, precision_recall_fscore_support
+from sklearn.metrics import (
+    accuracy_score,
+    confusion_matrix,
+    log_loss,
+    precision_recall_fscore_support,
+)
 from sklearn.preprocessing import StandardScaler
 
 from echozero.foundry.domain import DatasetSample, DatasetVersion, TrainRun
-from echozero.foundry.services.audio_source_validation import InvalidAudioSourceError, load_audio_source
+from echozero.foundry.services.audio_source_validation import (
+    InvalidAudioSourceError,
+    load_audio_source,
+)
 from echozero.foundry.services.training_runtime import (
     compute_config_fingerprint,
     configure_reproducibility,
@@ -191,7 +199,9 @@ def run_baseline_training(
         cancel_event=cancel_event,
     )
     if len(train_y_raw) < 2:
-        raise ValueError("baseline trainer has fewer than two usable training samples after skipping invalid source audio")
+        raise ValueError(
+            "baseline trainer has fewer than two usable training samples after skipping invalid source audio"
+        )
     observed_train_labels = {class_names[index] for index in np.unique(train_y_raw)}
     if observed_train_labels != set(class_names):
         missing = sorted(set(class_names) - observed_train_labels)
@@ -224,7 +234,9 @@ def run_baseline_training(
         cancel_event=cancel_event,
     )
     if eval_samples and len(eval_y) == 0:
-        raise ValueError("baseline trainer has no usable evaluation samples after skipping invalid source audio")
+        raise ValueError(
+            "baseline trainer has no usable evaluation samples after skipping invalid source audio"
+        )
     synthetic_eval_x, synthetic_eval_y = host._build_features(
         synthetic_eval_samples,
         sample_rate=sample_rate,
@@ -250,14 +262,10 @@ def run_baseline_training(
     train_x_scaled = scaler.fit_transform(train_x)
     feature_width = train_x_scaled.shape[1]
     val_x_scaled = (
-        scaler.transform(val_x)
-        if len(val_x)
-        else np.empty((0, feature_width), dtype=np.float32)
+        scaler.transform(val_x) if len(val_x) else np.empty((0, feature_width), dtype=np.float32)
     )
     eval_x_scaled = (
-        scaler.transform(eval_x)
-        if len(eval_x)
-        else np.empty((0, feature_width), dtype=np.float32)
+        scaler.transform(eval_x) if len(eval_x) else np.empty((0, feature_width), dtype=np.float32)
     )
     ensure_finite_array("baseline/train_x_scaled", train_x_scaled, context="scaler.fit_transform")
     ensure_finite_array("baseline/val_x_scaled", val_x_scaled, context="scaler.transform")
@@ -301,7 +309,11 @@ def run_baseline_training(
         ensure_finite_array("baseline/epoch_x", epoch_x, context=f"epoch={epoch}")
         classifier.partial_fit(epoch_x, epoch_y, classes=classes)
         train_epoch = host._evaluate_split(classifier, train_x_scaled, train_y, class_names)
-        val_epoch = host._evaluate_split(classifier, val_x_scaled, val_y, class_names) if len(val_y) else {}
+        val_epoch = (
+            host._evaluate_split(classifier, val_x_scaled, val_y, class_names)
+            if len(val_y)
+            else {}
+        )
         train_epoch_metrics = train_epoch.get("metrics", {})
         val_epoch_metrics = val_epoch.get("metrics", {})
         checkpoint = {
@@ -442,7 +454,9 @@ def run_baseline_training(
         metrics_payload["syntheticEval"] = synthetic_eval
     metrics_path = exports_dir / "metrics.json"
     host._ensure_not_canceled(cancel_event)
-    metrics_path.write_text(json.dumps(metrics_payload, indent=2, sort_keys=True), encoding="utf-8")
+    metrics_path.write_text(
+        json.dumps(metrics_payload, indent=2, sort_keys=True), encoding="utf-8"
+    )
 
     run_summary_payload: dict[str, object] = {
         "runId": run.id,
@@ -453,16 +467,18 @@ def run_baseline_training(
         "primaryMetric": final_eval["metrics"]["macro_f1"],
         "accuracy": final_eval["metrics"]["accuracy"],
         "trainerProfile": options["trainer_profile"],
-        "dataProfile": "next_level_v1_5"
-        if any(
-            [
-                options["augment_train"],
-                options["rebalance_strategy"] != "none",
-                options["class_weighting"] != "none",
-                synthetic_mix["actualSyntheticCount"] > 0,
-            ]
-        )
-        else "baseline_v1",
+        "dataProfile": (
+            "next_level_v1_5"
+            if any(
+                [
+                    options["augment_train"],
+                    options["rebalance_strategy"] != "none",
+                    options["class_weighting"] != "none",
+                    synthetic_mix["actualSyntheticCount"] > 0,
+                ]
+            )
+            else "baseline_v1"
+        ),
         "completedEpochs": len(checkpoint_metrics),
         "bestCheckpointEpoch": best_epoch,
         "bestCheckpointMetric": best_primary_metric if best_epoch else None,
@@ -573,9 +589,7 @@ def resolve_training_options(training_spec: dict) -> dict[str, object]:
 
     optimizer = str(training_spec.get("optimizer", "sgd_constant")).lower()
     if optimizer not in {"sgd_constant", "sgd_optimal"}:
-        raise ValueError(
-            "run_spec.training.optimizer must be one of: sgd_constant, sgd_optimal"
-        )
+        raise ValueError("run_spec.training.optimizer must be one of: sgd_constant, sgd_optimal")
 
     regularization_alpha = float(training_spec.get("regularizationAlpha", 0.0001))
     if regularization_alpha <= 0:
@@ -604,9 +618,7 @@ def resolve_training_options(training_spec: dict) -> dict[str, object]:
 
     rebalance_strategy = str(training_spec.get("rebalanceStrategy", "none")).lower()
     if rebalance_strategy not in {"none", "oversample"}:
-        raise ValueError(
-            "run_spec.training.rebalanceStrategy must be one of: none, oversample"
-        )
+        raise ValueError("run_spec.training.rebalanceStrategy must be one of: none, oversample")
 
     augment_train = bool(training_spec.get("augmentTrain", False))
     augment_noise_std = float(training_spec.get("augmentNoiseStd", 0.02))
@@ -635,9 +647,9 @@ def resolve_training_options(training_spec: dict) -> dict[str, object]:
         "optimizer": optimizer,
         "regularization_alpha": regularization_alpha,
         "average_weights": average_weights,
-        "early_stopping_patience": None
-        if early_stopping_patience is None
-        else int(early_stopping_patience),
+        "early_stopping_patience": (
+            None if early_stopping_patience is None else int(early_stopping_patience)
+        ),
         "min_epochs": 1 if min_epochs is None else int(min_epochs),
         "class_weighting": class_weighting,
         "rebalance_strategy": rebalance_strategy,
@@ -679,9 +691,7 @@ def resolve_train_samples(
             selected_indices = np.sort(
                 rng.choice(len(synthetic_samples), size=max_synthetic, replace=False)
             )
-            selected_synthetic = [
-                synthetic_samples[index] for index in selected_indices.tolist()
-            ]
+            selected_synthetic = [synthetic_samples[index] for index in selected_indices.tolist()]
 
     resolved = list(real_samples) + selected_synthetic
     return resolved, {

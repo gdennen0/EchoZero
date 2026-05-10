@@ -6,6 +6,7 @@ Connects the compatibility wrapper to the bounded layout support slice.
 from PyQt6.QtGui import QAction
 from tests.ui.timeline_shell_shared_support import *  # noqa: F401,F403
 
+
 def test_demo_variants_include_take_lanes_open_and_zoom_states():
     variants = build_variant_presentations()
     assert "take_lanes_open" in variants
@@ -276,7 +277,6 @@ def test_timeline_widget_file_menu_shows_open_recent_project_submenu():
         app.processEvents()
 
 
-
 def test_pipeline_context_actions_include_phase1_ids():
     presentation = _audio_pipeline_presentation()
     section_presentation = replace(
@@ -386,7 +386,6 @@ def test_pipeline_context_actions_expose_onset_extraction_for_non_drum_stems():
     assert "timeline.extract_drum_events" in bass_action_ids
     assert "timeline.extract_classified_drums" not in bass_action_ids
     assert "timeline.classify_drum_events" not in bass_action_ids
-
 
 
 __all__ = [name for name in globals() if name.startswith("test_")]

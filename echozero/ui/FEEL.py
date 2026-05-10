@@ -28,8 +28,12 @@ TIMELINE_ZOOM_MIN_PPS = 5.0  # Minimum timeline zoom clamp in pixels/second
 TIMELINE_ZOOM_MAX_PPS = 720.0  # Maximum timeline zoom clamp in pixels/second
 TIMELINE_RUNTIME_TICK_ACTIVE_MS = 16  # Runtime timer cadence while transport is actively moving
 TIMELINE_RUNTIME_TICK_IDLE_MS = 64  # Runtime timer cadence while idle (reduced overhead)
-TIMELINE_MIX_SYNC_DEBOUNCE_MS = 24  # Coalesce non-structural runtime mix sync off the action hot path
-TIMELINE_STRUCTURAL_SYNC_DEBOUNCE_MS = 120  # Coalesce structural playback rebuilds while editing during playback
+TIMELINE_MIX_SYNC_DEBOUNCE_MS = (
+    24  # Coalesce non-structural runtime mix sync off the action hot path
+)
+TIMELINE_STRUCTURAL_SYNC_DEBOUNCE_MS = (
+    120  # Coalesce structural playback rebuilds while editing during playback
+)
 
 # =============================================================================
 # PLAYHEAD
@@ -50,7 +54,9 @@ WAVEFORM_COLOR = "#4488CC"  # Base waveform color
 WAVEFORM_RMS_COLOR = "#3366AA"  # RMS fill color (darker)
 WAVEFORM_ANTIALIAS_OUTLINE = True  # Anti-alias envelope outline
 WAVEFORM_ANTIALIAS_FILL = False  # Don't anti-alias fill (performance)
-WAVEFORM_COLUMN_STEP_REFERENCE_PPS = 20.0  # Below this zoom level, bucket waveform columns more aggressively
+WAVEFORM_COLUMN_STEP_REFERENCE_PPS = (
+    20.0  # Below this zoom level, bucket waveform columns more aggressively
+)
 WAVEFORM_COLUMN_STEP_MAX_PX = 4  # Maximum horizontal bucket size when heavily zoomed out
 
 # =============================================================================
@@ -62,7 +68,9 @@ EVENT_HOVER_ALPHA = 30  # Overlay alpha on hover (0-255)
 EVENT_SELECTION_COLOR = "#0066FF"  # Selected event highlight
 EVENT_SELECTION_BORDER_PX = 2  # Selection border width
 EVENT_SELECTION_OUTLINE_EXPAND_PX = 1.0  # Expand selection outline outside event bounds
-EVENT_SELECTION_TINY_WIDTH_THRESHOLD_PX = 10.0  # Treat selected events narrower than this as zoomed-out
+EVENT_SELECTION_TINY_WIDTH_THRESHOLD_PX = (
+    10.0  # Treat selected events narrower than this as zoomed-out
+)
 EVENT_SELECTION_TINY_WIDTH_EXTRA_PX = 1  # Extra outline width for tiny selected events
 EVENT_MIN_VISIBLE_WIDTH_PX = 2  # Minimum rendered width (even for zero-duration)
 EVENT_LABEL_MIN_WIDTH_PX = 40  # Don't render labels on events narrower than this
@@ -80,7 +88,9 @@ HOVER_DELAY_MS = 150  # Delay before hover effects appear
 SECTION_MOVE_EVENT_HIT_MIN_WIDTH_PX = 12  # Minimum section cue hit width while moving cues
 MOVE_DRAG_PREVIEW_LINE_WIDTH_PX = 2  # Width for the move-mode vertical drag preview bar
 MOVE_DRAG_PREVIEW_LINE_ALPHA = 180  # Opacity for the move-mode vertical drag preview bar
-MOVE_DRAG_SNAP_LOCK_MULTIPLIER = 1.75  # Sticky-radius multiplier to avoid snap jitter while dragging
+MOVE_DRAG_SNAP_LOCK_MULTIPLIER = (
+    1.75  # Sticky-radius multiplier to avoid snap jitter while dragging
+)
 
 # =============================================================================
 # TIME RULER
@@ -95,7 +105,9 @@ TIMELINE_EDITOR_GROUP_PADDING_X_PX = 4  # Horizontal padding inside each toolbar
 TIMELINE_EDITOR_GROUP_PADDING_Y_PX = 2  # Vertical padding inside each toolbar group
 TIMELINE_EDITOR_GROUP_SPACING_PX = 3  # Gap between toolbar labels and controls
 TIMELINE_EDITOR_BUTTON_MIN_HEIGHT_PX = 20  # Dense minimum button height in the editor toolbar
-TIMELINE_OBJECT_INFO_METADATA_MIN_HEIGHT_PX = 28  # Compact starting body height for inspector facts
+TIMELINE_OBJECT_INFO_METADATA_MIN_HEIGHT_PX = (
+    28  # Compact starting body height for inspector facts
+)
 TIMELINE_OBJECT_INFO_METADATA_DEFAULT_HEIGHT_PX = 106  # Initial inspector metadata pane height
 TIMELINE_OBJECT_INFO_SPLITTER_HANDLE_PX = 6  # Grab area for resizing inspector metadata vs actions
 RULER_HEIGHT_PX = 24  # Ruler bar height
@@ -111,7 +123,9 @@ RULER_TICK_COLOR = "#666666"  # Tick mark color
 LAYER_HEADER_WIDTH_PX = 320  # Default width of layer name sidebar
 LAYER_HEADER_MIN_WIDTH_PX = 220  # Minimum layer name sidebar width
 LAYER_HEADER_MAX_WIDTH_PX = 560  # Maximum layer name sidebar width
-LAYER_HEADER_RESIZE_HANDLE_HALF_WIDTH_PX = 6  # Horizontal hit radius around header divider drag target
+LAYER_HEADER_RESIZE_HANDLE_HALF_WIDTH_PX = (
+    6  # Horizontal hit radius around header divider drag target
+)
 LAYER_ROW_HEIGHT_PX = 60  # Fallback default height per main layer row
 TAKE_ROW_HEIGHT_PX = 44  # Height of subordinate take rows
 LAYER_HEADER_TOP_PADDING_PX = 8  # Top offset before first lane row

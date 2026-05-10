@@ -137,7 +137,11 @@ def updated_review_metadata(
     review_payload["promotion_state"] = _validated_promotion_state(promotion_state)
     review_payload["review_state"] = _validated_review_state(review_state)
     review_payload["review_outcome"] = normalized_outcome.value
-    _assign_optional(review_payload, "decision_kind", None if normalized_decision is None else normalized_decision.value)
+    _assign_optional(
+        review_payload,
+        "decision_kind",
+        None if normalized_decision is None else normalized_decision.value,
+    )
     _assign_optional(review_payload, "original_label", _clean_text(original_label))
     _assign_optional(review_payload, "corrected_label", _clean_text(corrected_label))
     _assign_optional(review_payload, "review_note", _clean_text(review_note))
@@ -147,7 +151,9 @@ def updated_review_metadata(
     _assign_optional(review_payload, "corrected_start_ms", corrected_start_ms)
     _assign_optional(review_payload, "corrected_end_ms", corrected_end_ms)
     _assign_optional(review_payload, "created_event_ref", _clean_text(created_event_ref))
-    _assign_optional(review_payload, "surface", None if surface is None else ReviewSurface(str(surface)).value)
+    _assign_optional(
+        review_payload, "surface", None if surface is None else ReviewSurface(str(surface)).value
+    )
     _assign_optional(review_payload, "workflow", _clean_text(workflow))
     _assign_optional(review_payload, "operator_action", _clean_text(operator_action))
     next_metadata["review"] = review_payload
@@ -171,14 +177,26 @@ def build_review_decision_from_state(
         return None
     return build_review_decision(
         state.review_outcome,
-        corrected_label=state.corrected_label if state.review_outcome == ReviewOutcome.INCORRECT else None,
+        corrected_label=(
+            state.corrected_label if state.review_outcome == ReviewOutcome.INCORRECT else None
+        ),
         review_note=state.review_note if state.review_outcome == ReviewOutcome.INCORRECT else None,
         decision_kind=state.decision_kind,
-        original_start_ms=state.original_start_ms if state.review_outcome == ReviewOutcome.INCORRECT else None,
-        original_end_ms=state.original_end_ms if state.review_outcome == ReviewOutcome.INCORRECT else None,
-        corrected_start_ms=state.corrected_start_ms if state.review_outcome == ReviewOutcome.INCORRECT else None,
-        corrected_end_ms=state.corrected_end_ms if state.review_outcome == ReviewOutcome.INCORRECT else None,
-        created_event_ref=state.created_event_ref if state.review_outcome == ReviewOutcome.INCORRECT else None,
+        original_start_ms=(
+            state.original_start_ms if state.review_outcome == ReviewOutcome.INCORRECT else None
+        ),
+        original_end_ms=(
+            state.original_end_ms if state.review_outcome == ReviewOutcome.INCORRECT else None
+        ),
+        corrected_start_ms=(
+            state.corrected_start_ms if state.review_outcome == ReviewOutcome.INCORRECT else None
+        ),
+        corrected_end_ms=(
+            state.corrected_end_ms if state.review_outcome == ReviewOutcome.INCORRECT else None
+        ),
+        created_event_ref=(
+            state.created_event_ref if state.review_outcome == ReviewOutcome.INCORRECT else None
+        ),
         provenance=build_review_provenance(
             source_provenance,
             surface=state.surface or ReviewSurface.PHONE_REVIEW,
@@ -305,10 +323,9 @@ def _timing_changed(
         or corrected_end_ms is None
     ):
         return False
-    return (
-        float(original_start_ms) != float(corrected_start_ms)
-        or float(original_end_ms) != float(corrected_end_ms)
-    )
+    return float(original_start_ms) != float(corrected_start_ms) or float(
+        original_end_ms
+    ) != float(corrected_end_ms)
 
 
 def _surface(review_payload: Mapping[str, Any]) -> ReviewSurface | None:

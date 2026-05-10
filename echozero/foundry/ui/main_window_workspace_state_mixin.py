@@ -274,8 +274,12 @@ class FoundryWindowWorkspaceStateMixin:
 
         host.run_summary.setPlainText(host._format_run_summary(run))
 
-        artifacts = sorted(host._app.list_artifacts_for_run(run.id), key=lambda item: item.created_at)
-        evals = sorted(host._app.list_eval_reports_for_run(run.id), key=lambda item: item.created_at)
+        artifacts = sorted(
+            host._app.list_artifacts_for_run(run.id), key=lambda item: item.created_at
+        )
+        evals = sorted(
+            host._app.list_eval_reports_for_run(run.id), key=lambda item: item.created_at
+        )
         host._populate_artifact_list(artifacts, select_artifact_id=select_artifact_id)
         host._populate_eval_list(evals)
 

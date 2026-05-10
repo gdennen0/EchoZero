@@ -9,7 +9,11 @@ from dataclasses import replace
 from pathlib import Path
 
 from echozero.application.mixer.models import LayerMixerState
-from echozero.application.shared.cue_numbers import CueNumber, cue_number_text, parse_positive_cue_number
+from echozero.application.shared.cue_numbers import (
+    CueNumber,
+    cue_number_text,
+    parse_positive_cue_number,
+)
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import (
     EventId,

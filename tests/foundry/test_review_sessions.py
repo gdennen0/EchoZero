@@ -120,7 +120,10 @@ def test_review_session_snapshot_supports_cursor_navigation_and_reject_decision(
     assert updated.items[0].review_decision is not None
     assert updated.items[0].review_decision.kind == ReviewDecisionKind.REJECTED
     assert refreshed["currentItem"]["reviewDecision"]["kind"] == "rejected"
-    assert refreshed["currentItem"]["reviewDecision"]["trainingEligibility"]["allowsNegativeSignal"] is True
+    assert (
+        refreshed["currentItem"]["reviewDecision"]["trainingEligibility"]["allowsNegativeSignal"]
+        is True
+    )
     assert refreshed["progress"]["items"][0]["reviewOutcome"] == "incorrect"
 
 
@@ -224,7 +227,12 @@ def test_review_session_supports_boundary_and_missed_event_decisions(tmp_path: P
     assert boundary_updated.items[0].review_decision is not None
     assert boundary_updated.items[0].review_decision.kind == ReviewDecisionKind.BOUNDARY_CORRECTED
     assert boundary_updated.items[0].review_decision.corrected_start_ms == 104.0
-    assert boundary_updated.items[0].review_decision.training_eligibility.requires_materialized_correction is True
+    assert (
+        boundary_updated.items[
+            0
+        ].review_decision.training_eligibility.requires_materialized_correction
+        is True
+    )
     assert missed_updated.items[1].review_decision is not None
     assert missed_updated.items[1].review_decision.kind == ReviewDecisionKind.MISSED_EVENT_ADDED
     assert missed_updated.items[1].review_decision.created_event_ref == "event:manual-snare-02"
@@ -238,7 +246,10 @@ def test_review_session_supports_boundary_and_missed_event_decisions(tmp_path: P
     assert signal_by_item_id[session.items[0].item_id].review_decision is not None
     assert signal_by_item_id[session.items[0].item_id].review_decision.original_start_ms == 112.5
     assert signal_by_item_id[session.items[1].item_id].review_decision is not None
-    assert signal_by_item_id[session.items[1].item_id].review_decision.created_event_ref == "event:manual-snare-02"
+    assert (
+        signal_by_item_id[session.items[1].item_id].review_decision.created_event_ref
+        == "event:manual-snare-02"
+    )
 
 
 def test_review_repository_loads_legacy_review_decisions_with_default_semantics(tmp_path: Path):
@@ -286,7 +297,9 @@ def test_review_repository_loads_legacy_review_decisions_with_default_semantics(
             }
         },
     }
-    (state_dir / "review_sessions.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    (state_dir / "review_sessions.json").write_text(
+        json.dumps(payload, indent=2), encoding="utf-8"
+    )
 
     session = ReviewSessionRepository(tmp_path).get("rev_legacy")
 
@@ -304,7 +317,9 @@ def test_review_session_import_accepts_jsonl(tmp_path: Path):
     service = ReviewSessionService(tmp_path)
 
     session = service.import_session_file(review_items_path)
-    snapshot = service.build_snapshot(session.id, outcome="all", polarity="negative", target_class="snare")
+    snapshot = service.build_snapshot(
+        session.id, outcome="all", polarity="negative", target_class="snare"
+    )
 
     assert len(session.items) == 2
     assert snapshot["filteredCount"] == 1
@@ -761,9 +776,7 @@ def test_review_server_serves_html_api_audio_and_review_updates(tmp_path: Path):
         html = _read_text(f"{base_url}/")
         snapshot = _read_json(f"{base_url}/api/session")
         shifted = _read_json(f"{base_url}/api/session?cursor=1")
-        scoped = _read_json(
-            f"{base_url}/api/session?songRef=song:arcade&layerRef=layer:snare"
-        )
+        scoped = _read_json(f"{base_url}/api/session?songRef=song:arcade&layerRef=layer:snare")
         audio_bytes = _read_bytes(f"{base_url}{snapshot['currentItem']['audioUrl']}")
         audio_range = _read_bytes(
             f"{base_url}{snapshot['currentItem']['audioUrl']}",
@@ -782,9 +795,7 @@ def test_review_server_serves_html_api_audio_and_review_updates(tmp_path: Path):
                 "reviewNote": "felt more like a tom hit",
             },
         )
-        focused = _read_json(
-            f"{base_url}/api/session?itemId={session.items[0].item_id}"
-        )
+        focused = _read_json(f"{base_url}/api/session?itemId={session.items[0].item_id}")
     finally:
         server.shutdown()
         server.server_close()
@@ -827,9 +838,7 @@ def test_review_server_serves_html_api_audio_and_review_updates(tmp_path: Path):
     assert relabeled["session"]["countsByOutcome"]["incorrect"] == 1
     signal_rows = ReviewSignalRepository(tmp_path).list_for_session(session.id)
     relabeled_signal = next(
-        signal
-        for signal in signal_rows
-        if signal.item_id == shifted["currentItem"]["itemId"]
+        signal for signal in signal_rows if signal.item_id == shifted["currentItem"]["itemId"]
     )
     assert relabeled_signal.corrected_label == "tom"
     assert relabeled_signal.review_note == "felt more like a tom hit"
@@ -884,7 +893,9 @@ def test_phone_review_api_routes_commits_through_shared_pipeline_controller(
 
 def test_review_server_rejects_removed_sessions_endpoint(tmp_path: Path):
     review_items_path = _write_review_items_json(tmp_path)
-    session = ReviewSessionService(tmp_path).import_session_file(review_items_path, name="Phone Queue")
+    session = ReviewSessionService(tmp_path).import_session_file(
+        review_items_path, name="Phone Queue"
+    )
     server = create_review_http_server(tmp_path, session.id, host="127.0.0.1", port=0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -1013,7 +1024,14 @@ class _FakeProjectReviewQueueBuilder:
         questionable_score_threshold: float | None = None,
         item_limit: int | None = None,
     ) -> ProjectReviewQueue:
-        del project_path, song_id, song_version_id, layer_id, questionable_score_threshold, item_limit
+        del (
+            project_path,
+            song_id,
+            song_version_id,
+            layer_id,
+            questionable_score_threshold,
+            item_limit,
+        )
         self.build_calls += 1
         item = ReviewItem(
             item_id="ri_fixture_kick",
@@ -1079,7 +1097,10 @@ class _FakeReviewSignalService:
         existing = self._repo.get(signal_id)
         source_provenance = dict(commit.source_provenance)
         source_provenance["project_writeback"] = {"status": "deferred", "reason": "fake_service"}
-        source_provenance["dataset_materialization"] = {"status": "deferred", "reason": "fake_service"}
+        source_provenance["dataset_materialization"] = {
+            "status": "deferred",
+            "reason": "fake_service",
+        }
         signal = self._repo.save(
             ReviewSignal(
                 id=signal_id,
@@ -1240,7 +1261,9 @@ def _post_json(url: str, payload: dict[str, object]) -> dict:
 
 def test_review_server_rejects_removed_review_export_endpoint(tmp_path: Path):
     review_items_path = _write_review_items_json(tmp_path)
-    session = ReviewSessionService(tmp_path).import_session_file(review_items_path, name="Phone Queue")
+    session = ReviewSessionService(tmp_path).import_session_file(
+        review_items_path, name="Phone Queue"
+    )
     server = create_review_http_server(tmp_path, session.id, host="127.0.0.1", port=0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

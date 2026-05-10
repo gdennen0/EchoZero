@@ -23,17 +23,17 @@ class ProjectRepository(BaseRepository[ProjectRecord]):
     def _from_row(self, row: sqlite3.Row) -> ProjectRecord:
         """Convert a database row to a ProjectRecord entity."""
         return ProjectRecord(
-            id=row['id'],
-            name=row['name'],
+            id=row["id"],
+            name=row["name"],
             settings=ProjectSettingsRecord(
-                sample_rate=row['sample_rate'],
-                bpm=row['bpm'],
-                bpm_confidence=row['bpm_confidence'],
-                timecode_fps=row['timecode_fps'],
-                ma3_push_offset_seconds=row['ma3_push_offset_seconds'],
+                sample_rate=row["sample_rate"],
+                bpm=row["bpm"],
+                bpm_confidence=row["bpm_confidence"],
+                timecode_fps=row["timecode_fps"],
+                ma3_push_offset_seconds=row["ma3_push_offset_seconds"],
             ),
-            created_at=datetime.fromisoformat(row['created_at']),
-            updated_at=datetime.fromisoformat(row['updated_at']),
+            created_at=datetime.fromisoformat(row["created_at"]),
+            updated_at=datetime.fromisoformat(row["updated_at"]),
         )
 
     def create(self, project: ProjectRecord) -> None:

@@ -270,20 +270,15 @@ class ObjectActionSettingsSessionMixin(ObjectActionSettingsCopyMixin):
             state for state in scope_states if state.scope == effective_scope
         )
         workflow = workflow_descriptor_for_action(action_id)
-        resolved_object_type = (
-            object_type
-            or (
-                workflow.object_types[0]
-                if workflow is not None and workflow.object_types
-                else "object"
-            )
+        resolved_object_type = object_type or (
+            workflow.object_types[0]
+            if workflow is not None and workflow.object_types
+            else "object"
         )
         active_operation = self._lookup_active_run(
             action_id,
             object_id=(
-                object_id
-                if object_id is not None
-                else resolved_object_params.get("layer_id", "")
+                object_id if object_id is not None else resolved_object_params.get("layer_id", "")
             ),
             object_type=resolved_object_type,
         )
@@ -292,9 +287,7 @@ class ObjectActionSettingsSessionMixin(ObjectActionSettingsCopyMixin):
             session_id=session_id,
             action_id=action_id,
             object_id=str(
-                object_id
-                if object_id is not None
-                else resolved_object_params.get("layer_id", "")
+                object_id if object_id is not None else resolved_object_params.get("layer_id", "")
             ),
             object_type=resolved_object_type,
             scope=effective_scope,
@@ -402,7 +395,11 @@ class ObjectActionSettingsSessionMixin(ObjectActionSettingsCopyMixin):
         if scope != "version":
             return "Reruns use this version's effective settings. Switch to This Version to run."
         workflow = workflow_descriptor_for_action(action_id)
-        if workflow is not None and "layer_id" in workflow.params_schema and not str(plan.object_id).strip():
+        if (
+            workflow is not None
+            and "layer_id" in workflow.params_schema
+            and not str(plan.object_id).strip()
+        ):
             return "Select a target layer before running this stage."
         return ""
 

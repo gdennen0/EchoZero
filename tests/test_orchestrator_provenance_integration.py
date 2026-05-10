@@ -40,30 +40,42 @@ class MockLoadAudio:
 
 class MockSeparator:
     def execute(self, block_id, context):
-        return ok({
-            'drums_out': AudioData(sample_rate=44100, duration=180.0, file_path='drums.wav', channel_count=2),
-            'bass_out': AudioData(sample_rate=44100, duration=180.0, file_path='bass.wav', channel_count=2),
-            'vocals_out': AudioData(sample_rate=44100, duration=180.0, file_path='vocals.wav', channel_count=2),
-            'other_out': AudioData(sample_rate=44100, duration=180.0, file_path='other.wav', channel_count=2),
-        })
+        return ok(
+            {
+                "drums_out": AudioData(
+                    sample_rate=44100, duration=180.0, file_path="drums.wav", channel_count=2
+                ),
+                "bass_out": AudioData(
+                    sample_rate=44100, duration=180.0, file_path="bass.wav", channel_count=2
+                ),
+                "vocals_out": AudioData(
+                    sample_rate=44100, duration=180.0, file_path="vocals.wav", channel_count=2
+                ),
+                "other_out": AudioData(
+                    sample_rate=44100, duration=180.0, file_path="other.wav", channel_count=2
+                ),
+            }
+        )
 
 
 def test_generated_layers_include_initialized_provenance_and_state(tmp_path):
-    session = ProjectStorage.create_new('Test', working_dir_root=tmp_path)
+    session = ProjectStorage.create_new("Test", working_dir_root=tmp_path)
     source_audio_file = session.working_dir / "audio" / "mix.wav"
     source_audio_file.parent.mkdir(parents=True, exist_ok=True)
     source_audio_file.write_bytes(b"RIFF0000WAVEfmt ")
     now = datetime.now(timezone.utc)
-    song = SongRecord(id=uuid.uuid4().hex, project_id=session.project.id, title='Song', artist='Artist', order=0)
+    song = SongRecord(
+        id=uuid.uuid4().hex, project_id=session.project.id, title="Song", artist="Artist", order=0
+    )
     session.songs.create(song)
     version = SongVersionRecord(
         id=uuid.uuid4().hex,
         song_id=song.id,
-        label='Studio Mix',
-        audio_file='audio/mix.wav',
+        label="Studio Mix",
+        audio_file="audio/mix.wav",
         duration_seconds=180.0,
         original_sample_rate=44100,
-        audio_hash='abc123',
+        audio_hash="abc123",
         created_at=now,
     )
     session.song_versions.create(version)
@@ -94,21 +106,21 @@ def test_generated_layers_include_initialized_provenance_and_state(tmp_path):
     orch = Orchestrator(
         registry=get_registry(),
         executors={
-            'LoadAudio': MockLoadAudio(),
-            'SeparateAudio': MockSeparator(),
+            "LoadAudio": MockLoadAudio(),
+            "SeparateAudio": MockSeparator(),
         },
     )
 
-    result = orch.analyze(session, version.id, 'stem_separation')
+    result = orch.analyze(session, version.id, "stem_separation")
     assert isinstance(result, Ok)
 
     layers = session.layers.list_by_version(version.id)
-    drums = next(layer for layer in layers if layer.name == 'drums')
-    assert drums.state_flags['derived'] is True
-    assert drums.state_flags['stale'] is False
-    assert drums.state_flags['manually_modified'] is False
-    assert drums.provenance['output_name'] == 'drums'
-    assert drums.provenance['source_song_version_id'] == version.id
+    drums = next(layer for layer in layers if layer.name == "drums")
+    assert drums.state_flags["derived"] is True
+    assert drums.state_flags["stale"] is False
+    assert drums.state_flags["manually_modified"] is False
+    assert drums.provenance["output_name"] == "drums"
+    assert drums.provenance["source_song_version_id"] == version.id
     take = session.takes.list_by_layer(drums.id)[0]
     content = session.object_contents.get(content_id_for_take(take.id))
     assert content is not None

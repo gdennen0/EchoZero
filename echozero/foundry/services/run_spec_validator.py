@@ -3,8 +3,15 @@ from __future__ import annotations
 from echozero.foundry.persistence import DatasetVersionRepository
 from echozero.foundry.services.dataset_service import DatasetService
 
-
-_REQUIRED_DATA_KEYS = {"datasetVersionId", "sampleRate", "maxLength", "nFft", "hopLength", "nMels", "fmax"}
+_REQUIRED_DATA_KEYS = {
+    "datasetVersionId",
+    "sampleRate",
+    "maxLength",
+    "nFft",
+    "hopLength",
+    "nMels",
+    "fmax",
+}
 _REQUIRED_TRAINING_KEYS = {"epochs", "batchSize", "learningRate", "seed"}
 _SUPPORTED_CLASSIFICATION_MODES = {"multiclass", "binary", "positive_vs_other"}
 _SYNTHETIC_MIX_KEYS = {"enabled", "ratio", "cap"}
@@ -59,10 +66,15 @@ class RunSpecValidator:
             raise ValueError(f"DatasetVersion not found: {dataset_version_id}")
 
         if data.get("datasetVersionId") != dataset_version_id:
-            raise ValueError("run_spec.data.datasetVersionId must match the requested dataset version")
+            raise ValueError(
+                "run_spec.data.datasetVersionId must match the requested dataset version"
+            )
         if int(data["sampleRate"]) != dataset_version.sample_rate:
             raise ValueError("run_spec.data.sampleRate must match dataset version sample_rate")
-        if dataset_version.label_policy.get("classification_mode") not in {None, classification_mode}:
+        if dataset_version.label_policy.get("classification_mode") not in {
+            None,
+            classification_mode,
+        }:
             raise ValueError("run_spec.classificationMode must match dataset label policy")
 
         integrity = DatasetService.validate_version_integrity(dataset_version)
@@ -78,14 +90,20 @@ class RunSpecValidator:
         if not split_plan.get("val_ids"):
             raise ValueError("dataset version split plan must contain validation samples")
         if split_plan.get("leakage", {}).get("duplicate_hashes_across_splits"):
-            raise ValueError("dataset version split plan has duplicate content hashes across splits")
+            raise ValueError(
+                "dataset version split plan has duplicate content hashes across splits"
+            )
         if split_plan.get("leakage", {}).get("duplicate_groups_across_splits"):
-            raise ValueError("dataset version split plan has cross-group contamination across splits")
+            raise ValueError(
+                "dataset version split plan has cross-group contamination across splits"
+            )
 
         if len(dataset_version.class_map) < 2 and classification_mode == "multiclass":
             raise ValueError("multiclass training requires at least two classes")
         if dataset_version.taxonomy.get("namespace") != "percussion.one_shot":
-            raise ValueError("dataset taxonomy must target percussion.one_shot for the v1 baseline")
+            raise ValueError(
+                "dataset taxonomy must target percussion.one_shot for the v1 baseline"
+            )
 
         if int(training["epochs"]) < 1:
             raise ValueError("run_spec.training.epochs must be >= 1")
@@ -100,16 +118,24 @@ class RunSpecValidator:
         if "backend" in training and training.get("backend") is not None:
             backend_name = str(training.get("backend")).strip()
             if not backend_name:
-                raise ValueError("run_spec.training.backend must be a non-empty string when provided")
+                raise ValueError(
+                    "run_spec.training.backend must be a non-empty string when provided"
+                )
         trainer_profile = str(training.get("trainerProfile", "baseline_v1")).lower()
         if trainer_profile not in _SUPPORTED_TRAINER_PROFILES:
-            raise ValueError("run_spec.training.trainerProfile must be one of: baseline_v1, stronger_v1")
+            raise ValueError(
+                "run_spec.training.trainerProfile must be one of: baseline_v1, stronger_v1"
+            )
         optimizer = str(training.get("optimizer", "sgd_constant")).lower()
         if model_type == "baseline_sgd":
             if optimizer not in _SUPPORTED_OPTIMIZERS:
-                raise ValueError("run_spec.training.optimizer must be one of: sgd_constant, sgd_optimal")
+                raise ValueError(
+                    "run_spec.training.optimizer must be one of: sgd_constant, sgd_optimal"
+                )
         elif optimizer not in {"sgd_constant", "sgd_optimal", "adam", "adamw"}:
-            raise ValueError("run_spec.training.optimizer must be one of: sgd_constant, sgd_optimal, adam, adamw")
+            raise ValueError(
+                "run_spec.training.optimizer must be one of: sgd_constant, sgd_optimal, adam, adamw"
+            )
         if float(training.get("regularizationAlpha", 0.0001)) <= 0:
             raise ValueError("run_spec.training.regularizationAlpha must be > 0")
         if float(training.get("gradientClipNorm", 1.0)) < 0:
@@ -130,7 +156,9 @@ class RunSpecValidator:
             raise ValueError("run_spec.training.classWeighting must be one of: none, balanced")
         rebalance_strategy = str(training.get("rebalanceStrategy", "none")).lower()
         if rebalance_strategy not in {"none", "oversample"}:
-            raise ValueError("run_spec.training.rebalanceStrategy must be one of: none, oversample")
+            raise ValueError(
+                "run_spec.training.rebalanceStrategy must be one of: none, oversample"
+            )
         if float(training.get("augmentNoiseStd", 0.02)) < 0:
             raise ValueError("run_spec.training.augmentNoiseStd must be >= 0")
         if float(training.get("augmentGainJitter", 0.10)) < 0:
@@ -163,12 +191,16 @@ class RunSpecValidator:
                 raise ValueError("run_spec.promotion must be an object")
             unknown_keys = sorted(set(promotion.keys()) - _PROMOTION_KEYS)
             if unknown_keys:
-                raise ValueError(f"run_spec.promotion contains unsupported keys: {', '.join(unknown_keys)}")
+                raise ValueError(
+                    f"run_spec.promotion contains unsupported keys: {', '.join(unknown_keys)}"
+                )
 
             reference_run_id = promotion.get("reference_run_id")
             reference_artifact_id = promotion.get("reference_artifact_id")
             if reference_run_id and reference_artifact_id:
-                raise ValueError("run_spec.promotion cannot specify both reference_run_id and reference_artifact_id")
+                raise ValueError(
+                    "run_spec.promotion cannot specify both reference_run_id and reference_artifact_id"
+                )
 
             gate_policy = promotion.get("gate_policy")
             if gate_policy is not None:
@@ -180,7 +212,11 @@ class RunSpecValidator:
                         "run_spec.promotion.gate_policy contains unsupported keys: "
                         + ", ".join(unknown_gate_keys)
                     )
-                for key in ("macro_f1_floor", "max_regression_vs_reference", "max_real_vs_synth_gap"):
+                for key in (
+                    "macro_f1_floor",
+                    "max_regression_vs_reference",
+                    "max_real_vs_synth_gap",
+                ):
                     value = gate_policy.get(key)
                     if value is None:
                         continue
@@ -193,7 +229,9 @@ class RunSpecValidator:
                         raise ValueError(
                             "run_spec.promotion.gate_policy.per_class_recall_floors must be an object"
                         )
-                    unknown_labels = sorted(set(recall_floors.keys()) - set(dataset_version.class_map))
+                    unknown_labels = sorted(
+                        set(recall_floors.keys()) - set(dataset_version.class_map)
+                    )
                     if unknown_labels:
                         raise ValueError(
                             "run_spec.promotion.gate_policy.per_class_recall_floors contains unknown classes: "

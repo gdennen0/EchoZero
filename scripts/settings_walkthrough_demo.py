@@ -63,7 +63,9 @@ class _PreviewDialog(QDialog):
         body.setReadOnly(True)
         lines = []
         for change in payload.get("changes", []):
-            lines.append(f"{change['key']}: source={change['from']} target={change['to']} apply={change['apply']}")
+            lines.append(
+                f"{change['key']}: source={change['from']} target={change['to']} apply={change['apply']}"
+            )
         body.setPlainText("\n".join(lines) or "No changes.")
         layout.addWidget(body)
 
@@ -88,7 +90,9 @@ def _run_extract_stems(runtime, widget: TimelineWidget) -> None:
 
 
 def _run_extract_classified_drums(runtime, widget: TimelineWidget) -> None:
-    drums_layer_id = next(layer.layer_id for layer in runtime.presentation().layers if layer.title == "Drums")
+    drums_layer_id = next(
+        layer.layer_id for layer in runtime.presentation().layers if layer.title == "Drums"
+    )
     runtime.extract_classified_drums(drums_layer_id)
     widget.set_presentation(runtime.presentation())
 
@@ -102,7 +106,9 @@ def run_part(part: int) -> int:
     runtime = _create_runtime(root, audio_path=args.audio_path)
 
     app = _app()
-    widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    widget = TimelineWidget(
+        runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+    )
     widget.setWindowTitle(f"EchoZero Settings Demo Part {part}")
     widget.resize(1540, 980)
     widget.show()
@@ -111,7 +117,9 @@ def run_part(part: int) -> int:
 
     dialogs: list[QDialog] = []
 
-    def open_action_dialog(action_id: str, *, scope: str = "version", title_suffix: str = "") -> None:
+    def open_action_dialog(
+        action_id: str, *, scope: str = "version", title_suffix: str = ""
+    ) -> None:
         action = _find_action(widget, action_id)
         plan = runtime.describe_object_action(
             action_id,
@@ -134,15 +142,61 @@ def run_part(part: int) -> int:
 
     if part == 1:
         steps = [
-            (500, lambda: (_select_layer(widget, "Settings Demo Song"), _speak("Part one. Starting on the source audio layer. This layer exposes the stem separation object action and its pipeline settings."))),
-            (5000, lambda: open_action_dialog("timeline.extract_stems", title_suffix="This Version")),
-            (11000, lambda: (close_dialogs(), _speak("Now running extract stems through the persisted version settings."))),
+            (
+                500,
+                lambda: (
+                    _select_layer(widget, "Settings Demo Song"),
+                    _speak(
+                        "Part one. Starting on the source audio layer. This layer exposes the stem separation object action and its pipeline settings."
+                    ),
+                ),
+            ),
+            (
+                5000,
+                lambda: open_action_dialog("timeline.extract_stems", title_suffix="This Version"),
+            ),
+            (
+                11000,
+                lambda: (
+                    close_dialogs(),
+                    _speak("Now running extract stems through the persisted version settings."),
+                ),
+            ),
             (13000, lambda: _run_extract_stems(runtime, widget)),
-            (17000, lambda: (_select_layer(widget, "Drums"), _speak("After stem separation, the drums layer exposes multiple pipeline actions. Extract classified drums, extract drum events, and classify drum events."))),
-            (22000, lambda: open_action_dialog("timeline.classify_drum_events", title_suffix="This Version")),
-            (29000, lambda: (close_dialogs(), _speak("Now running extract classified drums from the drums layer to create kick and snare outputs."))),
+            (
+                17000,
+                lambda: (
+                    _select_layer(widget, "Drums"),
+                    _speak(
+                        "After stem separation, the drums layer exposes multiple pipeline actions. Extract classified drums, extract drum events, and classify drum events."
+                    ),
+                ),
+            ),
+            (
+                22000,
+                lambda: open_action_dialog(
+                    "timeline.classify_drum_events", title_suffix="This Version"
+                ),
+            ),
+            (
+                29000,
+                lambda: (
+                    close_dialogs(),
+                    _speak(
+                        "Now running extract classified drums from the drums layer to create kick and snare outputs."
+                    ),
+                ),
+            ),
             (31000, lambda: _run_extract_classified_drums(runtime, widget)),
-            (36000, lambda: (_select_layer(widget, "Kick"), _speak("The generated kick layer is now visible in the timeline. This completes the object action and pipeline action flow from source audio to derived outputs."))),
+            (
+                36000,
+                lambda: (
+                    _select_layer(widget, "Kick"),
+                    _speak(
+                        "The generated kick layer is now visible in the timeline. This completes the object action and pipeline action flow from source audio to derived outputs."
+                    ),
+                ),
+            ),
             (43000, lambda: app.quit()),
         ]
     elif part == 2:
@@ -162,12 +216,51 @@ def run_part(part: int) -> int:
         )
         widget.set_presentation(runtime.presentation())
         steps = [
-            (500, lambda: (_select_layer(widget, "Settings Demo Song"), _speak("Part two. This shows separate settings scopes. First, version owned effective settings."))),
-            (4500, lambda: open_action_dialog("timeline.extract_stems", scope="version", title_suffix="This Version")),
-            (11000, lambda: (close_dialogs(), _speak("Now the song default settings for the same action. These are separate from the current version."))),
-            (13500, lambda: open_action_dialog("timeline.extract_stems", scope="song_default", title_suffix="Song Default")),
-            (20000, lambda: (close_dialogs(), _speak("Reopening the version scope shows that the version kept its own values."))),
-            (22500, lambda: open_action_dialog("timeline.extract_stems", scope="version", title_suffix="This Version")),
+            (
+                500,
+                lambda: (
+                    _select_layer(widget, "Settings Demo Song"),
+                    _speak(
+                        "Part two. This shows separate settings scopes. First, version owned effective settings."
+                    ),
+                ),
+            ),
+            (
+                4500,
+                lambda: open_action_dialog(
+                    "timeline.extract_stems", scope="version", title_suffix="This Version"
+                ),
+            ),
+            (
+                11000,
+                lambda: (
+                    close_dialogs(),
+                    _speak(
+                        "Now the song default settings for the same action. These are separate from the current version."
+                    ),
+                ),
+            ),
+            (
+                13500,
+                lambda: open_action_dialog(
+                    "timeline.extract_stems", scope="song_default", title_suffix="Song Default"
+                ),
+            ),
+            (
+                20000,
+                lambda: (
+                    close_dialogs(),
+                    _speak(
+                        "Reopening the version scope shows that the version kept its own values."
+                    ),
+                ),
+            ),
+            (
+                22500,
+                lambda: open_action_dialog(
+                    "timeline.extract_stems", scope="version", title_suffix="This Version"
+                ),
+            ),
             (29000, lambda: app.quit()),
         ]
     else:
@@ -204,12 +297,60 @@ def run_part(part: int) -> int:
                 preview_holder.pop().close()
 
         steps = [
-            (500, lambda: (_select_layer(widget, "Settings Demo Song"), _speak("Part three. This shows copy and apply from song default to this version."))),
-            (4500, lambda: open_action_dialog("timeline.extract_stems", scope="version", title_suffix="This Version")),
-            (10000, lambda: (close_dialogs(), open_action_dialog("timeline.extract_stems", scope="song_default", title_suffix="Song Default"), _speak("The version and song default currently differ."))),
-            (16000, lambda: (close_dialogs(), show_preview(), _speak("This preview shows the partial settings transfer before apply."))),
-            (23000, lambda: (close_preview(), runtime.apply_object_action_settings_copy("timeline.extract_stems", source_scope="song_default", target_scope="version", keys=["model", "device"]), _speak("Applying the copy now updates only the selected version settings."))),
-            (26000, lambda: open_action_dialog("timeline.extract_stems", scope="version", title_suffix="This Version After Apply")),
+            (
+                500,
+                lambda: (
+                    _select_layer(widget, "Settings Demo Song"),
+                    _speak(
+                        "Part three. This shows copy and apply from song default to this version."
+                    ),
+                ),
+            ),
+            (
+                4500,
+                lambda: open_action_dialog(
+                    "timeline.extract_stems", scope="version", title_suffix="This Version"
+                ),
+            ),
+            (
+                10000,
+                lambda: (
+                    close_dialogs(),
+                    open_action_dialog(
+                        "timeline.extract_stems", scope="song_default", title_suffix="Song Default"
+                    ),
+                    _speak("The version and song default currently differ."),
+                ),
+            ),
+            (
+                16000,
+                lambda: (
+                    close_dialogs(),
+                    show_preview(),
+                    _speak("This preview shows the partial settings transfer before apply."),
+                ),
+            ),
+            (
+                23000,
+                lambda: (
+                    close_preview(),
+                    runtime.apply_object_action_settings_copy(
+                        "timeline.extract_stems",
+                        source_scope="song_default",
+                        target_scope="version",
+                        keys=["model", "device"],
+                    ),
+                    _speak("Applying the copy now updates only the selected version settings."),
+                ),
+            ),
+            (
+                26000,
+                lambda: open_action_dialog(
+                    "timeline.extract_stems",
+                    scope="version",
+                    title_suffix="This Version After Apply",
+                ),
+            ),
             (33000, lambda: app.quit()),
         ]
 
@@ -229,6 +370,7 @@ def main() -> int:
     args = parser.parse_args()
     # Re-parse inside run_part keeps the script simple for direct subprocess usage.
     import sys
+
     sys.argv = [sys.argv[0], "--audio-path", str(args.audio_path)]
     return run_part(args.part)
 

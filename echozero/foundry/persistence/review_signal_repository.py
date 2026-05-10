@@ -122,10 +122,7 @@ class ReviewSignalRepository:
                 )
             )
             session_index[session_key] = signal_ids
-        signals = {
-            signal_id: self._deserialize(row)
-            for signal_id, row in rows.items()
-        }
+        signals = {signal_id: self._deserialize(row) for signal_id, row in rows.items()}
         self._cached_rows = rows
         self._cached_signals = signals
         self._cached_session_index = session_index
@@ -200,9 +197,7 @@ class ReviewSignalRepository:
             corrected_label=row.get("corrected_label"),
             review_note=row.get("review_note"),
             reviewed_at=(
-                datetime.fromisoformat(row["reviewed_at"])
-                if row.get("reviewed_at")
-                else None
+                datetime.fromisoformat(row["reviewed_at"]) if row.get("reviewed_at") else None
             ),
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),

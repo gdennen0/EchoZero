@@ -95,7 +95,9 @@ def _qt_message_level(message_type: QtMsgType) -> str:
     return "UNKNOWN"
 
 
-def install_runtime_logging(log_dir: Path | None = None, *, app_name: str = "EchoZero", keep_logs: int = 40) -> Path | None:
+def install_runtime_logging(
+    log_dir: Path | None = None, *, app_name: str = "EchoZero", keep_logs: int = 40
+) -> Path | None:
     global _LOG_HANDLE
     global _LOG_PATH
     global _INSTALLED
@@ -184,7 +186,9 @@ def install_runtime_logging(log_dir: Path | None = None, *, app_name: str = "Ech
                 location_parts.append(str(context.line))
         location = ":".join(location_parts)
         if location:
-            print(f"[QT {_qt_message_level(message_type)}] {message} ({location})", file=sys.stderr)
+            print(
+                f"[QT {_qt_message_level(message_type)}] {message} ({location})", file=sys.stderr
+            )
         else:
             print(f"[QT {_qt_message_level(message_type)}] {message}", file=sys.stderr)
 

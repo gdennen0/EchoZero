@@ -256,9 +256,7 @@ def _migrate_v5_to_v6(conn: sqlite3.Connection) -> None:
 
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(song_versions)").fetchall()}
     if "ma3_timecode_pool_no" not in columns:
-        conn.execute(
-            "ALTER TABLE song_versions ADD COLUMN ma3_timecode_pool_no INTEGER "
-        )
+        conn.execute("ALTER TABLE song_versions ADD COLUMN ma3_timecode_pool_no INTEGER ")
 
 
 def _migrate_v6_to_v7(conn: sqlite3.Connection) -> None:
@@ -385,10 +383,7 @@ def _apply_migrations(
     allow_pre_object_content_upgrade: bool,
 ) -> None:
     current = get_schema_version(conn)
-    if (
-        0 < current < OBJECT_CONTENT_SCHEMA_VERSION
-        and not allow_pre_object_content_upgrade
-    ):
+    if 0 < current < OBJECT_CONTENT_SCHEMA_VERSION and not allow_pre_object_content_upgrade:
         raise PersistenceError(
             "Unsupported EchoZero project schema "
             f"v{current}; runtime open requires v{OBJECT_CONTENT_SCHEMA_VERSION}."
@@ -438,7 +433,7 @@ def _backfill_object_content_rows(conn: sqlite3.Connection) -> None:
 
     layers = conn.execute(
         "SELECT id, song_version_id, name, layer_type, source_pipeline, "
-        "state_flags_json, created_at FROM layers ORDER BY song_version_id, \"order\""
+        'state_flags_json, created_at FROM layers ORDER BY song_version_id, "order"'
     ).fetchall()
     for layer in layers:
         takes = conn.execute(

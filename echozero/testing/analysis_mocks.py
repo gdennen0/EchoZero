@@ -16,7 +16,9 @@ def _write_pcm16_mono_wav(path: Path, samples: list[int], sample_rate: int) -> P
         handle.setnchannels(1)
         handle.setsampwidth(2)
         handle.setframerate(sample_rate)
-        handle.writeframes(b"".join(int(sample).to_bytes(2, "little", signed=True) for sample in samples))
+        handle.writeframes(
+            b"".join(int(sample).to_bytes(2, "little", signed=True) for sample in samples)
+        )
     return path
 
 
@@ -157,7 +159,9 @@ class _MockClassifyExecutor:
                         origin="classify",
                     )
                 )
-            classified_layers.append(DomainLayer(id=layer.id, name="Kick", events=tuple(classified_events)))
+            classified_layers.append(
+                DomainLayer(id=layer.id, name="Kick", events=tuple(classified_events))
+            )
         return ok(EventData(layers=tuple(classified_layers)))
 
 
@@ -231,10 +235,14 @@ class _MockBinaryDrumClassifyExecutor:
                 )
             )
         if target_class == "kick":
-            return ok(EventData(layers=(DomainLayer(id="kick", name="kick", events=tuple(kick_events)),)))
+            return ok(
+                EventData(layers=(DomainLayer(id="kick", name="kick", events=tuple(kick_events)),))
+            )
         if target_class == "snare":
             return ok(
-                EventData(layers=(DomainLayer(id="snare", name="snare", events=tuple(snare_events)),))
+                EventData(
+                    layers=(DomainLayer(id="snare", name="snare", events=tuple(snare_events)),)
+                )
             )
         return ok(
             EventData(

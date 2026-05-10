@@ -19,7 +19,9 @@ def test_foundry_smoke_tiny_dataset_run_to_artifact_compatibility(tmp_path: Path
 
     dataset = dataset_service.create_dataset("Tiny Drums", source_ref=str(samples))
     version = dataset_service.ingest_from_folder(dataset.id, samples)
-    app.plan_version(version.id, validation_split=0.2, test_split=0.2, seed=21, balance_strategy="none")
+    app.plan_version(
+        version.id, validation_split=0.2, test_split=0.2, seed=21, balance_strategy="none"
+    )
     version = dataset_service.get_version(version.id)
     assert version is not None
 
@@ -66,7 +68,9 @@ def test_foundry_smoke_cnn_tiny_dataset_run_to_artifact_compatibility(tmp_path: 
 
     dataset = dataset_service.create_dataset("Tiny Drums CNN", source_ref=str(samples))
     version = dataset_service.ingest_from_folder(dataset.id, samples)
-    app.plan_version(version.id, validation_split=0.2, test_split=0.2, seed=23, balance_strategy="none")
+    app.plan_version(
+        version.id, validation_split=0.2, test_split=0.2, seed=23, balance_strategy="none"
+    )
     version = dataset_service.get_version(version.id)
     assert version is not None
 
@@ -101,7 +105,6 @@ def test_foundry_smoke_cnn_tiny_dataset_run_to_artifact_compatibility(tmp_path: 
     assert report.errors == []
 
 
-
 def test_artifact_compatibility_rejects_runtime_mismatch(tmp_path: Path):
     samples = tmp_path / "samples"
     write_percussion_dataset(samples)
@@ -109,7 +112,9 @@ def test_artifact_compatibility_rejects_runtime_mismatch(tmp_path: Path):
     app = FoundryApp(tmp_path)
     dataset = app.datasets.create_dataset("Mismatch Drums", source_ref=str(samples))
     version = app.datasets.ingest_from_folder(dataset.id, samples)
-    app.plan_version(version.id, validation_split=0.2, test_split=0.2, seed=33, balance_strategy="none")
+    app.plan_version(
+        version.id, validation_split=0.2, test_split=0.2, seed=33, balance_strategy="none"
+    )
 
     run_spec = {
         "schema": "foundry.train_run_spec.v1",
@@ -145,7 +150,6 @@ def test_artifact_compatibility_rejects_runtime_mismatch(tmp_path: Path):
     assert "manifest.runtime.consumer must match the validated consumer" in report.errors
 
 
-
 def test_artifact_compatibility_rejects_class_order_mismatch(tmp_path: Path):
     samples = tmp_path / "samples"
     write_percussion_dataset(samples)
@@ -153,7 +157,9 @@ def test_artifact_compatibility_rejects_class_order_mismatch(tmp_path: Path):
     app = FoundryApp(tmp_path)
     dataset = app.datasets.create_dataset("Class Order Drums", source_ref=str(samples))
     version = app.datasets.ingest_from_folder(dataset.id, samples)
-    app.plan_version(version.id, validation_split=0.2, test_split=0.2, seed=35, balance_strategy="none")
+    app.plan_version(
+        version.id, validation_split=0.2, test_split=0.2, seed=35, balance_strategy="none"
+    )
 
     run_spec = {
         "schema": "foundry.train_run_spec.v1",
@@ -196,7 +202,9 @@ def test_artifact_compatibility_rejects_preprocessing_mismatch(tmp_path: Path):
     app = FoundryApp(tmp_path)
     dataset = app.datasets.create_dataset("Preprocess Drums", source_ref=str(samples))
     version = app.datasets.ingest_from_folder(dataset.id, samples)
-    app.plan_version(version.id, validation_split=0.2, test_split=0.2, seed=39, balance_strategy="none")
+    app.plan_version(
+        version.id, validation_split=0.2, test_split=0.2, seed=39, balance_strategy="none"
+    )
 
     run_spec = {
         "schema": "foundry.train_run_spec.v1",

@@ -54,7 +54,9 @@ class PipelineSettingsBrowserDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         if not sessions:
-            raise ValueError("PipelineSettingsBrowserDialog requires at least one settings session.")
+            raise ValueError(
+                "PipelineSettingsBrowserDialog requires at least one settings session."
+            )
 
         self.setObjectName("pipelineSettingsBrowserDialog")
         ensure_qt_theme_installed()
@@ -298,7 +300,9 @@ class PipelineSettingsBrowserDialog(QDialog):
         self._scope_group.setToolTip(scope_hint)
         self._scope.setToolTip(scope_hint)
         self._copy_group.setVisible(bool(session.copy_sources))
-        self._apply_copy.setEnabled(bool(session.copy_sources) and bool(self._copy_source.currentData()))
+        self._apply_copy.setEnabled(
+            bool(session.copy_sources) and bool(self._copy_source.currentData())
+        )
         copy_hint = self._copy_hint_text(session)
         self._copy_group.setToolTip(copy_hint)
         self._copy_source.setToolTip(copy_hint)
@@ -322,7 +326,9 @@ class PipelineSettingsBrowserDialog(QDialog):
         self._copy_preview.setText(preview_text)
 
     def _on_field_value_changed(self, key: str, value: object) -> None:
-        updated = self._dispatch_command(self._session.session_id, SetSessionFieldValue(key, value))
+        updated = self._dispatch_command(
+            self._session.session_id, SetSessionFieldValue(key, value)
+        )
         self._session = updated
         self._sessions_by_action_id[updated.action_id] = updated
         self._context.setText(self._context_text(updated))

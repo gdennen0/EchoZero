@@ -28,7 +28,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     scenario = load_scenario(args.scenario)
-    artifacts_dir = Path(args.artifacts_dir) if args.artifacts_dir else Path("artifacts") / "e2e" / scenario.name
+    artifacts_dir = (
+        Path(args.artifacts_dir)
+        if args.artifacts_dir
+        else Path("artifacts") / "e2e" / scenario.name
+    )
     driver: StageZeroDriver | FoundryDriverPlaceholder
     if args.driver == "stage-zero":
         driver = create_stage_zero_driver()

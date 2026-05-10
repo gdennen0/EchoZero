@@ -108,8 +108,7 @@ class LayerProvenance:
             build = LayerAnalysisBuildProvenance(**build)
 
         if build is None and any(
-            value is not None
-            for value in (self.source_run_id, self.pipeline_id, self.output_name)
+            value is not None for value in (self.source_run_id, self.pipeline_id, self.output_name)
         ):
             build = LayerAnalysisBuildProvenance(
                 build_id=self.source_run_id,
@@ -190,9 +189,7 @@ class Event:
         if self.start < 0:
             raise ValueError(f"Event.start must be >= 0, got {self.start}")
         if self.end < self.start:
-            raise ValueError(
-                f"Event.end must be >= start, got start={self.start}, end={self.end}"
-            )
+            raise ValueError(f"Event.end must be >= start, got start={self.start}, end={self.end}")
         origin = str(self.origin or "").strip()
         self.origin = origin or "user"
         self.classifications = dict(self.classifications or {})
@@ -240,7 +237,9 @@ class Event:
         detection_value = str(self.detection_metadata.get("promotion_state", "")).strip().lower()
         if detection_value in {"promoted", "demoted"}:
             return detection_value
-        detection_threshold = _coerce_optional_bool(self.detection_metadata.get("threshold_passed"))
+        detection_threshold = _coerce_optional_bool(
+            self.detection_metadata.get("threshold_passed")
+        )
         if detection_threshold is not None:
             return "promoted" if detection_threshold else "demoted"
         return "promoted"
@@ -483,11 +482,7 @@ def derive_section_cues_from_layers(
     source_layer = section_layers[0]
     if preferred_layer_id is not None:
         preferred = next(
-            (
-                layer
-                for layer in section_layers
-                if layer.id == preferred_layer_id
-            ),
+            (layer for layer in section_layers if layer.id == preferred_layer_id),
             None,
         )
         if preferred is not None:

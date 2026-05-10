@@ -67,4 +67,3 @@ def event_slice_signature(events: Sequence[object]) -> str:
             demoted = int("demoted" in {str(badge) for badge in badges})
         tokens.append(f"{start_seconds:.6f}:{muted}:{demoted}")
     return ",".join(tokens)
-

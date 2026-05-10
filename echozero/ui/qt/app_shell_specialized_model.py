@@ -88,10 +88,7 @@ def _resolve_binary_model_defaults(*, labels: tuple[str, ...]) -> dict[str, str]
         )
     except FileNotFoundError:
         return {}
-    return {
-        f"{label}_model_path": str(bundle.manifest_path)
-        for label, bundle in bundles.items()
-    }
+    return {f"{label}_model_path": str(bundle.manifest_path) for label, bundle in bundles.items()}
 
 
 def _refresh_project_binary_model_configs(

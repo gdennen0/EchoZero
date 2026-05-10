@@ -256,4 +256,3 @@ def _register_default_handlers(pipeline: Pipeline) -> None:
     pipeline.register(AddConnectionCommand, _handle_add_connection)
     pipeline.register(RemoveConnectionCommand, _handle_remove_connection)
     pipeline.register(ChangeBlockSettingsCommand, _handle_change_settings)
-

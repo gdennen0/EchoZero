@@ -26,7 +26,6 @@ from echozero.result import Err, Ok, err, ok
 from echozero.services.orchestrator import AnalysisResult, Orchestrator
 from echozero.services.setlist import SetlistProcessor, SetlistResult
 
-
 # ---------------------------------------------------------------------------
 # Mock executors
 # ---------------------------------------------------------------------------
@@ -36,37 +35,56 @@ class MockLoadAudioExecutor:
     """Returns fake AudioData without reading a file."""
 
     def execute(self, block_id: str, context: ExecutionContext) -> Any:
-        return ok(AudioData(
-            sample_rate=44100,
-            duration=180.0,
-            file_path="test.wav",
-            channel_count=2,
-        ))
+        return ok(
+            AudioData(
+                sample_rate=44100,
+                duration=180.0,
+                file_path="test.wav",
+                channel_count=2,
+            )
+        )
 
 
 class MockDetectOnsetsExecutor:
     """Returns fake EventData with some test events."""
 
     def execute(self, block_id: str, context: ExecutionContext) -> Any:
-        return ok(EventData(
-            layers=(
-                Layer(
-                    id="onsets_layer",
-                    name="onsets",
-                    events=(
-                        Event(id="e1", time=1.0, duration=0.1,
-                              classifications={"type": "onset"}, metadata={},
-                              origin="pipeline"),
-                        Event(id="e2", time=2.5, duration=0.1,
-                              classifications={"type": "onset"}, metadata={},
-                              origin="pipeline"),
-                        Event(id="e3", time=4.0, duration=0.1,
-                              classifications={"type": "onset"}, metadata={},
-                              origin="pipeline"),
+        return ok(
+            EventData(
+                layers=(
+                    Layer(
+                        id="onsets_layer",
+                        name="onsets",
+                        events=(
+                            Event(
+                                id="e1",
+                                time=1.0,
+                                duration=0.1,
+                                classifications={"type": "onset"},
+                                metadata={},
+                                origin="pipeline",
+                            ),
+                            Event(
+                                id="e2",
+                                time=2.5,
+                                duration=0.1,
+                                classifications={"type": "onset"},
+                                metadata={},
+                                origin="pipeline",
+                            ),
+                            Event(
+                                id="e3",
+                                time=4.0,
+                                duration=0.1,
+                                classifications={"type": "onset"},
+                                metadata={},
+                                origin="pipeline",
+                            ),
+                        ),
                     ),
                 ),
-            ),
-        ))
+            )
+        )
 
 
 class SettingsCapturingExecutor:
@@ -79,9 +97,11 @@ class SettingsCapturingExecutor:
         block = context.graph.blocks.get(block_id)
         if block:
             self.captured_settings = dict(block.settings)
-        return ok(EventData(
-            layers=(Layer(id="onsets_layer", name="onsets", events=()),),
-        ))
+        return ok(
+            EventData(
+                layers=(Layer(id="onsets_layer", name="onsets", events=()),),
+            )
+        )
 
 
 class FailingExecutor:
@@ -304,7 +324,9 @@ class TestOrchestratorErrors:
         service = Orchestrator(get_registry(), _default_executors())
 
         result = service.analyze(
-            session, version.id, "onset_detection",
+            session,
+            version.id,
+            "onset_detection",
             bindings={"threshold": "not_a_float"},
         )
 
@@ -359,7 +381,9 @@ class TestOrchestratorBindings:
         service = Orchestrator(get_registry(), executors)
 
         result = service.analyze(
-            session, version.id, "onset_detection",
+            session,
+            version.id,
+            "onset_detection",
             bindings={"threshold": 0.7},
         )
 
@@ -372,7 +396,8 @@ class TestOrchestratorBindings:
     def test_auto_binding_sets_audio_file(self, tmp_path: Any) -> None:
         """The service auto-binds audio_file from SongVersionRecord."""
         session, song, version = _create_session_with_song(
-            tmp_path, audio_file="/my/custom/audio.wav",
+            tmp_path,
+            audio_file="/my/custom/audio.wav",
         )
 
         class AudioPathCapturingExecutor:
@@ -383,10 +408,14 @@ class TestOrchestratorBindings:
                 block = context.graph.blocks.get(block_id)
                 if block:
                     self.captured_file_path = block.settings.get("file_path")
-                return ok(AudioData(
-                    sample_rate=44100, duration=180.0,
-                    file_path="test.wav", channel_count=2,
-                ))
+                return ok(
+                    AudioData(
+                        sample_rate=44100,
+                        duration=180.0,
+                        file_path="test.wav",
+                        channel_count=2,
+                    )
+                )
 
         capturing = AudioPathCapturingExecutor()
         executors: dict[str, Any] = {
@@ -407,7 +436,9 @@ class TestOrchestratorBindings:
         service = Orchestrator(get_registry(), _default_executors())
 
         result = service.analyze(
-            session, version.id, "onset_detection",
+            session,
+            version.id,
+            "onset_detection",
             bindings={"bogus_key": 42},
         )
 
@@ -502,7 +533,9 @@ class TestOrchestratorProgress:
             progress_calls.append(update)
 
         result = service.analyze(
-            session, version.id, "onset_detection",
+            session,
+            version.id,
+            "onset_detection",
             on_progress=on_progress,
         )
 
@@ -560,6 +593,7 @@ class TestOrchestratorRoundTrip:
 def _create_pipeline_config(session, song_version_id, template_id="onset_detection"):
     """Helper: create a PipelineConfigRecord via Orchestrator.create_config and return the ID."""
     from echozero.result import unwrap
+
     service = Orchestrator(get_registry(), _default_executors())
     result = service.create_config(session, song_version_id, template_id)
     config = unwrap(result)

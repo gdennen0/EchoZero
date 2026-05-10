@@ -53,7 +53,9 @@ def test_playback_track_builder_clears_output_bus_that_exceeds_device_channels()
     assert plan.tracks[0].output_bus is None
 
 
-def test_playback_track_builder_ignores_event_layer_source_audio_when_event_playback_disabled() -> None:
+def test_playback_track_builder_ignores_event_layer_source_audio_when_event_playback_disabled() -> (
+    None
+):
     builder = PlaybackTrackBuilder(
         lambda _path: (np.array([0.25, -0.25], dtype=np.float32), 44100)
     )
@@ -161,9 +163,7 @@ def test_playback_track_builder_uses_object_source_ref_without_legacy_audio_path
 
 
 def test_playback_track_builder_event_slice_overlap_scales_to_prevent_hard_clip() -> None:
-    builder = PlaybackTrackBuilder(
-        lambda _path: (np.ones(1024, dtype=np.float32), 44100)
-    )
+    builder = PlaybackTrackBuilder(lambda _path: (np.ones(1024, dtype=np.float32), 44100))
     presentation = SimpleNamespace(
         layers=[
             SimpleNamespace(
@@ -199,9 +199,7 @@ def test_playback_track_builder_event_slice_overlap_scales_to_prevent_hard_clip(
 
 
 def test_playback_track_builder_event_slice_applies_boundary_fades_for_long_clips() -> None:
-    builder = PlaybackTrackBuilder(
-        lambda _path: (np.ones(2048, dtype=np.float32), 44100)
-    )
+    builder = PlaybackTrackBuilder(lambda _path: (np.ones(2048, dtype=np.float32), 44100))
     presentation = SimpleNamespace(
         layers=[
             SimpleNamespace(

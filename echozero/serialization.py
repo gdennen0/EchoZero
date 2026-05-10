@@ -25,7 +25,6 @@ from echozero.domain.types import (
 from echozero.pipelines.pipeline import Pipeline, PipelineOutput, PortRef
 from echozero.takes import Take, TakeLayer, TakeSource
 
-
 # ---------------------------------------------------------------------------
 # Pipeline serialization (Graph + named outputs)
 # ---------------------------------------------------------------------------
@@ -88,35 +87,39 @@ def serialize_graph(graph: Graph) -> dict[str, Any]:
     """Convert a Graph to a JSON-serializable dict."""
     blocks = []
     for block in graph.blocks.values():
-        blocks.append({
-            "id": block.id,
-            "name": block.name,
-            "block_type": block.block_type,
-            "category": block.category.name,
-            "state": block.state.name,
-            "input_ports": [
-                {"name": p.name, "port_type": p.port_type.name, "direction": p.direction.name}
-                for p in block.input_ports
-            ],
-            "output_ports": [
-                {"name": p.name, "port_type": p.port_type.name, "direction": p.direction.name}
-                for p in block.output_ports
-            ],
-            "control_ports": [
-                {"name": p.name, "port_type": p.port_type.name, "direction": p.direction.name}
-                for p in block.control_ports
-            ],
-            "settings": dict(block.settings),
-        })
+        blocks.append(
+            {
+                "id": block.id,
+                "name": block.name,
+                "block_type": block.block_type,
+                "category": block.category.name,
+                "state": block.state.name,
+                "input_ports": [
+                    {"name": p.name, "port_type": p.port_type.name, "direction": p.direction.name}
+                    for p in block.input_ports
+                ],
+                "output_ports": [
+                    {"name": p.name, "port_type": p.port_type.name, "direction": p.direction.name}
+                    for p in block.output_ports
+                ],
+                "control_ports": [
+                    {"name": p.name, "port_type": p.port_type.name, "direction": p.direction.name}
+                    for p in block.control_ports
+                ],
+                "settings": dict(block.settings),
+            }
+        )
 
     connections = []
     for conn in graph.connections:
-        connections.append({
-            "source_block_id": conn.source_block_id,
-            "source_output_name": conn.source_output_name,
-            "target_block_id": conn.target_block_id,
-            "target_input_name": conn.target_input_name,
-        })
+        connections.append(
+            {
+                "source_block_id": conn.source_block_id,
+                "source_output_name": conn.source_output_name,
+                "target_block_id": conn.target_block_id,
+                "target_input_name": conn.target_input_name,
+            }
+        )
 
     return {"blocks": blocks, "connections": connections}
 
@@ -366,7 +369,5 @@ def load_project(path: str) -> tuple[Graph, list[TakeLayer]]:
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     graph = deserialize_graph(data["graph"])
-    take_layers = [
-        deserialize_take_layer(tl) for tl in data.get("take_layers", [])
-    ]
+    take_layers = [deserialize_take_layer(tl) for tl in data.get("take_layers", [])]
     return graph, take_layers

@@ -95,7 +95,9 @@ def build_real_data_presentation(
             total_takes += len(takes)
 
             main_take = next((take for take in takes if take.is_main), takes[0])
-            main_kind = LayerKind.EVENT if isinstance(main_take.data, EventData) else LayerKind.AUDIO
+            main_kind = (
+                LayerKind.EVENT if isinstance(main_take.data, EventData) else LayerKind.AUDIO
+            )
 
             main_events = (
                 _event_presentations_from_take(main_take)
@@ -108,7 +110,9 @@ def build_real_data_presentation(
             for take in takes:
                 if take.is_main:
                     continue
-                take_kind = LayerKind.EVENT if isinstance(take.data, EventData) else LayerKind.AUDIO
+                take_kind = (
+                    LayerKind.EVENT if isinstance(take.data, EventData) else LayerKind.AUDIO
+                )
                 take_waveform_key = None
                 if take_kind == LayerKind.AUDIO and isinstance(take.data, AudioData):
                     take_waveform_key = f"real-{layer_record.name}-{take.id}"
@@ -120,10 +124,16 @@ def build_real_data_presentation(
                         name=take.label,
                         is_main=False,
                         kind=take_kind,
-                        events=_event_presentations_from_take(take) if isinstance(take.data, EventData) else [],
+                        events=(
+                            _event_presentations_from_take(take)
+                            if isinstance(take.data, EventData)
+                            else []
+                        ),
                         source_ref=_source_ref(take.source),
                         waveform_key=take_waveform_key,
-                        source_audio_path=str(take.data.file_path) if isinstance(take.data, AudioData) else None,
+                        source_audio_path=(
+                            str(take.data.file_path) if isinstance(take.data, AudioData) else None
+                        ),
                         actions=[
                             TakeActionPresentation(
                                 action_id="overwrite_main",
@@ -167,14 +177,20 @@ def build_real_data_presentation(
                     color=layer_record.color or _fixture_layer_color(layer_record.name),
                     badges=["main", "stem", main_kind.value, "real-data"],
                     waveform_key=main_waveform_key,
-                    source_audio_path=str(main_take.data.file_path) if isinstance(main_take.data, AudioData) else None,
+                    source_audio_path=(
+                        str(main_take.data.file_path)
+                        if isinstance(main_take.data, AudioData)
+                        else None
+                    ),
                     status=status,
                 )
             )
 
         # Preview classifier lanes from drums stem (stems-first progression).
         if drums_audio_path is not None and drums_audio_path.exists():
-            preview_hits = classify_drum_hits(drums_audio_path, onset_threshold=0.025, min_gap=0.04)
+            preview_hits = classify_drum_hits(
+                drums_audio_path, onset_threshold=0.025, min_gap=0.04
+            )
             preview_layers = _classifier_layers_from_hits(preview_hits)
             presentation_layers.extend(preview_layers)
             total_main_events += sum(len(layer.events) for layer in preview_layers)
@@ -186,7 +202,11 @@ def build_real_data_presentation(
             playhead=8.0,
             is_playing=False,
             follow_mode=FollowMode.CENTER,
-            selected_layer_id=presentation_layers[1].layer_id if len(presentation_layers) > 1 else presentation_layers[0].layer_id,
+            selected_layer_id=(
+                presentation_layers[1].layer_id
+                if len(presentation_layers) > 1
+                else presentation_layers[0].layer_id
+            ),
             selected_take_id=None,
             selected_event_ids=[],
             pixels_per_second=180.0,
@@ -209,10 +229,14 @@ def build_real_data_presentation(
         project.close()
 
 
-def build_real_data_variants(presentation: TimelinePresentation) -> dict[str, TimelinePresentation]:
+def build_real_data_variants(
+    presentation: TimelinePresentation,
+) -> dict[str, TimelinePresentation]:
     return {
         "real_default": presentation,
-        "real_scrolled": replace(presentation, scroll_x=680.0, playhead=31.5, current_time_label=_fmt_time(31.5)),
+        "real_scrolled": replace(
+            presentation, scroll_x=680.0, playhead=31.5, current_time_label=_fmt_time(31.5)
+        ),
         "real_zoomed_in": replace(presentation, pixels_per_second=300.0),
         "real_zoomed_out": replace(presentation, pixels_per_second=90.0),
     }
@@ -322,4 +346,6 @@ def _fmt_time(seconds: float) -> str:
 
 def _fixture_layer_color(name: str) -> str:
     token = name.strip().lower()
-    return TIMELINE_STYLE.fixture.layer_color_tokens.get(token, TIMELINE_STYLE.fixture.fallback_audio_lane_hex)
+    return TIMELINE_STYLE.fixture.layer_color_tokens.get(
+        token, TIMELINE_STYLE.fixture.fallback_audio_lane_hex
+    )

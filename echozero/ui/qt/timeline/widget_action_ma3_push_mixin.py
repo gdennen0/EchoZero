@@ -289,9 +289,7 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
         selected_event_ids = self._selected_main_event_ids_for_layer(
             host._get_presentation(), layer_id
         )
-        scope = (
-            MA3PushScope.SELECTED_EVENTS if selected_event_ids else MA3PushScope.LAYER_MAIN
-        )
+        scope = MA3PushScope.SELECTED_EVENTS if selected_event_ids else MA3PushScope.LAYER_MAIN
         popup_result = self._coerce_route_popup_result(
             self._open_manual_push_route_popup(
                 title="Send to Different Track Once",
@@ -359,9 +357,7 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
         ma3_channel_no = explicit_channel_no
         sequence_action: MA3TrackSequenceAction | None = explicit_sequence_action
         apply_mode: MA3PushApplyMode | None = explicit_apply_mode
-        if require_saved_route and (
-            prompt_for_saved_route or not layer.sync_target_label
-        ):
+        if require_saved_route and (prompt_for_saved_route or not layer.sync_target_label):
             popup_result = self._coerce_route_popup_result(
                 self._open_manual_push_route_popup(
                     title=action_title,
@@ -466,8 +462,8 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
             apply_mode = self._current_ma3_apply_mode()
         host._dispatch(SetPushTransferMode(mode=apply_mode.value))
 
-        selected_count = len(selected_ids) if scope is MA3PushScope.SELECTED_EVENTS else len(
-            layer.events
+        selected_count = (
+            len(selected_ids) if scope is MA3PushScope.SELECTED_EVENTS else len(layer.events)
         )
         if (
             apply_mode is MA3PushApplyMode.OVERWRITE
@@ -476,9 +472,7 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
             and selected_count > 0
         ):
             mapping_event_ids = (
-                selected_ids
-                if selected_ids
-                else [event.event_id for event in layer.events]
+                selected_ids if selected_ids else [event.event_id for event in layer.events]
             )
             if not self._match_events_to_ma3_cues(
                 layer_id=layer_id,
@@ -507,10 +501,10 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
                 apply_mode=apply_mode,
                 ma3_channel_no=ma3_channel_no,
                 target_track_coord=(
-                    None if target_track is None else target_track.coord
-                )
-                if target_mode is MA3PushTargetMode.DIFFERENT_TRACK_ONCE
-                else None,
+                    (None if target_track is None else target_track.coord)
+                    if target_mode is MA3PushTargetMode.DIFFERENT_TRACK_ONCE
+                    else None
+                ),
                 selected_event_ids=selected_ids,
                 sequence_action=sequence_action,
             )
@@ -639,8 +633,7 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
             )
             return None
         labels = [
-            self._manual_push_sequence_label(sequence)
-            for sequence in flow.available_sequences
+            self._manual_push_sequence_label(sequence) for sequence in flow.available_sequences
         ]
         chosen_label, accepted = host._input_dialog.getItem(
             host._widget,
@@ -771,7 +764,9 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
             dialog.set_flow(
                 host._get_presentation().manual_push_flow,
                 preferred_track_coord=target_track_coord,
-                preferred_channel_no=channel_no if channel_no is not None else reference_channel_no,
+                preferred_channel_no=(
+                    channel_no if channel_no is not None else reference_channel_no
+                ),
             )
             return True
 
@@ -1011,12 +1006,10 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
                 sequence_no=int(sequence_no),
             )
 
-        preferred_name = (
-            self._preferred_ma3_sequence_name_for_track(
-                track=target_track,
-                presentation=host._get_presentation(),
-                layer=layer,
-            )
+        preferred_name = self._preferred_ma3_sequence_name_for_track(
+            track=target_track,
+            presentation=host._get_presentation(),
+            layer=layer,
         )
         if mode == ManualPushRouteDialog.SEQUENCE_MODE_CREATE_CURRENT_SONG:
             if flow.current_song_sequence_range is None:
@@ -1328,7 +1321,11 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
         list_sequence_cues = getattr(sync_service, "list_sequence_cues", None)
         raw_cues: list[object] = []
         selected_track = self._find_ma3_track_by_coord(track_coord, refresh=False)
-        if callable(list_sequence_cues) and selected_track is not None and selected_track.sequence_no is not None:
+        if (
+            callable(list_sequence_cues)
+            and selected_track is not None
+            and selected_track.sequence_no is not None
+        ):
             try:
                 raw_sequence_cues = list_sequence_cues(sequence_no=int(selected_track.sequence_no))
                 if isinstance(raw_sequence_cues, list):

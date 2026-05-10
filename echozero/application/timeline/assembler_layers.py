@@ -126,8 +126,7 @@ def _assemble_header_controls(
     )
     if is_selected and _layer_pipeline_action_count(layer) > 0:
         has_pipeline_control = any(
-            control.control_id == "layer_pipeline_actions"
-            for control in controls
+            control.control_id == "layer_pipeline_actions" for control in controls
         )
         if not has_pipeline_control:
             controls.append(
@@ -223,9 +222,7 @@ def _assemble_events(
                 )
                 in state.selected_event_ref_keys
             )
-            or (
-                not state.selected_event_ref_keys and event.id in state.selected_event_ids_set
-            ),
+            or (not state.selected_event_ref_keys and event.id in state.selected_event_ids_set),
             badges=_event_badges(event),
         )
         for event in ordered

@@ -25,7 +25,6 @@ from echozero.models.provider import (
     _parse_version,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -33,6 +32,7 @@ from echozero.models.provider import (
 
 class RecordingProgress:
     """Captures progress callbacks for assertions."""
+
     def __init__(self):
         self.events: list[DownloadProgress] = []
 
@@ -314,13 +314,15 @@ class TestCheckUpdates:
     def test_detects_new_model(self, tmp_path: Path) -> None:
         reg, _ = _setup_registry(tmp_path)
 
-        updates = [ModelUpdate(
-            model_type=ModelType.ONSET_DETECTION,
-            current_version=None,
-            available_version="2.0.0",
-            model_id="echozero/onset-v2",
-            size_bytes=50_000_000,
-        )]
+        updates = [
+            ModelUpdate(
+                model_type=ModelType.ONSET_DETECTION,
+                current_version=None,
+                available_version="2.0.0",
+                model_id="echozero/onset-v2",
+                size_bytes=50_000_000,
+            )
+        ]
         source = FakeRemoteSource(tmp_path, updates=updates)
         provider = ModelProvider(reg, source=source)
 
@@ -333,21 +335,25 @@ class TestCheckUpdates:
         reg, _ = _setup_registry(tmp_path)
 
         # Install v1 locally
-        reg.register(ModelCard(
-            id="onset-v1",
-            model_type=ModelType.ONSET_DETECTION,
-            name="Onset v1",
-            version="1.0.0",
-            source=ModelSource.BUILTIN,
-            relative_path="onset/model.pt",
-        ))
+        reg.register(
+            ModelCard(
+                id="onset-v1",
+                model_type=ModelType.ONSET_DETECTION,
+                name="Onset v1",
+                version="1.0.0",
+                source=ModelSource.BUILTIN,
+                relative_path="onset/model.pt",
+            )
+        )
 
-        updates = [ModelUpdate(
-            model_type=ModelType.ONSET_DETECTION,
-            current_version=None,
-            available_version="2.0.0",
-            model_id="echozero/onset-v2",
-        )]
+        updates = [
+            ModelUpdate(
+                model_type=ModelType.ONSET_DETECTION,
+                current_version=None,
+                available_version="2.0.0",
+                model_id="echozero/onset-v2",
+            )
+        ]
         source = FakeRemoteSource(tmp_path, updates=updates)
         provider = ModelProvider(reg, source=source)
 
@@ -359,21 +365,25 @@ class TestCheckUpdates:
     def test_no_update_when_current(self, tmp_path: Path) -> None:
         reg, _ = _setup_registry(tmp_path)
 
-        reg.register(ModelCard(
-            id="onset-v2",
-            model_type=ModelType.ONSET_DETECTION,
-            name="Onset v2",
-            version="2.0.0",
-            source=ModelSource.BUILTIN,
-            relative_path="onset/model.pt",
-        ))
+        reg.register(
+            ModelCard(
+                id="onset-v2",
+                model_type=ModelType.ONSET_DETECTION,
+                name="Onset v2",
+                version="2.0.0",
+                source=ModelSource.BUILTIN,
+                relative_path="onset/model.pt",
+            )
+        )
 
-        updates = [ModelUpdate(
-            model_type=ModelType.ONSET_DETECTION,
-            current_version=None,
-            available_version="2.0.0",  # same as local
-            model_id="echozero/onset-v2",
-        )]
+        updates = [
+            ModelUpdate(
+                model_type=ModelType.ONSET_DETECTION,
+                current_version=None,
+                available_version="2.0.0",  # same as local
+                model_id="echozero/onset-v2",
+            )
+        ]
         source = FakeRemoteSource(tmp_path, updates=updates)
         provider = ModelProvider(reg, source=source)
 
@@ -473,20 +483,24 @@ class TestVersionComparison:
 
     def test_no_update_when_version_equal(self, tmp_path: Path) -> None:
         reg, _ = _setup_registry(tmp_path)
-        reg.register(ModelCard(
-            id="onset-v10",
-            model_type=ModelType.ONSET_DETECTION,
-            name="Onset v10",
-            version="10.0.0",
-            source=ModelSource.BUILTIN,
-            relative_path="onset/model.pt",
-        ))
-        updates = [ModelUpdate(
-            model_type=ModelType.ONSET_DETECTION,
-            current_version=None,
-            available_version="9.0.0",  # older despite string sort being "higher"
-            model_id="echozero/onset-v9",
-        )]
+        reg.register(
+            ModelCard(
+                id="onset-v10",
+                model_type=ModelType.ONSET_DETECTION,
+                name="Onset v10",
+                version="10.0.0",
+                source=ModelSource.BUILTIN,
+                relative_path="onset/model.pt",
+            )
+        )
+        updates = [
+            ModelUpdate(
+                model_type=ModelType.ONSET_DETECTION,
+                current_version=None,
+                available_version="9.0.0",  # older despite string sort being "higher"
+                model_id="echozero/onset-v9",
+            )
+        ]
         source = FakeRemoteSource(tmp_path, updates=updates)
         provider = ModelProvider(reg, source=source)
         result = provider.check_updates(ModelType.ONSET_DETECTION)

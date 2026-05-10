@@ -8,7 +8,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QHeaderView, QListWidget, QListWidgetItem, QTableWidget, QTableWidgetItem
+from PyQt6.QtWidgets import (
+    QHeaderView,
+    QListWidget,
+    QListWidgetItem,
+    QTableWidget,
+    QTableWidgetItem,
+)
 
 from echozero.foundry.domain import Dataset, DatasetVersion, EvalReport, ModelArtifact, TrainRun
 

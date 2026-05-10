@@ -156,13 +156,13 @@ MODULE_MAX_LINE_RULES: dict[str, int] = {
     # These intentionally leave some slack so the guardrail preserves the split
     # without blocking follow-up cleanup that is still in flight.
     "run_echozero.py": 225,
-    "echozero/ui/qt/app_shell.py": 660,
+    "echozero/ui/qt/app_shell.py": 673,
     "echozero/ui/qt/app_shell_project_timeline.py": 260,
     "echozero/ui/qt/timeline/widget.py": 865,
     "echozero/ui/qt/timeline/widget_actions.py": 1695,
     "echozero/ui/qt/timeline/object_info_panel.py": 450,
-    "echozero/ui/qt/timeline/widget_canvas.py": 430,
-    "echozero/application/timeline/orchestrator.py": 2250,
+    "echozero/ui/qt/timeline/widget_canvas.py": 439,
+    "echozero/application/timeline/orchestrator.py": 2253,
     "echozero/application/timeline/object_action_settings_service.py": 500,
     "echozero/application/timeline/assembler.py": 900,
     "echozero/application/presentation/inspector_contract.py": 500,

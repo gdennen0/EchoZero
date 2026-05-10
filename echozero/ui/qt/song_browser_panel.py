@@ -158,9 +158,7 @@ class SongBrowserPanel(QWidget):
         songs_header_layout.addWidget(self._songs_title)
         self._songs_meta = QLabel("0 songs", songs_header)
         self._songs_meta.setObjectName("songBrowserSongsMeta")
-        self._songs_meta.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
+        self._songs_meta.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         songs_header_layout.addWidget(self._songs_meta, 1)
         browser_layout.addWidget(songs_header)
 
@@ -336,9 +334,7 @@ class SongBrowserPanel(QWidget):
         self._presentation = presentation
         song_count = len(presentation.available_songs)
         self._title.setText("Setlist")
-        self._title.setToolTip(
-            f"{song_count} song" if song_count == 1 else f"{song_count} songs"
-        )
+        self._title.setToolTip(f"{song_count} song" if song_count == 1 else f"{song_count} songs")
 
         self._sync_selected_song_ids(presentation)
         self._populate_song_list(presentation)
@@ -429,9 +425,7 @@ class SongBrowserPanel(QWidget):
             item = QListWidgetItem(self._song_version_label(version, index=index))
             item.setData(_VERSION_ID_ROLE, version.song_version_id)
             item.setData(_VERSION_SONG_ID_ROLE, active_song.song_id)
-            item.setToolTip(
-                "Active song version" if version.is_active else "Song version"
-            )
+            item.setToolTip("Active song version" if version.is_active else "Song version")
             if version.song_version_id == active_version_id or version.is_active:
                 version_font = QFont(item.font())
                 version_font.setBold(True)

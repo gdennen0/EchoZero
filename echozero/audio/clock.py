@@ -42,6 +42,7 @@ class ClockSubscriber(Protocol):
 @dataclass(frozen=True)
 class LoopRegion:
     """Defines a loop range in samples. Immutable for atomic swap on audio thread."""
+
     start: int
     end: int
 
@@ -55,6 +56,7 @@ class LoopRegion:
 @dataclass(frozen=True)
 class _LoopSnapshot:
     """Immutable snapshot read atomically by the audio thread."""
+
     enabled: bool
     region: LoopRegion | None
 
@@ -73,8 +75,12 @@ class Clock:
     """
 
     __slots__ = (
-        "_position", "_sample_rate", "_subscribers",
-        "_loop_snapshot", "_lock", "_last_wrap_offset",
+        "_position",
+        "_sample_rate",
+        "_subscribers",
+        "_loop_snapshot",
+        "_lock",
+        "_last_wrap_offset",
         "_subscriber_errors",
     )
 

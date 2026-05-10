@@ -66,14 +66,18 @@ def test_compatibility_report_contract_schema_parity_guard() -> None:
     _assert_issue_shape(payload["warning_details"], expected_severity="warning")
 
 
-def test_validate_artifact_contract_payload_contains_structured_diagnostics(tmp_path: Path) -> None:
+def test_validate_artifact_contract_payload_contains_structured_diagnostics(
+    tmp_path: Path,
+) -> None:
     samples = tmp_path / "samples"
     write_percussion_dataset(samples)
 
     app = FoundryApp(tmp_path)
     dataset = app.datasets.create_dataset("Contract Drums", source_ref=str(samples))
     version = app.datasets.ingest_from_folder(dataset.id, samples)
-    app.plan_version(version.id, validation_split=0.2, test_split=0.2, seed=53, balance_strategy="none")
+    app.plan_version(
+        version.id, validation_split=0.2, test_split=0.2, seed=53, balance_strategy="none"
+    )
 
     run_spec = {
         "schema": "foundry.train_run_spec.v1",

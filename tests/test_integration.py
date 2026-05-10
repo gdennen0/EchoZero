@@ -51,7 +51,6 @@ from echozero.processors.load_audio import AudioFileInfo, LoadAudioProcessor
 from echozero.progress import RuntimeBus, RuntimeReport
 from echozero.result import Err, Ok, err, ok
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -94,6 +93,7 @@ def _make_block(
 
 
 # Pipeline command handlers
+
 
 def _add_block_handler(command: AddBlockCommand, context: CommandContext) -> str:
     block = Block(
@@ -146,9 +146,7 @@ def _change_settings_handler(command: ChangeBlockSettingsCommand, context: Comma
     block = context.graph.blocks[command.block_id]
     new_entries = dict(block.settings)
     new_entries[command.setting_key] = command.new_value
-    context.graph.replace_block(replace(
-        block, settings=BlockSettings(new_entries)
-    ))
+    context.graph.replace_block(replace(block, settings=BlockSettings(new_entries)))
     old_value = block.settings.get(command.setting_key)
     context.collect(
         SettingsChangedEvent(
@@ -163,7 +161,9 @@ def _change_settings_handler(command: ChangeBlockSettingsCommand, context: Comma
     )
 
 
-def _make_full_stack() -> tuple[Graph, EventBus, Pipeline, ExecutionEngine, ExecutionCache, Coordinator, RuntimeBus]:
+def _make_full_stack() -> (
+    tuple[Graph, EventBus, Pipeline, ExecutionEngine, ExecutionCache, Coordinator, RuntimeBus]
+):
     """Build a full coordinator + pipeline + engine stack for integration tests.
 
     Uses pipeline.graph as the single shared graph — commands mutate it directly.
@@ -211,49 +211,49 @@ class TestPipelineBuildAndExecute:
         graph, event_bus, pipeline, engine, cache, coordinator, _ = _make_full_stack()
 
         # Build graph via Pipeline commands
-        pipeline.dispatch(AddBlockCommand(
-            block_id="load1",
-            name="Load Audio",
-            block_type="LoadAudio",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(),
-            output_ports=(("audio_out", "AUDIO", "OUTPUT"),),
-        ))
-        pipeline.dispatch(AddBlockCommand(
-            block_id="onset1",
-            name="Detect Onsets",
-            block_type="DetectOnsets",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(("audio_in", "AUDIO", "INPUT"),),
-            output_ports=(("event_out", "EVENT", "OUTPUT"),),
-        ))
-        pipeline.dispatch(AddConnectionCommand(
-            source_block_id="load1",
-            source_output_name="audio_out",
-            target_block_id="onset1",
-            target_input_name="audio_in",
-        ))
+        pipeline.dispatch(
+            AddBlockCommand(
+                block_id="load1",
+                name="Load Audio",
+                block_type="LoadAudio",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(),
+                output_ports=(("audio_out", "AUDIO", "OUTPUT"),),
+            )
+        )
+        pipeline.dispatch(
+            AddBlockCommand(
+                block_id="onset1",
+                name="Detect Onsets",
+                block_type="DetectOnsets",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(("audio_in", "AUDIO", "INPUT"),),
+                output_ports=(("event_out", "EVENT", "OUTPUT"),),
+            )
+        )
+        pipeline.dispatch(
+            AddConnectionCommand(
+                source_block_id="load1",
+                source_output_name="audio_out",
+                target_block_id="onset1",
+                target_input_name="audio_in",
+            )
+        )
 
         # Inject settings directly (as command handler would)
         block = graph.blocks["load1"]
-        graph.replace_block(replace(
-            block, settings=BlockSettings({"file_path": str(audio_file)})
-        ))
+        graph.replace_block(replace(block, settings=BlockSettings({"file_path": str(audio_file)})))
 
         # Register processors
         engine.register_executor(
             "LoadAudio",
             LoadAudioProcessor(
-                audio_info_fn=lambda p: AudioFileInfo(
-                    sample_rate=44100, duration=5.0, channels=2
-                )
+                audio_info_fn=lambda p: AudioFileInfo(sample_rate=44100, duration=5.0, channels=2)
             ),
         )
         engine.register_executor(
             "DetectOnsets",
-            DetectOnsetsProcessor(
-                onset_detect_fn=lambda fp, sr, th, mg: [0.5, 1.0, 1.5]
-            ),
+            DetectOnsetsProcessor(onset_detect_fn=lambda fp, sr, th, mg: [0.5, 1.0, 1.5]),
         )
 
         # Execute
@@ -278,31 +278,42 @@ class TestPipelineBuildAndExecute:
 
         graph, _, pipeline, engine, cache, coordinator, _ = _make_full_stack()
 
-        pipeline.dispatch(AddBlockCommand(
-            block_id="load1", name="Load", block_type="LoadAudio",
-            output_ports=(("audio_out", "AUDIO", "OUTPUT"),),
-        ))
-        pipeline.dispatch(AddBlockCommand(
-            block_id="onset1", name="Onsets", block_type="DetectOnsets",
-            input_ports=(("audio_in", "AUDIO", "INPUT"),),
-            output_ports=(("event_out", "EVENT", "OUTPUT"),),
-        ))
-        pipeline.dispatch(AddConnectionCommand(
-            source_block_id="load1", source_output_name="audio_out",
-            target_block_id="onset1", target_input_name="audio_in",
-        ))
+        pipeline.dispatch(
+            AddBlockCommand(
+                block_id="load1",
+                name="Load",
+                block_type="LoadAudio",
+                output_ports=(("audio_out", "AUDIO", "OUTPUT"),),
+            )
+        )
+        pipeline.dispatch(
+            AddBlockCommand(
+                block_id="onset1",
+                name="Onsets",
+                block_type="DetectOnsets",
+                input_ports=(("audio_in", "AUDIO", "INPUT"),),
+                output_ports=(("event_out", "EVENT", "OUTPUT"),),
+            )
+        )
+        pipeline.dispatch(
+            AddConnectionCommand(
+                source_block_id="load1",
+                source_output_name="audio_out",
+                target_block_id="onset1",
+                target_input_name="audio_in",
+            )
+        )
 
         block = graph.blocks["load1"]
-        graph.replace_block(replace(
-            block, settings=BlockSettings({"file_path": str(audio_file)})
-        ))
+        graph.replace_block(replace(block, settings=BlockSettings({"file_path": str(audio_file)})))
 
-        engine.register_executor("LoadAudio", LoadAudioProcessor(
-            audio_info_fn=lambda p: AudioFileInfo(44100, 5.0, 2)
-        ))
-        engine.register_executor("DetectOnsets", DetectOnsetsProcessor(
-            onset_detect_fn=lambda fp, sr, th, mg: [0.5, 1.0]
-        ))
+        engine.register_executor(
+            "LoadAudio", LoadAudioProcessor(audio_info_fn=lambda p: AudioFileInfo(44100, 5.0, 2))
+        )
+        engine.register_executor(
+            "DetectOnsets",
+            DetectOnsetsProcessor(onset_detect_fn=lambda fp, sr, th, mg: [0.5, 1.0]),
+        )
 
         coordinator.request_run()
 
@@ -331,31 +342,42 @@ class TestStalenessPropagation:
         coordinator.subscribe_to_document_bus(event_bus)
 
         # Build and set up
-        pipeline.dispatch(AddBlockCommand(
-            block_id="load1", name="Load", block_type="LoadAudio",
-            output_ports=(("audio_out", "AUDIO", "OUTPUT"),),
-        ))
-        pipeline.dispatch(AddBlockCommand(
-            block_id="onset1", name="Onsets", block_type="DetectOnsets",
-            input_ports=(("audio_in", "AUDIO", "INPUT"),),
-            output_ports=(("event_out", "EVENT", "OUTPUT"),),
-        ))
-        pipeline.dispatch(AddConnectionCommand(
-            source_block_id="load1", source_output_name="audio_out",
-            target_block_id="onset1", target_input_name="audio_in",
-        ))
+        pipeline.dispatch(
+            AddBlockCommand(
+                block_id="load1",
+                name="Load",
+                block_type="LoadAudio",
+                output_ports=(("audio_out", "AUDIO", "OUTPUT"),),
+            )
+        )
+        pipeline.dispatch(
+            AddBlockCommand(
+                block_id="onset1",
+                name="Onsets",
+                block_type="DetectOnsets",
+                input_ports=(("audio_in", "AUDIO", "INPUT"),),
+                output_ports=(("event_out", "EVENT", "OUTPUT"),),
+            )
+        )
+        pipeline.dispatch(
+            AddConnectionCommand(
+                source_block_id="load1",
+                source_output_name="audio_out",
+                target_block_id="onset1",
+                target_input_name="audio_in",
+            )
+        )
 
         block = graph.blocks["load1"]
-        graph.replace_block(replace(
-            block, settings=BlockSettings({"file_path": str(audio_file)})
-        ))
+        graph.replace_block(replace(block, settings=BlockSettings({"file_path": str(audio_file)})))
 
-        engine.register_executor("LoadAudio", LoadAudioProcessor(
-            audio_info_fn=lambda p: AudioFileInfo(44100, 5.0, 2)
-        ))
-        engine.register_executor("DetectOnsets", DetectOnsetsProcessor(
-            onset_detect_fn=lambda fp, sr, th, mg: [0.5, 1.0, 1.5]
-        ))
+        engine.register_executor(
+            "LoadAudio", LoadAudioProcessor(audio_info_fn=lambda p: AudioFileInfo(44100, 5.0, 2))
+        )
+        engine.register_executor(
+            "DetectOnsets",
+            DetectOnsetsProcessor(onset_detect_fn=lambda fp, sr, th, mg: [0.5, 1.0, 1.5]),
+        )
 
         # First run — both become FRESH
         coordinator.request_run()
@@ -363,9 +385,13 @@ class TestStalenessPropagation:
         assert graph.blocks["onset1"].state == BlockState.FRESH
 
         # Change load settings → both marked STALE via DocumentBus
-        pipeline.dispatch(ChangeBlockSettingsCommand(
-            block_id="load1", setting_key="volume", new_value=0.8,
-        ))
+        pipeline.dispatch(
+            ChangeBlockSettingsCommand(
+                block_id="load1",
+                setting_key="volume",
+                new_value=0.8,
+            )
+        )
         assert graph.blocks["load1"].state == BlockState.STALE
         assert graph.blocks["onset1"].state == BlockState.STALE
 
@@ -387,17 +413,28 @@ class TestTargetedExecution:
         graph, _, pipeline, engine, cache, coordinator, _ = _make_full_stack()
 
         graph.add_block(_make_block("a", block_type="TypeA", output_ports=(_audio_out(),)))
-        graph.add_block(_make_block("b", block_type="TypeB",
-                                     input_ports=(_audio_in(),), output_ports=(_audio_out(),)))
+        graph.add_block(
+            _make_block(
+                "b", block_type="TypeB", input_ports=(_audio_in(),), output_ports=(_audio_out(),)
+            )
+        )
         graph.add_block(_make_block("c", block_type="TypeC", input_ports=(_audio_in(),)))
-        graph.add_connection(Connection(
-            source_block_id="a", source_output_name="audio_out",
-            target_block_id="b", target_input_name="audio_in",
-        ))
-        graph.add_connection(Connection(
-            source_block_id="b", source_output_name="audio_out",
-            target_block_id="c", target_input_name="audio_in",
-        ))
+        graph.add_connection(
+            Connection(
+                source_block_id="a",
+                source_output_name="audio_out",
+                target_block_id="b",
+                target_input_name="audio_in",
+            )
+        )
+        graph.add_connection(
+            Connection(
+                source_block_id="b",
+                source_output_name="audio_out",
+                target_block_id="c",
+                target_input_name="audio_in",
+            )
+        )
 
         exec_a = StubExecutor(output="a_out")
         exec_b = StubExecutor(output="b_out")
@@ -427,10 +464,14 @@ class TestCancellation:
 
         graph.add_block(_make_block("a", output_ports=(_audio_out(),)))
         graph.add_block(_make_block("b", input_ports=(_audio_in(),)))
-        graph.add_connection(Connection(
-            source_block_id="a", source_output_name="audio_out",
-            target_block_id="b", target_input_name="audio_in",
-        ))
+        graph.add_connection(
+            Connection(
+                source_block_id="a",
+                source_output_name="audio_out",
+                target_block_id="b",
+                target_input_name="audio_in",
+            )
+        )
 
         # Use an executor that sets cancel before the second block runs
         call_count = 0
@@ -476,28 +517,34 @@ class TestAutoEvaluation:
         coordinator.auto_evaluate = True
 
         # Build graph
-        pipeline.dispatch(AddBlockCommand(
-            block_id="load1", name="Load", block_type="LoadAudio",
-            output_ports=(("audio_out", "AUDIO", "OUTPUT"),),
-        ))
+        pipeline.dispatch(
+            AddBlockCommand(
+                block_id="load1",
+                name="Load",
+                block_type="LoadAudio",
+                output_ports=(("audio_out", "AUDIO", "OUTPUT"),),
+            )
+        )
 
         block = graph.blocks["load1"]
-        graph.replace_block(replace(
-            block, settings=BlockSettings({"file_path": str(audio_file)})
-        ))
+        graph.replace_block(replace(block, settings=BlockSettings({"file_path": str(audio_file)})))
 
-        engine.register_executor("LoadAudio", LoadAudioProcessor(
-            audio_info_fn=lambda p: AudioFileInfo(44100, 5.0, 2)
-        ))
+        engine.register_executor(
+            "LoadAudio", LoadAudioProcessor(audio_info_fn=lambda p: AudioFileInfo(44100, 5.0, 2))
+        )
 
         # First run to get FRESH
         coordinator.request_run()
         assert graph.blocks["load1"].state == BlockState.FRESH
 
         # Dispatch a settings change through Pipeline — DocumentBus should trigger auto-run
-        pipeline.dispatch(ChangeBlockSettingsCommand(
-            block_id="load1", setting_key="volume", new_value=0.5,
-        ))
+        pipeline.dispatch(
+            ChangeBlockSettingsCommand(
+                block_id="load1",
+                setting_key="volume",
+                new_value=0.5,
+            )
+        )
 
         # auto_evaluate should have triggered propagate_stale AND request_run
         # After request_run, block should be FRESH again
@@ -516,26 +563,44 @@ class TestMultiPortOutput:
     def test_multi_port_executor_caches_both_ports(self) -> None:
         graph, _, pipeline, engine, cache, coordinator, _ = _make_full_stack()
 
-        graph.add_block(_make_block(
-            "split", block_type="SplitProcessor",
-            output_ports=(
-                _audio_out("audio_out"),
-                _event_out("events_out"),
-            ),
-        ))
+        graph.add_block(
+            _make_block(
+                "split",
+                block_type="SplitProcessor",
+                output_ports=(
+                    _audio_out("audio_out"),
+                    _event_out("events_out"),
+                ),
+            )
+        )
 
         class SplitProcessor:
             def execute(self, block_id: str, context: ExecutionContext) -> Any:
-                return ok({
-                    "audio_out": AudioData(sample_rate=44100, duration=5.0,
-                                           file_path="/test.wav", channel_count=2),
-                    "events_out": EventData(layers=(
-                        Layer(id="l1", name="Events", events=(
-                            Event(id="e1", time=0.5, duration=0.0,
-                                  classifications={}, metadata={}, origin="split"),
-                        )),
-                    )),
-                })
+                return ok(
+                    {
+                        "audio_out": AudioData(
+                            sample_rate=44100, duration=5.0, file_path="/test.wav", channel_count=2
+                        ),
+                        "events_out": EventData(
+                            layers=(
+                                Layer(
+                                    id="l1",
+                                    name="Events",
+                                    events=(
+                                        Event(
+                                            id="e1",
+                                            time=0.5,
+                                            duration=0.0,
+                                            classifications={},
+                                            metadata={},
+                                            origin="split",
+                                        ),
+                                    ),
+                                ),
+                            )
+                        ),
+                    }
+                )
 
         engine.register_executor("SplitProcessor", SplitProcessor())
         coordinator.request_run()
@@ -552,29 +617,45 @@ class TestMultiPortOutput:
     def test_downstream_reads_specific_port(self) -> None:
         graph, _, pipeline, engine, cache, coordinator, _ = _make_full_stack()
 
-        graph.add_block(_make_block(
-            "split", block_type="SplitProcessor",
-            output_ports=(
-                _audio_out("audio_out"),
-                _event_out("events_out"),
-            ),
-        ))
-        graph.add_block(_make_block(
-            "consumer", block_type="Consumer",
-            input_ports=(_audio_in(),),
-        ))
-        graph.add_connection(Connection(
-            source_block_id="split", source_output_name="audio_out",
-            target_block_id="consumer", target_input_name="audio_in",
-        ))
+        graph.add_block(
+            _make_block(
+                "split",
+                block_type="SplitProcessor",
+                output_ports=(
+                    _audio_out("audio_out"),
+                    _event_out("events_out"),
+                ),
+            )
+        )
+        graph.add_block(
+            _make_block(
+                "consumer",
+                block_type="Consumer",
+                input_ports=(_audio_in(),),
+            )
+        )
+        graph.add_connection(
+            Connection(
+                source_block_id="split",
+                source_output_name="audio_out",
+                target_block_id="consumer",
+                target_input_name="audio_in",
+            )
+        )
 
         class SplitProcessor:
             def execute(self, block_id: str, context: ExecutionContext) -> Any:
-                return ok({
-                    "audio_out": AudioData(sample_rate=48000, duration=3.0,
-                                           file_path="/split.wav", channel_count=1),
-                    "events_out": EventData(layers=()),
-                })
+                return ok(
+                    {
+                        "audio_out": AudioData(
+                            sample_rate=48000,
+                            duration=3.0,
+                            file_path="/split.wav",
+                            channel_count=1,
+                        ),
+                        "events_out": EventData(layers=()),
+                    }
+                )
 
         class Consumer:
             def __init__(self) -> None:
@@ -593,7 +674,3 @@ class TestMultiPortOutput:
         assert consumer.received is not None
         assert isinstance(consumer.received, AudioData)
         assert consumer.received.sample_rate == 48000
-
-
-
-

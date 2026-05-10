@@ -60,6 +60,7 @@ from echozero.ui.qt.timeline.widget_action_contract_mixin import (
     _coerce_take_id,
     TimelineWidgetContractActionMixin,
 )
+
 _NATURAL_TOKEN_PATTERN = re.compile(r"(\d+)")
 _FINAL_PIPELINE_RUN_STATUSES = frozenset({"completed", "failed", "cancelled"})
 
@@ -166,7 +167,11 @@ class TimelineWidgetActionRouter(
             return self._handle_save_transfer_preset()
         if resolved_action_id in {"apply_transfer_preset", "delete_transfer_preset"}:
             return self._handle_transfer_preset_action(resolved_action_id)
-        if resolved_action_id in {"transfer.plan_preview", "transfer.plan_apply", "transfer.plan_cancel"}:
+        if resolved_action_id in {
+            "transfer.plan_preview",
+            "transfer.plan_apply",
+            "transfer.plan_cancel",
+        }:
             return self._handle_transfer_plan_action(resolved_action_id, params)
         if resolved_action_id in {
             "select_push_target_track",
@@ -365,7 +370,9 @@ class TimelineWidgetActionRouter(
             run_pipeline_actions = decision
 
         if mode == "target_song_versions":
-            resolved_target_song_id = target_song_id.strip() if isinstance(target_song_id, str) else ""
+            resolved_target_song_id = (
+                target_song_id.strip() if isinstance(target_song_id, str) else ""
+            )
             if not resolved_target_song_id:
                 self._message_box.warning(
                     self._widget,
@@ -429,8 +436,8 @@ class TimelineWidgetActionRouter(
                 "Create New Version",
                 (
                     "This timeline already has a source song loaded.\n\n"
-                    f"Create a new version of \"{active_title}\" from "
-                    f"\"{Path(resolved_path).name}\"?"
+                    f'Create a new version of "{active_title}" from '
+                    f'"{Path(resolved_path).name}"?'
                 ),
                 self._message_box.StandardButton.Yes | self._message_box.StandardButton.No,
                 self._message_box.StandardButton.No,
@@ -483,11 +490,7 @@ class TimelineWidgetActionRouter(
                 target_song_id=target_song_id,
                 audio_path=audio_path,
                 run_pipeline_actions=run_pipeline_actions and not queue_pipeline_runs,
-                pipeline_action_ids=(
-                    pipeline_action_ids
-                    if not queue_pipeline_runs
-                    else ()
-                ),
+                pipeline_action_ids=(pipeline_action_ids if not queue_pipeline_runs else ()),
                 imported_targets=imported_targets,
                 collect_pipeline_target=queue_pipeline_runs,
             ),
@@ -535,11 +538,7 @@ class TimelineWidgetActionRouter(
                 runtime=runtime,
                 audio_path=audio_path,
                 run_pipeline_actions=run_pipeline_actions and not queue_pipeline_runs,
-                pipeline_action_ids=(
-                    pipeline_action_ids
-                    if not queue_pipeline_runs
-                    else ()
-                ),
+                pipeline_action_ids=(pipeline_action_ids if not queue_pipeline_runs else ()),
                 initial_song_order=initial_song_order,
                 imported_song_ids=imported_song_ids,
                 imported_targets=imported_targets,
@@ -757,8 +756,14 @@ class TimelineWidgetActionRouter(
 
     def _advance_import_pipeline_queue(self) -> None:
         timer = cast(QTimer | None, getattr(self, "_import_pipeline_queue_timer", None))
-        queue = cast(list[tuple[_TimelineRuntimeShell, str, str, str]], getattr(self, "_import_pipeline_queue_items", []))
-        current = cast(tuple[_TimelineRuntimeShell, str, str, str] | None, getattr(self, "_import_pipeline_current_run", None))
+        queue = cast(
+            list[tuple[_TimelineRuntimeShell, str, str, str]],
+            getattr(self, "_import_pipeline_queue_items", []),
+        )
+        current = cast(
+            tuple[_TimelineRuntimeShell, str, str, str] | None,
+            getattr(self, "_import_pipeline_current_run", None),
+        )
 
         if current is not None:
             current_runtime, run_id, _action_id, _source_label = current
@@ -774,7 +779,9 @@ class TimelineWidgetActionRouter(
                     state = lookup(run_id)
                 except Exception:
                     state = None
-                status = str(getattr(state, "status", "")).strip().lower() if state is not None else ""
+                status = (
+                    str(getattr(state, "status", "")).strip().lower() if state is not None else ""
+                )
                 if status and status not in _FINAL_PIPELINE_RUN_STATUSES:
                     return
             setattr(self, "_import_pipeline_current_run", None)
@@ -800,7 +807,9 @@ class TimelineWidgetActionRouter(
                     f"{source_label}: {exc}",
                 )
                 continue
-            self._set_presentation(updated if updated is not None else queued_runtime.presentation())
+            self._set_presentation(
+                updated if updated is not None else queued_runtime.presentation()
+            )
 
             source_layer_id = self._resolve_import_source_audio_layer_id(queued_runtime)
             if source_layer_id is None:
@@ -871,9 +880,7 @@ class TimelineWidgetActionRouter(
         reorder_runtime = cast(_ReorderSongsRuntimeShell | None, runtime)
         if not callable(getattr(reorder_runtime, "reorder_songs", None)):
             return False
-        current_order = [
-            song.song_id for song in self._get_presentation().available_songs
-        ]
+        current_order = [song.song_id for song in self._get_presentation().available_songs]
         imported_set = set(imported_song_ids)
         base_order = [song_id for song_id in current_order if song_id not in imported_set]
         insertion_index = len(base_order)
@@ -884,14 +891,10 @@ class TimelineWidgetActionRouter(
         }:
             target_index = base_order.index(resolved_target_song_id)
             insertion_index = (
-                target_index
-                if insertion_mode == "new_before_target"
-                else target_index + 1
+                target_index if insertion_mode == "new_before_target" else target_index + 1
             )
         reordered_song_ids = (
-            base_order[:insertion_index]
-            + list(imported_song_ids)
-            + base_order[insertion_index:]
+            base_order[:insertion_index] + list(imported_song_ids) + base_order[insertion_index:]
         )
         if reordered_song_ids == current_order:
             return True
@@ -901,9 +904,7 @@ class TimelineWidgetActionRouter(
         except Exception as exc:
             self._message_box.warning(self._widget, "Import Songs", str(exc))
             return False
-        self._set_presentation(
-            updated if updated is not None else runtime.presentation()
-        )
+        self._set_presentation(updated if updated is not None else runtime.presentation())
         return True
 
     def _invoke_add_song_from_path(
@@ -1101,8 +1102,7 @@ class TimelineWidgetActionRouter(
 
         parameters = signature.parameters
         if any(
-            parameter.kind is inspect.Parameter.VAR_KEYWORD
-            for parameter in parameters.values()
+            parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
         ):
             return True
         return any(keyword in parameters for keyword in kwargs)
@@ -1140,9 +1140,7 @@ class TimelineWidgetActionRouter(
             return ()
         configured = getattr(preferences, "song_import", None)
         action_ids = (
-            tuple(getattr(configured, "pipeline_action_ids", ()))
-            if configured is not None
-            else ()
+            tuple(getattr(configured, "pipeline_action_ids", ())) if configured is not None else ()
         )
         resolved: list[str] = []
         seen: set[str] = set()
@@ -1240,17 +1238,12 @@ class TimelineWidgetActionRouter(
 
         parameters = signature.parameters
         accepts_var_kwargs = any(
-            parameter.kind is inspect.Parameter.VAR_KEYWORD
-            for parameter in parameters.values()
+            parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
         )
         if accepts_var_kwargs:
             return method(*args, **kwargs)
 
-        supported_kwargs = {
-            key: value
-            for key, value in kwargs.items()
-            if key in parameters
-        }
+        supported_kwargs = {key: value for key, value in kwargs.items() if key in parameters}
         return method(*args, **supported_kwargs)
 
     def _action_label(self, action_id: str) -> str:
@@ -1607,7 +1600,8 @@ class TimelineWidgetActionRouter(
         )
         run_object_action = (
             run_runtime.run_object_action
-            if run_runtime is not None and callable(getattr(run_runtime, "run_object_action", None))
+            if run_runtime is not None
+            and callable(getattr(run_runtime, "run_object_action", None))
             else None
         )
         if not callable(request_object_action_run) and not callable(run_object_action):

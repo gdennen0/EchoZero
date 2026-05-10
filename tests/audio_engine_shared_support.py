@@ -15,7 +15,6 @@ from echozero.audio.layer import AudioLayer, resample_buffer
 from echozero.audio.mixer import Mixer
 from echozero.audio.engine import AudioEngine, _resolve_output_defaults, _resolve_stream_defaults
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -74,5 +73,6 @@ class TestClock:
     def test_advance_returns_pre_advance_position(self) -> None:
         clock = Clock(44100)
         pos = clock.advance(256)
+
 
 __all__ = [name for name in globals() if not name.startswith("__")]

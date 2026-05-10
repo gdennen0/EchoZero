@@ -145,7 +145,9 @@ def _resolve_binary_label(manifest: dict[str, object], *, requested_label: str |
         raise ValueError("Artifact manifest is missing classes")
     normalized = [str(value).strip().lower() for value in classes]
     if len(normalized) != 2 or "other" not in normalized:
-        raise ValueError("Runtime bundle install requires a binary one-vs-rest artifact with classes [label, other]")
+        raise ValueError(
+            "Runtime bundle install requires a binary one-vs-rest artifact with classes [label, other]"
+        )
     labels = [value for value in normalized if value != "other"]
     if len(labels) != 1:
         raise ValueError("Runtime bundle install could not infer the positive label")
@@ -171,9 +173,4 @@ def _optional_string(value: object) -> str | None:
 
 
 def _slug(value: str) -> str:
-    return (
-        value.strip()
-        .lower()
-        .replace("_", "-")
-        .replace(" ", "-")
-    )
+    return value.strip().lower().replace("_", "-").replace(" ", "-")

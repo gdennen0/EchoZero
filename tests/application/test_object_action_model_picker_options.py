@@ -20,7 +20,9 @@ def _write_manifest(path: Path, *, created_at: str | None = None) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
-def test_runtime_model_option_label_includes_release_date_from_manifest_created_at(tmp_path: Path) -> None:
+def test_runtime_model_option_label_includes_release_date_from_manifest_created_at(
+    tmp_path: Path,
+) -> None:
     manifest_path = tmp_path / "binary-drum-kick" / "kick.manifest.json"
     _write_manifest(manifest_path, created_at="2026-04-24T17:35:10Z")
 
@@ -32,7 +34,9 @@ def test_runtime_model_option_label_includes_release_date_from_manifest_created_
     assert label == "binary-drum-kick/kick.manifest.json · Released 2026-04-24"
 
 
-def test_runtime_model_option_label_omits_release_date_when_manifest_has_no_date(tmp_path: Path) -> None:
+def test_runtime_model_option_label_omits_release_date_when_manifest_has_no_date(
+    tmp_path: Path,
+) -> None:
     manifest_path = tmp_path / "binary-drum-kick" / "kick.manifest.json"
     _write_manifest(manifest_path, created_at=None)
 
@@ -70,5 +74,10 @@ def test_build_runtime_model_picker_options_marks_current_manifest_with_release_
     )
 
     labels = {option.value: option.label for option in options}
-    assert labels[str(installed_manifest.resolve())] == "binary-drum-kick/kick.manifest.json · Released 2026-04-24"
-    assert labels[str(custom_manifest)] == "Current: custom-kick.manifest.json · Released 2026-03-10"
+    assert (
+        labels[str(installed_manifest.resolve())]
+        == "binary-drum-kick/kick.manifest.json · Released 2026-04-24"
+    )
+    assert (
+        labels[str(custom_manifest)] == "Current: custom-kick.manifest.json · Released 2026-03-10"
+    )

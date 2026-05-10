@@ -19,28 +19,28 @@ class LayerRepository(BaseRepository[LayerRecord]):
     """Read and write LayerRecord entities to the layers table."""
 
     def _from_row(self, row: sqlite3.Row) -> LayerRecord:
-        source_pipeline_raw = row['source_pipeline']
+        source_pipeline_raw = row["source_pipeline"]
         source_pipeline: dict[str, Any] | None = None
         if source_pipeline_raw is not None:
             source_pipeline = json.loads(source_pipeline_raw)
 
-        state_flags_raw = row['state_flags_json'] if 'state_flags_json' in row.keys() else '{}'
-        provenance_raw = row['provenance_json'] if 'provenance_json' in row.keys() else '{}'
+        state_flags_raw = row["state_flags_json"] if "state_flags_json" in row.keys() else "{}"
+        provenance_raw = row["provenance_json"] if "provenance_json" in row.keys() else "{}"
 
         return LayerRecord(
-            id=row['id'],
-            song_version_id=row['song_version_id'],
-            name=row['name'],
-            layer_type=row['layer_type'],
-            color=row['color'],
-            order=row['order'],
-            visible=bool(row['visible']),
-            locked=bool(row['locked']),
-            parent_layer_id=row['parent_layer_id'],
+            id=row["id"],
+            song_version_id=row["song_version_id"],
+            name=row["name"],
+            layer_type=row["layer_type"],
+            color=row["color"],
+            order=row["order"],
+            visible=bool(row["visible"]),
+            locked=bool(row["locked"]),
+            parent_layer_id=row["parent_layer_id"],
             source_pipeline=source_pipeline,
-            created_at=datetime.fromisoformat(row['created_at']),
-            state_flags=json.loads(state_flags_raw or '{}'),
-            provenance=json.loads(provenance_raw or '{}'),
+            created_at=datetime.fromisoformat(row["created_at"]),
+            state_flags=json.loads(state_flags_raw or "{}"),
+            provenance=json.loads(provenance_raw or "{}"),
         )
 
     def create(self, layer: LayerRecord) -> None:
@@ -112,7 +112,6 @@ class LayerRepository(BaseRepository[LayerRecord]):
     def reorder(self, song_version_id: str, layer_ids: list[str]) -> None:
         for i, layer_id in enumerate(layer_ids):
             self._execute(
-                'UPDATE layers SET "order" = ? '
-                "WHERE id = ? AND song_version_id = ?",
+                'UPDATE layers SET "order" = ? ' "WHERE id = ? AND song_version_id = ?",
                 (i, layer_id, song_version_id),
             )

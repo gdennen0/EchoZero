@@ -175,7 +175,8 @@ def scope_has_events(
         )
     if scope.mode == "layer_main":
         return any(
-            layer.layer_id == scope.layer_id and bool(layer.events) for layer in presentation.layers
+            layer.layer_id == scope.layer_id and bool(layer.events)
+            for layer in presentation.layers
         )
     return any(
         layer.layer_id == scope.layer_id
@@ -365,9 +366,7 @@ def shared_context_sections(
             ]
         if layer.kind is LayerKind.AUDIO:
             layer_actions.extend(_layer_smpte_import_actions(layer))
-            layer_actions.append(
-                _layer_routing_settings_action(layer)
-            )
+            layer_actions.append(_layer_routing_settings_action(layer))
         layer_actions.extend(
             (
                 InspectorAction(
@@ -756,9 +755,7 @@ def _layer_solo_action_label(layer: LayerPresentation) -> str:
 
 
 def _output_bus_auto_label(layer: LayerPresentation) -> str:
-    return (
-        "Using Default Output (1/2)" if layer.output_bus is None else "Use Default Output (1/2)"
-    )
+    return "Using Default Output (1/2)" if layer.output_bus is None else "Use Default Output (1/2)"
 
 
 def _output_bus_route_label(layer: LayerPresentation, *, output_bus: str) -> str:

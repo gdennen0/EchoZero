@@ -12,7 +12,11 @@ from pathlib import Path
 from echozero.foundry.app import FoundryApp
 from echozero.foundry.domain import Dataset, DatasetSample, DatasetVersion
 from echozero.foundry.domain.review import ReviewOutcome, ReviewPolarity, ReviewSession
-from echozero.foundry.persistence import DatasetRepository, DatasetVersionRepository, ReviewSignalRepository
+from echozero.foundry.persistence import (
+    DatasetRepository,
+    DatasetVersionRepository,
+    ReviewSignalRepository,
+)
 from echozero.foundry.review_server_controller import (
     ReviewServerController,
     ReviewServerLaunch,
@@ -73,7 +77,9 @@ def test_review_server_controller_retargets_enabled_server_to_runtime_root(monke
     created: list[tuple[Path, str | None, dict[str, object] | None, object]] = []
 
     class _FakeServer:
-        def __init__(self, root: Path, session_id: str | None, application_session: dict[str, object] | None) -> None:
+        def __init__(
+            self, root: Path, session_id: str | None, application_session: dict[str, object] | None
+        ) -> None:
             self.server_address = ("0.0.0.0", 8421)
             self.default_session_id = str(session_id or "").strip()
             self.current_application_session = application_session
@@ -136,7 +142,9 @@ def test_review_server_controller_retargets_enabled_server_to_runtime_root(monke
     assert controller.last_session_id == "live_session"
 
 
-def test_app_shell_runtime_open_project_publishes_phone_review_runtime_context(monkeypatch, tmp_path: Path):
+def test_app_shell_runtime_open_project_publishes_phone_review_runtime_context(
+    monkeypatch, tmp_path: Path
+):
     ez_path, _working_dir, _refs = _build_project_review_fixture(tmp_path)
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(working_dir_root=temp_root / "working")
@@ -420,7 +428,11 @@ def test_app_shell_runtime_exposes_latest_project_review_dataset_paths():
                 sample_rate=22050,
                 audio_standard="mono_wav_pcm16",
                 class_map=["kick"],
-                samples=[DatasetSample(sample_id="sm_active", audio_ref=str(matching_clip), label="kick")],
+                samples=[
+                    DatasetSample(
+                        sample_id="sm_active", audio_ref=str(matching_clip), label="kick"
+                    )
+                ],
                 manifest={"schema": "foundry.review_dataset_manifest.v1"},
                 created_at=datetime.now(UTC),
             )
@@ -434,7 +446,11 @@ def test_app_shell_runtime_exposes_latest_project_review_dataset_paths():
                 sample_rate=22050,
                 audio_standard="mono_wav_pcm16",
                 class_map=["kick"],
-                samples=[DatasetSample(sample_id="sm_foreign", audio_ref=str(foreign_clip), label="kick")],
+                samples=[
+                    DatasetSample(
+                        sample_id="sm_foreign", audio_ref=str(foreign_clip), label="kick"
+                    )
+                ],
                 manifest={"schema": "foundry.review_dataset_manifest.v1"},
                 created_at=datetime.now(UTC),
             )
@@ -448,13 +464,19 @@ def test_app_shell_runtime_exposes_latest_project_review_dataset_paths():
         assert latest.dataset_id == "ds_active_review"
         assert latest.version_id == "dsv_active_review"
         assert latest.folder_path == cache_dir.resolve()
-        assert latest.version_artifact_path == (
-            runtime.project_storage.working_dir / "foundry" / "state" / "dataset_versions.json"
-        ).resolve()
+        assert (
+            latest.version_artifact_path
+            == (
+                runtime.project_storage.working_dir / "foundry" / "state" / "dataset_versions.json"
+            ).resolve()
+        )
         assert runtime.latest_project_review_dataset_folder() == cache_dir.resolve()
-        assert runtime.latest_project_review_dataset_artifact_path() == (
-            runtime.project_storage.working_dir / "foundry" / "state" / "dataset_versions.json"
-        ).resolve()
+        assert (
+            runtime.latest_project_review_dataset_artifact_path()
+            == (
+                runtime.project_storage.working_dir / "foundry" / "state" / "dataset_versions.json"
+            ).resolve()
+        )
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -505,7 +527,9 @@ def test_app_shell_runtime_phone_review_correct_writes_back_via_runtime_bridge(t
 
         assert signal.review_decision is not None
         assert signal.review_decision.kind.value == "verified"
-        assert signal.source_provenance["project_writeback"]["status"] == "applied_via_runtime_bridge"
+        assert (
+            signal.source_provenance["project_writeback"]["status"] == "applied_via_runtime_bridge"
+        )
         assert queue.items[0].review_outcome == ReviewOutcome.CORRECT
         assert queue.items[0].review_decision is not None
         assert queue.items[0].review_decision.kind.value == "verified"
@@ -515,7 +539,9 @@ def test_app_shell_runtime_phone_review_correct_writes_back_via_runtime_bridge(t
         runtime.shutdown()
 
 
-def test_app_shell_runtime_phone_review_auto_rebinds_live_session_on_song_version_switch(tmp_path: Path):
+def test_app_shell_runtime_phone_review_auto_rebinds_live_session_on_song_version_switch(
+    tmp_path: Path,
+):
     ez_path, _working_dir, refs = _build_project_review_fixture(tmp_path)
     runtime = build_app_shell(working_dir_root=tmp_path / "working")
 

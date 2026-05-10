@@ -168,9 +168,7 @@ def prepare_audio_for_import(
         raise
 
     normalized_cleanup = tuple(
-        path
-        for path in cleanup_paths
-        if path not in {program_artifact_path, ltc_artifact_path}
+        path for path in cleanup_paths if path not in {program_artifact_path, ltc_artifact_path}
     )
     return PreparedAudioSource(
         source_path=program_artifact_path,
@@ -317,9 +315,7 @@ def _write_import_channel_copy(
 
     with sf.SoundFile(str(source_path), mode="r") as source_file:
         if int(source_file.channels) < 2:
-            raise RuntimeError(
-                f"Expected stereo source for LTC stripping: {source_path}"
-            )
+            raise RuntimeError(f"Expected stereo source for LTC stripping: {source_path}")
 
         writer_kwargs: dict[str, object] = {
             "mode": "w",
@@ -454,8 +450,7 @@ def scan_audio_metadata(
         import soundfile as sf
     except ImportError:
         raise RuntimeError(
-            "Audio metadata scanning requires soundfile. "
-            "Install with: pip install soundfile"
+            "Audio metadata scanning requires soundfile. " "Install with: pip install soundfile"
         )
 
     try:

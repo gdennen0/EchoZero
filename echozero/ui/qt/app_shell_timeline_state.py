@@ -46,7 +46,9 @@ def restore_timeline_targets(
         take_id=prior_presentation.selected_take_id,
     )
     timeline.selection.selected_layer_id = selected_layer_id
-    timeline.selection.selected_layer_ids = [selected_layer_id] if selected_layer_id is not None else []
+    timeline.selection.selected_layer_ids = (
+        [selected_layer_id] if selected_layer_id is not None else []
+    )
     timeline.selection.selected_take_id = selected_take_id
     clear_selected_events(timeline)
 

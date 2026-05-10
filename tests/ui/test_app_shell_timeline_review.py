@@ -29,7 +29,9 @@ from echozero.testing.analysis_mocks import build_mock_analysis_service, write_t
 from echozero.ui.qt.app_shell import AppShellRuntime, build_app_shell
 
 
-def _build_timeline_review_runtime(tmp_path: Path) -> tuple[AppShellRuntime, LayerId, str, float, float]:
+def _build_timeline_review_runtime(
+    tmp_path: Path,
+) -> tuple[AppShellRuntime, LayerId, str, float, float]:
     runtime = build_app_shell(
         working_dir_root=tmp_path / "working",
         analysis_service=build_mock_analysis_service(),
@@ -43,8 +45,12 @@ def _build_timeline_review_runtime(tmp_path: Path) -> tuple[AppShellRuntime, Lay
     classified = runtime.extract_classified_drums(drums_layer.layer_id)
     kick_layer = next(layer for layer in classified.layers if layer.title == "Kick")
     first_event = kick_layer.events[0]
-    return runtime, kick_layer.layer_id, str(first_event.event_id), float(first_event.start), float(
-        first_event.end
+    return (
+        runtime,
+        kick_layer.layer_id,
+        str(first_event.event_id),
+        float(first_event.start),
+        float(first_event.end),
     )
 
 
@@ -78,7 +84,9 @@ def _ensure_two_review_target_ids(
                 payload_ref=seed_event_id,
             )
         )
-        layer = next(layer for layer in runtime.presentation().layers if layer.layer_id == layer_id)
+        layer = next(
+            layer for layer in runtime.presentation().layers if layer.layer_id == layer_id
+        )
         event_ids = [str(event.event_id) for event in layer.events]
     assert len(event_ids) >= 2
     return layer, event_ids[:2]
@@ -123,10 +131,14 @@ def test_timeline_fix_mode_routes_review_commits_through_shared_pipeline_control
     assert "songRef" not in command.commit.source_provenance
 
 
-def test_app_shell_runtime_commit_missed_event_review_creates_signal_and_updates_runtime_state(tmp_path: Path):
+def test_app_shell_runtime_commit_missed_event_review_creates_signal_and_updates_runtime_state(
+    tmp_path: Path,
+):
     runtime, layer_id, event_id, _start, _end = _build_timeline_review_runtime(tmp_path)
     try:
-        before_layer = next(layer for layer in runtime.presentation().layers if layer.layer_id == layer_id)
+        before_layer = next(
+            layer for layer in runtime.presentation().layers if layer.layer_id == layer_id
+        )
         before_event_count = len(before_layer.events)
         before_event_ids = {str(event.event_id) for event in before_layer.events}
 
@@ -148,7 +160,9 @@ def test_app_shell_runtime_commit_missed_event_review_creates_signal_and_updates
         created_event = next(
             event for event in updated_layer.events if str(event.event_id) not in before_event_ids
         )
-        runtime_event = _runtime_event(runtime, layer_id=layer_id, event_id=str(created_event.event_id))
+        runtime_event = _runtime_event(
+            runtime, layer_id=layer_id, event_id=str(created_event.event_id)
+        )
         assert signal.review_decision is not None
         assert signal.review_decision.kind == ReviewDecisionKind.MISSED_EVENT_ADDED
         assert signal.source_provenance["project_writeback"]["reason"] == "non_project_session"
@@ -241,7 +255,11 @@ def test_app_shell_runtime_commit_verified_events_review_supports_undo(tmp_path:
             seed_event_id=event_id,
         )
         before_review_metadata = {
-            target_id: deepcopy(_runtime_event(runtime, layer_id=layer_id, event_id=target_id).metadata.get("review"))
+            target_id: deepcopy(
+                _runtime_event(runtime, layer_id=layer_id, event_id=target_id).metadata.get(
+                    "review"
+                )
+            )
             for target_id in target_ids
         }
 
@@ -281,7 +299,9 @@ def test_app_shell_runtime_commit_rejected_event_review_demotes_event_and_create
     runtime, layer_id, event_id, _start, _end = _build_timeline_review_runtime(tmp_path)
     try:
         before_count = len(
-            next(layer for layer in runtime.presentation().layers if layer.layer_id == layer_id).events
+            next(
+                layer for layer in runtime.presentation().layers if layer.layer_id == layer_id
+            ).events
         )
 
         reviewed = runtime.dispatch(
@@ -358,7 +378,11 @@ def test_app_shell_runtime_commit_rejected_events_review_supports_undo(tmp_path:
             seed_event_id=event_id,
         )
         before_review_metadata = {
-            target_id: deepcopy(_runtime_event(runtime, layer_id=layer_id, event_id=target_id).metadata.get("review"))
+            target_id: deepcopy(
+                _runtime_event(runtime, layer_id=layer_id, event_id=target_id).metadata.get(
+                    "review"
+                )
+            )
             for target_id in target_ids
         }
 
@@ -392,10 +416,14 @@ def test_app_shell_runtime_commit_rejected_events_review_supports_undo(tmp_path:
         runtime.shutdown()
 
 
-def test_app_shell_runtime_commit_missed_events_review_batches_signals_and_creates_events(tmp_path: Path):
+def test_app_shell_runtime_commit_missed_events_review_batches_signals_and_creates_events(
+    tmp_path: Path,
+):
     runtime, layer_id, event_id, _start, _end = _build_timeline_review_runtime(tmp_path)
     try:
-        before_layer = next(layer for layer in runtime.presentation().layers if layer.layer_id == layer_id)
+        before_layer = next(
+            layer for layer in runtime.presentation().layers if layer.layer_id == layer_id
+        )
         before_event_ids = {str(event.event_id) for event in before_layer.events}
 
         reviewed = runtime.dispatch(
@@ -449,7 +477,9 @@ def test_app_shell_runtime_commit_missed_events_review_batches_signals_and_creat
 def test_app_shell_runtime_commit_missed_events_review_supports_undo(tmp_path: Path):
     runtime, layer_id, event_id, _start, _end = _build_timeline_review_runtime(tmp_path)
     try:
-        before_layer = next(layer for layer in runtime.presentation().layers if layer.layer_id == layer_id)
+        before_layer = next(
+            layer for layer in runtime.presentation().layers if layer.layer_id == layer_id
+        )
         before_event_ids = {str(event.event_id) for event in before_layer.events}
 
         runtime.dispatch(
@@ -504,7 +534,9 @@ def test_app_shell_runtime_commit_relabel_event_review_updates_label_and_creates
         )
 
         updated_layer = next(layer for layer in reviewed.layers if layer.layer_id == layer_id)
-        updated_event = next(event for event in updated_layer.events if str(event.event_id) == event_id)
+        updated_event = next(
+            event for event in updated_layer.events if str(event.event_id) == event_id
+        )
         signal = ReviewSignalRepository(runtime.project_storage.working_dir).list()[0]
         runtime_event = _runtime_event(runtime, layer_id=layer_id, event_id=event_id)
 
@@ -554,7 +586,9 @@ def test_app_shell_runtime_commit_boundary_corrected_event_review_updates_timing
         )
 
         updated_layer = next(layer for layer in reviewed.layers if layer.layer_id == layer_id)
-        updated_event = next(event for event in updated_layer.events if str(event.event_id) == event_id)
+        updated_event = next(
+            event for event in updated_layer.events if str(event.event_id) == event_id
+        )
         signal = ReviewSignalRepository(runtime.project_storage.working_dir).list()[0]
         runtime_event = _runtime_event(runtime, layer_id=layer_id, event_id=event_id)
 
@@ -566,7 +600,10 @@ def test_app_shell_runtime_commit_boundary_corrected_event_review_updates_timing
         assert signal.review_decision.corrected_end_ms == corrected_range.end * 1000.0
         assert signal.source_provenance["dataset_materialization"]["status"] == "deferred"
         assert runtime_event.metadata["review"]["review_state"] == "corrected"
-        assert runtime_event.metadata["review"]["corrected_start_ms"] == corrected_range.start * 1000.0
+        assert (
+            runtime_event.metadata["review"]["corrected_start_ms"]
+            == corrected_range.start * 1000.0
+        )
         exported = sorted((export_root / "kick").glob("*.wav"))
         assert exported
         manifest_rows = [
@@ -575,7 +612,9 @@ def test_app_shell_runtime_commit_boundary_corrected_event_review_updates_timing
             if line.strip()
         ]
         assert any(row["decision_kind"] == "boundary_corrected" for row in manifest_rows)
-        corrected_row = next(row for row in manifest_rows if row["decision_kind"] == "boundary_corrected")
+        corrected_row = next(
+            row for row in manifest_rows if row["decision_kind"] == "boundary_corrected"
+        )
         assert Path(corrected_row["clip_path"]).is_absolute() is False
         assert Path(corrected_row["source_audio_path"]).is_absolute() is False
         assert (export_root / corrected_row["clip_path"]).exists()

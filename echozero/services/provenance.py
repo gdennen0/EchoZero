@@ -198,14 +198,18 @@ def initialize_generated_layer_state(
     )
 
 
-def mark_layer_stale(layer: LayerRecord, *, reason: str, upstream_layer_id: str | None = None) -> LayerRecord:
+def mark_layer_stale(
+    layer: LayerRecord, *, reason: str, upstream_layer_id: str | None = None
+) -> LayerRecord:
     state_flags = dict(layer.state_flags)
-    state_flags.update({
-        "stale": True,
-        "source_main_changed": True,
-        "stale_reason": reason,
-        "stale_upstream_layer_id": upstream_layer_id,
-    })
+    state_flags.update(
+        {
+            "stale": True,
+            "source_main_changed": True,
+            "stale_reason": reason,
+            "stale_upstream_layer_id": upstream_layer_id,
+        }
+    )
     return replace(layer, state_flags=state_flags)
 
 
@@ -224,7 +228,9 @@ def mark_layer_manually_modified(layer: LayerRecord) -> LayerRecord:
     return replace(layer, state_flags=state_flags)
 
 
-def build_song_version_rebuild_plan(*, previous_version_id: str, new_version_id: str, pipeline_config_ids: list[str]) -> dict[str, Any]:
+def build_song_version_rebuild_plan(
+    *, previous_version_id: str, new_version_id: str, pipeline_config_ids: list[str]
+) -> dict[str, Any]:
     """Return a minimal stub plan for rebuilding a new song version from copied configs.
 
     Current policy:

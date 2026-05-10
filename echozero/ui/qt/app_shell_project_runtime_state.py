@@ -161,9 +161,7 @@ def _state_from_payload(payload: dict[str, Any]) -> ProjectRuntimeState:
     return ProjectRuntimeState(
         active_song_id=SongId(active_song_id) if active_song_id is not None else None,
         active_song_version_id=(
-            SongVersionId(active_song_version_id)
-            if active_song_version_id is not None
-            else None
+            SongVersionId(active_song_version_id) if active_song_version_id is not None else None
         ),
         playhead=_non_negative_float(payload.get("playhead")),
         pixels_per_second=_positive_float(payload.get("pixels_per_second"), fallback=100.0),

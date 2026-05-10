@@ -280,7 +280,7 @@ def _load_real_project_timeline() -> tuple[TimelineOrchestrator, Timeline, Layer
             layer_id = LayerId(str(layer_row["id"]))
             takes: list[Take] = []
             for take_row in cursor.execute(
-                'select id, label, data_json from takes where layer_id = ? order by created_at',
+                "select id, label, data_json from takes where layer_id = ? order by created_at",
                 (str(layer_id),),
             ).fetchall():
                 events: list[Event] = []
@@ -335,9 +335,7 @@ def _load_real_project_timeline() -> tuple[TimelineOrchestrator, Timeline, Layer
                                     classifications=dict(classifications or {}),
                                     metadata=dict(metadata or {}),
                                     origin=str(event_data.get("origin", "model")),
-                                    source_event_id=(
-                                        source_event_id or event_id or None
-                                    ),
+                                    source_event_id=(source_event_id or event_id or None),
                                     parent_event_id=(
                                         parent_event_id if parent_event_id is not None else None
                                     ),
@@ -374,14 +372,18 @@ def _load_real_project_timeline() -> tuple[TimelineOrchestrator, Timeline, Layer
     orchestrator, _template_timeline, _template_layer, _main_take, _alt_take = (
         _build_orchestrator_and_timeline()
     )
-    timeline.selection.selected_layer_id = (
-        timeline_layers[0].id if timeline_layers else None
-    )
+    timeline.selection.selected_layer_id = timeline_layers[0].id if timeline_layers else None
     timeline.selection.selected_layer_ids = [layer.id for layer in timeline_layers]
     timeline.selection.selected_take_id = (
         timeline_layers[0].takes[0].id if timeline_layers and timeline_layers[0].takes else None
     )
-    return orchestrator, timeline, timeline_layers[0], timeline_layers[0].takes[0], timeline_layers[1]
+    return (
+        orchestrator,
+        timeline,
+        timeline_layers[0],
+        timeline_layers[0].takes[0],
+        timeline_layers[1],
+    )
 
 
 def test_select_take_is_selection_only_and_does_not_change_main_truth():
@@ -1288,18 +1290,14 @@ def test_select_similar_sounding_events_layer_scope_includes_other_takes():
 
 
 def test_select_similar_sounding_events_real_project_filters_other_event_layer_when_selected_layers_scope():
-    orchestrator, timeline, kick_layer, kick_take, snare_layer = (
-        _load_real_project_timeline()
-    )
+    orchestrator, timeline, kick_layer, kick_take, snare_layer = _load_real_project_timeline()
     timeline.selection.selected_layer_ids = [kick_layer.id, snare_layer.id]
     timeline.selection.selected_layer_id = kick_layer.id
     timeline.selection.selected_take_id = kick_take.id
 
     anchor_event = kick_take.events[0]
     expected_kick_event_ids = {event.id for event in kick_take.events}
-    snare_event_ids = {
-        event.id for take in snare_layer.takes for event in take.events
-    }
+    snare_event_ids = {event.id for take in snare_layer.takes for event in take.events}
 
     orchestrator.handle(
         timeline,
@@ -1516,7 +1514,9 @@ def test_create_event_on_section_layer_creates_section_start_on_main_take():
     )
 
     created = next(
-        event for event in section_main_take.events if event.id == EventId("take_sections_main:event:1")
+        event
+        for event in section_main_take.events
+        if event.id == EventId("take_sections_main:event:1")
     )
     assert created.start == pytest.approx(1.6)
     assert created.end == pytest.approx(1.68)

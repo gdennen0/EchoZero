@@ -27,7 +27,6 @@ from echozero.processors.pytorch_audio_classify import PyTorchAudioClassifyProce
 from echozero.progress import ProgressReport, RuntimeBus
 from echozero.result import Err, Ok
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -73,7 +72,7 @@ def _make_graph_with_classify(
     default_settings = {"model_path": "/test/model.pth"}
     if classify_settings is not None:
         default_settings.update(classify_settings)
-    
+
     classify_block = Block(
         id="classify1",
         name="PyTorch Audio Classify",
@@ -284,9 +283,7 @@ class TestPyTorchAudioClassifySuccess:
         assert len(result_layers[1].events) == 2
 
     def test_empty_events_returns_empty_event_data(self) -> None:
-        empty_event_data = EventData(
-            layers=(Layer(id="empty", name="Empty", events=()),)
-        )
+        empty_event_data = EventData(layers=(Layer(id="empty", name="Empty", events=()),))
 
         graph = _make_graph_with_classify()
         context = _make_context(graph)
@@ -357,9 +354,7 @@ class TestPyTorchAudioClassifySuccess:
         assert received_args[0] == ("/models/custom.pth", "cuda", 64)
 
     def test_default_device_is_cpu(self) -> None:
-        graph = _make_graph_with_classify(
-            classify_settings={"model_path": "/test/model.pth"}
-        )
+        graph = _make_graph_with_classify(classify_settings={"model_path": "/test/model.pth"})
         context = _make_context(graph)
         context.set_output("onset1", "events_out", MOCK_EVENT_DATA)
 
@@ -383,9 +378,7 @@ class TestPyTorchAudioClassifySuccess:
         assert received_args[0] == "cpu"
 
     def test_default_batch_size_is_32(self) -> None:
-        graph = _make_graph_with_classify(
-            classify_settings={"model_path": "/test/model.pth"}
-        )
+        graph = _make_graph_with_classify(classify_settings={"model_path": "/test/model.pth"})
         context = _make_context(graph)
         context.set_output("onset1", "events_out", MOCK_EVENT_DATA)
 
@@ -440,7 +433,7 @@ class TestPyTorchAudioClassifyErrors:
             output_ports=(_event_out(),),
         )
         graph.add_block(onset_block)
-        
+
         classify_block = Block(
             id="classify1",
             name="PyTorch Audio Classify",
@@ -459,7 +452,7 @@ class TestPyTorchAudioClassifyErrors:
                 target_input_name="events_in",
             )
         )
-        
+
         context = _make_context(graph)
         context.set_output("onset1", "events_out", MOCK_EVENT_DATA)
 
@@ -582,4 +575,3 @@ class TestPyTorchAudioClassifyProgress:
         # Check that at least one report mentions 3 events
         event_count_reports = [r for r in reports if "3 events" in r.message]
         assert len(event_count_reports) > 0
-

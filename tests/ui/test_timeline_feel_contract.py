@@ -246,7 +246,7 @@ def test_timeline_zoom_scales_continuously_from_partial_wheel_delta():
             )
         )
         widget._zoom_from_input(60, anchor_x=widget._canvas._header_width + 120.0)
-        expected = 100.0 * (TIMELINE_ZOOM_STEP_FACTOR ** 0.5)
+        expected = 100.0 * (TIMELINE_ZOOM_STEP_FACTOR**0.5)
         assert widget.presentation.pixels_per_second == pytest.approx(expected, rel=1e-6)
     finally:
         widget.close()
@@ -268,7 +268,9 @@ def test_zoom_to_fit_all_resets_scroll_and_fits_timeline_span():
         widget._zoom_to_fit_all()
 
         assert widget.presentation.scroll_x == 0.0
-        assert TIMELINE_ZOOM_MIN_PPS <= widget.presentation.pixels_per_second <= TIMELINE_ZOOM_MAX_PPS
+        assert (
+            TIMELINE_ZOOM_MIN_PPS <= widget.presentation.pixels_per_second <= TIMELINE_ZOOM_MAX_PPS
+        )
     finally:
         widget.close()
 

@@ -94,9 +94,13 @@ class _TransferPlanHost(Protocol):
         source_track: ManualPullTrackOption,
     ) -> Layer: ...
 
-    def _selected_event_records_by_layer(self, timeline: Timeline) -> list[tuple[Layer, list[Any]]]: ...
+    def _selected_event_records_by_layer(
+        self, timeline: Timeline
+    ) -> list[tuple[Layer, list[Any]]]: ...
 
-    def _selected_events_by_ids(self, timeline: Timeline, event_ids: list[EventId]) -> list[Event]: ...
+    def _selected_events_by_ids(
+        self, timeline: Timeline, event_ids: list[EventId]
+    ) -> list[Event]: ...
 
     def _set_selected_event_refs(self, timeline: Timeline, event_refs: list[EventRef]) -> None: ...
 
@@ -280,7 +284,9 @@ class TimelineOrchestratorTransferPlanMixin:
         )
 
         session = host.session_service.get_session()
-        session.manual_pull_flow.target_layer_id_by_source_track[source_track.coord] = target_layer.id
+        session.manual_pull_flow.target_layer_id_by_source_track[source_track.coord] = (
+            target_layer.id
+        )
         active_source_coord = (
             session.manual_pull_flow.active_source_track_coord
             or session.manual_pull_flow.source_track_coord
@@ -326,7 +332,9 @@ class TimelineOrchestratorTransferPlanMixin:
             status = str(operation.get("status") or "").strip().lower()
             if status == "success":
                 return self._copy_plan_row(row, status="applied", issue=None)
-            issue = str(operation.get("error") or operation.get("message") or "Push failed").strip()
+            issue = str(
+                operation.get("error") or operation.get("message") or "Push failed"
+            ).strip()
             return self._copy_plan_row(row, status="failed", issue=issue or "Push failed")
         apply_push = getattr(host.sync_service, "apply_push_transfer", None)
         if callable(apply_push):

@@ -528,9 +528,7 @@ class _ManualPushHarness:
                         ManualPushTimecodeOptionPresentation(number=1, name=None),
                     ],
                     selected_timecode_no=(
-                        int(intent.timecode_no)
-                        if intent.timecode_no is not None
-                        else 1
+                        int(intent.timecode_no) if intent.timecode_no is not None else 1
                     ),
                     available_track_groups=[
                         ManualPushTrackGroupOptionPresentation(
@@ -540,9 +538,7 @@ class _ManualPushHarness:
                         ),
                     ],
                     selected_track_group_no=(
-                        int(intent.track_group_no)
-                        if intent.track_group_no is not None
-                        else 2
+                        int(intent.track_group_no) if intent.track_group_no is not None else 2
                     ),
                     available_tracks=available_tracks,
                 ),

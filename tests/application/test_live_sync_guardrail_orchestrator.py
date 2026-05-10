@@ -9,7 +9,14 @@ from echozero.application.playback.service import PlaybackService
 from echozero.application.session.models import Session
 from echozero.application.session.service import SessionService
 from echozero.application.shared.enums import LayerKind, SyncMode
-from echozero.application.shared.ids import LayerId, ProjectId, SessionId, SongVersionId, TakeId, TimelineId
+from echozero.application.shared.ids import (
+    LayerId,
+    ProjectId,
+    SessionId,
+    SongVersionId,
+    TakeId,
+    TimelineId,
+)
 from echozero.application.sync.models import LiveSyncState, SyncState
 from echozero.application.sync.service import SyncService
 from echozero.application.timeline.intents import (
@@ -249,7 +256,9 @@ def test_reconnect_downgrades_armed_write_layers_to_paused_with_reason():
     orchestrator.handle(timeline, EnableSync(mode=SyncMode.MA3))
 
     assert layer_one.sync.live_sync_state is LiveSyncState.PAUSED
-    assert layer_one.sync.live_sync_pause_reason == "Live sync reconnected; explicit re-arm required"
+    assert (
+        layer_one.sync.live_sync_pause_reason == "Live sync reconnected; explicit re-arm required"
+    )
     assert layer_two.sync.live_sync_state is LiveSyncState.OBSERVE
     assert layer_two.sync.live_sync_pause_reason is None
 

@@ -3,7 +3,9 @@ from __future__ import annotations
 from echozero.inference_eval import create_echozero_adapter, create_foundry_adapter
 
 
-def test_foundry_and_echozero_adapters_produce_matching_fingerprints_for_equivalent_metadata() -> None:
+def test_foundry_and_echozero_adapters_produce_matching_fingerprints_for_equivalent_metadata() -> (
+    None
+):
     class_map = ("kick", "snare", "hat")
     run_spec = {
         "classificationMode": "multiclass",
@@ -30,13 +32,19 @@ def test_foundry_and_echozero_adapters_produce_matching_fingerprints_for_equival
         },
     }
 
-    foundry_fingerprint = create_foundry_adapter().contract_fingerprint_from_run_spec(run_spec, class_map=class_map)
-    echozero_fingerprint = create_echozero_adapter().contract_fingerprint_from_checkpoint(checkpoint)
+    foundry_fingerprint = create_foundry_adapter().contract_fingerprint_from_run_spec(
+        run_spec, class_map=class_map
+    )
+    echozero_fingerprint = create_echozero_adapter().contract_fingerprint_from_checkpoint(
+        checkpoint
+    )
 
     assert foundry_fingerprint == echozero_fingerprint
 
 
-def test_foundry_and_echozero_adapters_ignore_source_mapping_order_for_equivalent_metadata() -> None:
+def test_foundry_and_echozero_adapters_ignore_source_mapping_order_for_equivalent_metadata() -> (
+    None
+):
     class_map = ("kick", "snare")
     run_spec = {
         "model": {"type": "crnn"},
@@ -63,8 +71,12 @@ def test_foundry_and_echozero_adapters_ignore_source_mapping_order_for_equivalen
         "model_type": "crnn",
     }
 
-    foundry_fingerprint = create_foundry_adapter().contract_fingerprint_from_run_spec(run_spec, class_map=class_map)
-    echozero_fingerprint = create_echozero_adapter().contract_fingerprint_from_checkpoint(checkpoint)
+    foundry_fingerprint = create_foundry_adapter().contract_fingerprint_from_run_spec(
+        run_spec, class_map=class_map
+    )
+    echozero_fingerprint = create_echozero_adapter().contract_fingerprint_from_checkpoint(
+        checkpoint
+    )
 
     assert foundry_fingerprint == echozero_fingerprint
 
@@ -99,7 +111,11 @@ def test_foundry_and_echozero_adapters_ignore_training_only_preprocessing_keys()
         },
     }
 
-    foundry_fingerprint = create_foundry_adapter().contract_fingerprint_from_run_spec(run_spec, class_map=class_map)
-    echozero_fingerprint = create_echozero_adapter().contract_fingerprint_from_checkpoint(checkpoint)
+    foundry_fingerprint = create_foundry_adapter().contract_fingerprint_from_run_spec(
+        run_spec, class_map=class_map
+    )
+    echozero_fingerprint = create_echozero_adapter().contract_fingerprint_from_checkpoint(
+        checkpoint
+    )
 
     assert foundry_fingerprint == echozero_fingerprint

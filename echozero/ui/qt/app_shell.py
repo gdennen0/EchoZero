@@ -42,7 +42,9 @@ from echozero.foundry.review_server_controller import (
     ReviewServerController,
     ReviewServerLaunch,
 )
-from echozero.models.runtime_bundle_selection import resolve_installed_binary_drum_bundles  # noqa: F401
+from echozero.models.runtime_bundle_selection import (
+    resolve_installed_binary_drum_bundles,
+)  # noqa: F401
 from echozero.persistence.session import ProjectStorage
 from echozero.pipelines.registry import get_registry
 from echozero.processors import (
@@ -76,20 +78,32 @@ from echozero.ui.qt.app_shell_project_lifecycle import add_song_from_path as _ad
 from echozero.ui.qt.app_shell_project_lifecycle import add_song_version as _add_song_version
 from echozero.ui.qt.app_shell_project_lifecycle import delete_song as _delete_song
 from echozero.ui.qt.app_shell_project_lifecycle import delete_song_version as _delete_song_version
-from echozero.ui.qt.app_shell_project_lifecycle import get_project_ma3_push_offset_seconds as _get_project_ma3_push_offset_seconds
-from echozero.ui.qt.app_shell_project_lifecycle import list_ma3_timecode_pools as _list_ma3_timecode_pools
-from echozero.ui.qt.app_shell_project_lifecycle import list_song_version_transfer_layers as _list_song_version_transfer_layers
+from echozero.ui.qt.app_shell_project_lifecycle import (
+    get_project_ma3_push_offset_seconds as _get_project_ma3_push_offset_seconds,
+)
+from echozero.ui.qt.app_shell_project_lifecycle import (
+    list_ma3_timecode_pools as _list_ma3_timecode_pools,
+)
+from echozero.ui.qt.app_shell_project_lifecycle import (
+    list_song_version_transfer_layers as _list_song_version_transfer_layers,
+)
 from echozero.ui.qt.app_shell_project_lifecycle import move_song as _move_song
 from echozero.ui.qt.app_shell_project_lifecycle import new_project as _new_project
 from echozero.ui.qt.app_shell_project_lifecycle import open_project as _open_project
 from echozero.ui.qt.app_shell_project_lifecycle import recover_project as _recover_project
-from echozero.ui.qt.app_shell_project_lifecycle import refresh_from_storage as _refresh_from_storage
+from echozero.ui.qt.app_shell_project_lifecycle import (
+    refresh_from_storage as _refresh_from_storage,
+)
 from echozero.ui.qt.app_shell_project_lifecycle import reorder_songs as _reorder_songs
 from echozero.ui.qt.app_shell_project_lifecycle import save_project as _save_project
 from echozero.ui.qt.app_shell_project_lifecycle import save_project_as as _save_project_as
 from echozero.ui.qt.app_shell_project_lifecycle import select_song as _select_song
-from echozero.ui.qt.app_shell_project_lifecycle import set_project_ma3_push_offset_seconds as _set_project_ma3_push_offset_seconds
-from echozero.ui.qt.app_shell_project_lifecycle import set_song_version_ma3_timecode_pool as _set_song_version_ma3_timecode_pool
+from echozero.ui.qt.app_shell_project_lifecycle import (
+    set_project_ma3_push_offset_seconds as _set_project_ma3_push_offset_seconds,
+)
+from echozero.ui.qt.app_shell_project_lifecycle import (
+    set_song_version_ma3_timecode_pool as _set_song_version_ma3_timecode_pool,
+)
 from echozero.ui.qt.app_shell_project_lifecycle import switch_song_version as _switch_song_version
 from echozero.ui.qt.app_shell_project_review import (
     bind_phone_review_server_to_current_project,
@@ -150,6 +164,7 @@ from echozero.ui.qt.app_shell_storage_sync import (
 )
 from echozero.ui.qt.app_shell_specialized_model import AppShellSpecializedModelMixin
 from echozero.ui.qt.timeline_review_sample_export import review_sample_export_root
+
 _T = TypeVar("_T")
 
 

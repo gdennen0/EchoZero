@@ -222,7 +222,9 @@ class ManualPushFlowPresentation:
     selected_layer_ids: list[LayerId] = field(default_factory=list)
     available_timecodes: list[ManualPushTimecodeOptionPresentation] = field(default_factory=list)
     selected_timecode_no: int | None = None
-    available_track_groups: list[ManualPushTrackGroupOptionPresentation] = field(default_factory=list)
+    available_track_groups: list[ManualPushTrackGroupOptionPresentation] = field(
+        default_factory=list
+    )
     selected_track_group_no: int | None = None
     available_tracks: list[ManualPushTrackOptionPresentation] = field(default_factory=list)
     available_sequences: list[ManualPushSequenceOptionPresentation] = field(default_factory=list)
@@ -298,7 +300,9 @@ class ManualPullFlowPresentation:
     workspace_active: bool = False
     available_timecodes: list[ManualPullTimecodeOptionPresentation] = field(default_factory=list)
     selected_timecode_no: int | None = None
-    available_track_groups: list[ManualPullTrackGroupOptionPresentation] = field(default_factory=list)
+    available_track_groups: list[ManualPullTrackGroupOptionPresentation] = field(
+        default_factory=list
+    )
     selected_track_group_no: int | None = None
     available_tracks: list[ManualPullTrackOptionPresentation] = field(default_factory=list)
     selected_source_track_coords: list[str] = field(default_factory=list)

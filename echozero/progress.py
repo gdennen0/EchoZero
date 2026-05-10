@@ -90,11 +90,8 @@ class RuntimeBus:
             try:
                 subscriber(report)
             except Exception as exc:
-                logger.warning(
-                    "RuntimeBus: subscriber %r raised %r", subscriber, exc
-                )
+                logger.warning("RuntimeBus: subscriber %r raised %r", subscriber, exc)
 
     def clear(self) -> None:
         """Remove all subscribers — primarily for test teardown."""
         self._subscribers.clear()
-

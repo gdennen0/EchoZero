@@ -58,11 +58,17 @@ def create_review_http_server(
     )
 
 
-def serve_review_session(root: Path, session_id: str, *, host: str = "127.0.0.1", port: int = 8421) -> int:
+def serve_review_session(
+    root: Path, session_id: str, *, host: str = "127.0.0.1", port: int = 8421
+) -> int:
     """Run the review server until interrupted."""
     server = create_review_http_server(root, session_id, host=host, port=port)
     try:
-        print(json.dumps({"session_id": session_id, "host": host, "port": server.server_port}, indent=2))
+        print(
+            json.dumps(
+                {"session_id": session_id, "host": host, "port": server.server_port}, indent=2
+            )
+        )
         server.serve_forever()
     except KeyboardInterrupt:
         return 0
@@ -160,7 +166,9 @@ class _ReviewRequestHandler(BaseHTTPRequestHandler):
         if session is None:
             self.send_error(HTTPStatus.NOT_FOUND, "Review session not found")
             return
-        item = next((candidate for candidate in session.items if candidate.item_id == item_id), None)
+        item = next(
+            (candidate for candidate in session.items if candidate.item_id == item_id), None
+        )
         if item is None:
             self.send_error(HTTPStatus.NOT_FOUND, "Review item not found")
             return
@@ -217,7 +225,9 @@ class _ReviewRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encoded)
 
-    def _write_json(self, payload: dict[str, object], *, status: HTTPStatus = HTTPStatus.OK) -> None:
+    def _write_json(
+        self, payload: dict[str, object], *, status: HTTPStatus = HTTPStatus.OK
+    ) -> None:
         encoded = json.dumps(payload, indent=2).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")

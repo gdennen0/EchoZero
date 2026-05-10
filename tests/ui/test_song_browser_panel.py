@@ -55,7 +55,9 @@ def test_song_browser_panel_renders_song_and_version_lists():
         assert panel._title.text() == "Setlist"
         assert panel._songs_tree.topLevelItemCount() == 2
         assert panel._songs_tree.columnCount() == 2
-        assert panel._songs_tree.selectionMode() == QAbstractItemView.SelectionMode.ExtendedSelection
+        assert (
+            panel._songs_tree.selectionMode() == QAbstractItemView.SelectionMode.ExtendedSelection
+        )
         assert panel._songs_tree.dragDropMode() == QAbstractItemView.DragDropMode.InternalMove
         assert panel._songs_tree.topLevelItem(0).text(0) == "1"
         assert panel._songs_tree.topLevelItem(1).text(0) == "2"

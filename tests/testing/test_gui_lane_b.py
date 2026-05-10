@@ -76,10 +76,7 @@ def test_lane_b_runner_executes_starter_scenario_and_writes_trace():
         assert disable_step["snapshot"]["sync_connected"] is False
         assert disable_step["snapshot"]["sync_mode"] == "none"
         assert any(layer["title"] == "Drums" for layer in classify_step["snapshot"]["layers"])
-        assert any(
-            layer["title"] == "Kick"
-            for layer in classify_step["snapshot"]["layers"]
-        )
+        assert any(layer["title"] == "Kick" for layer in classify_step["snapshot"]["layers"])
 
         trace_path = output_dir / "trace.json"
         screenshot_path = output_dir / "lane-b-final.png"

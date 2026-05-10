@@ -164,14 +164,8 @@ class AppSettingsService:
         overrides = launch_overrides or AppSettingsLaunchOverrides()
         osc = self._preferences.ma3_osc
 
-        receive_enabled = (
-            osc.receive.enabled
-            or overrides.ma3_osc_listen_port is not None
-        )
-        send_enabled = (
-            osc.send.enabled
-            or overrides.ma3_osc_command_port is not None
-        )
+        receive_enabled = osc.receive.enabled or overrides.ma3_osc_listen_port is not None
+        send_enabled = osc.send.enabled or overrides.ma3_osc_command_port is not None
         return MA3OscRuntimeConfig(
             receive=OscReceiveRuntimeConfig(
                 enabled=receive_enabled,
@@ -410,9 +404,8 @@ class AppSettingsService:
         audio = preferences.audio_output
         if audio.sample_rate is not None and audio.sample_rate <= 0:
             raise AppSettingsValidationError("Audio sample rate override must be greater than 0.")
-        if (
-            audio.output_channels is not None
-            and (audio.output_channels < 1 or audio.output_channels > 16)
+        if audio.output_channels is not None and (
+            audio.output_channels < 1 or audio.output_channels > 16
         ):
             raise AppSettingsValidationError(
                 "Audio output channels must be between 1 and 16, or Auto."
@@ -422,7 +415,9 @@ class AppSettingsService:
 
         receive = preferences.ma3_osc.receive
         if receive.enabled and not receive.host.strip():
-            raise AppSettingsValidationError("OSC receive bind address is required when receive is enabled.")
+            raise AppSettingsValidationError(
+                "OSC receive bind address is required when receive is enabled."
+            )
         if not 0 <= receive.port <= 65535:
             raise AppSettingsValidationError("OSC receive bind port must be between 0 and 65535.")
 

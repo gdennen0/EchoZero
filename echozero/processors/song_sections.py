@@ -74,11 +74,15 @@ def _default_segment_song_sections(
 
     audio, effective_sample_rate = librosa.load(file_path, sr=sample_rate, mono=True)
     if audio.size == 0:
-        return (_SectionLabel(start_seconds=0.0, cue_ref="intro_01", label="Intro", confidence=1.0),)
+        return (
+            _SectionLabel(start_seconds=0.0, cue_ref="intro_01", label="Intro", confidence=1.0),
+        )
 
     duration_seconds = float(audio.shape[0]) / float(effective_sample_rate)
     if duration_seconds <= 0.0:
-        return (_SectionLabel(start_seconds=0.0, cue_ref="intro_01", label="Intro", confidence=1.0),)
+        return (
+            _SectionLabel(start_seconds=0.0, cue_ref="intro_01", label="Intro", confidence=1.0),
+        )
 
     mfcc = librosa.feature.mfcc(
         y=audio,
@@ -142,7 +146,9 @@ def _default_segment_song_sections(
         start=1,
     ):
         cue_ref = f"{label_text.lower()}_{index:02d}"
-        confidence = _section_confidence(novelty=novelty, seconds_per_frame=seconds_per_frame, start_seconds=start_seconds)
+        confidence = _section_confidence(
+            novelty=novelty, seconds_per_frame=seconds_per_frame, start_seconds=start_seconds
+        )
         section_labels.append(
             _SectionLabel(
                 start_seconds=float(start_seconds),
@@ -255,7 +261,9 @@ def _select_boundary_frames(
 
     normalized_sensitivity = max(0.0, min(1.0, sensitivity))
     quantile = max(0.20, min(0.95, 0.90 - (0.55 * normalized_sensitivity)))
-    threshold = float(np.quantile(novelty[1:], quantile)) if frame_count > 2 else float(novelty.max())
+    threshold = (
+        float(np.quantile(novelty[1:], quantile)) if frame_count > 2 else float(novelty.max())
+    )
 
     candidate_frames = [
         frame_index
@@ -264,7 +272,9 @@ def _select_boundary_frames(
         and novelty[frame_index] >= novelty[frame_index - 1]
         and novelty[frame_index] >= novelty[frame_index + 1]
     ]
-    ranked_candidates = sorted(candidate_frames, key=lambda index: float(novelty[index]), reverse=True)
+    ranked_candidates = sorted(
+        candidate_frames, key=lambda index: float(novelty[index]), reverse=True
+    )
 
     selected = [0]
     for frame_index in ranked_candidates:
@@ -275,7 +285,9 @@ def _select_boundary_frames(
     selected = sorted(set(selected))
     if max_sections > 0 and len(selected) > max_sections:
         frame_scores = {frame: float(novelty[frame]) for frame in selected if frame != 0}
-        highest_scored = sorted(frame_scores, key=frame_scores.get, reverse=True)[: max(0, max_sections - 1)]
+        highest_scored = sorted(frame_scores, key=frame_scores.get, reverse=True)[
+            : max(0, max_sections - 1)
+        ]
         selected = sorted({0, *highest_scored})
 
     return selected
@@ -297,16 +309,24 @@ def _segment_descriptors(
     duration_seconds = float(audio.shape[0]) / float(sample_rate)
 
     boundary_seconds_with_end = [*boundaries_seconds, duration_seconds]
-    for start_seconds, end_seconds in zip(boundary_seconds_with_end, boundary_seconds_with_end[1:], strict=False):
-        start_frame = max(0, min(total_frames - 1, int(round(start_seconds * sample_rate / hop_length))))
-        end_frame = max(start_frame + 1, min(total_frames, int(round(end_seconds * sample_rate / hop_length))))
+    for start_seconds, end_seconds in zip(
+        boundary_seconds_with_end, boundary_seconds_with_end[1:], strict=False
+    ):
+        start_frame = max(
+            0, min(total_frames - 1, int(round(start_seconds * sample_rate / hop_length)))
+        )
+        end_frame = max(
+            start_frame + 1, min(total_frames, int(round(end_seconds * sample_rate / hop_length)))
+        )
         frame_slice = normalized_features[start_frame:end_frame]
         if frame_slice.size == 0:
             frame_slice = normalized_features[start_frame : start_frame + 1]
         segment_embeddings.append(np.mean(frame_slice, axis=0))
 
         start_sample = max(0, int(round(start_seconds * sample_rate)))
-        end_sample = min(audio.shape[0], max(start_sample + 1, int(round(end_seconds * sample_rate))))
+        end_sample = min(
+            audio.shape[0], max(start_sample + 1, int(round(end_seconds * sample_rate)))
+        )
         audio_slice = audio[start_sample:end_sample]
         rms = float(np.sqrt(np.mean(np.square(audio_slice)))) if audio_slice.size else 0.0
         segment_rms.append(rms)
@@ -317,7 +337,9 @@ def _segment_descriptors(
 def _section_confidence(*, novelty: Any, seconds_per_frame: float, start_seconds: float) -> float:
     import numpy as np
 
-    frame_index = max(0, min(int(round(start_seconds / max(seconds_per_frame, 1e-5))), novelty.shape[0] - 1))
+    frame_index = max(
+        0, min(int(round(start_seconds / max(seconds_per_frame, 1e-5))), novelty.shape[0] - 1)
+    )
     local = novelty[max(0, frame_index - 2) : frame_index + 3]
     if local.size == 0:
         return 0.5
@@ -375,7 +397,9 @@ class SongSectionsProcessor:
         similarity_threshold = float(settings.get("similarity_threshold", 0.84))
         intro_tail_seconds = float(settings.get("intro_tail_seconds", 14.0))
         end_tail_seconds = float(settings.get("end_tail_seconds", 16.0))
-        detect_method = resolve_detect_method(settings.get("detect_method", MFCC_SEQUENCE_POOLING_METHOD))
+        detect_method = resolve_detect_method(
+            settings.get("detect_method", MFCC_SEQUENCE_POOLING_METHOD)
+        )
         segment_song_sections_fn = (
             self._determine_sections_segment_fn
             if detect_method == DETERMINE_SECTIONS_STYLE_METHOD

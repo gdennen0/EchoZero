@@ -241,7 +241,9 @@ class FakeMA3OSCBridge:
         return None
 
 
-def _install_launcher_fakes(monkeypatch, *, exec_result: int = 0, exec_error: Exception | None = None):
+def _install_launcher_fakes(
+    monkeypatch, *, exec_result: int = 0, exec_error: Exception | None = None
+):
     FakeWidget.instances = []
     FakeQTimer.shots = []
     FakeQApplication.instance_value = None
@@ -277,7 +279,9 @@ def _install_launcher_fakes(monkeypatch, *, exec_result: int = 0, exec_error: Ex
                 **_kwargs,
             }
         )
-        widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+        widget = FakeWidget(
+            runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+        )
         widget.resize(1440, 720)
         widget.setWindowTitle("EchoZero")
         launcher = SimpleNamespace(
@@ -303,7 +307,9 @@ def _install_launcher_fakes(monkeypatch, *, exec_result: int = 0, exec_error: Ex
         "_build_automation_bridge_server",
         lambda **kwargs: FakeAutomationBridgeServer(**kwargs),
     )
-    monkeypatch.setattr(run_echozero, "build_default_app_settings_service", lambda: app_settings_service)
+    monkeypatch.setattr(
+        run_echozero, "build_default_app_settings_service", lambda: app_settings_service
+    )
     monkeypatch.setattr(run_echozero, "OscUdpSendTransport", FakeOscUdpSendTransport)
     monkeypatch.setattr(run_echozero, "MA3OSCBridge", FakeMA3OSCBridge)
     monkeypatch.setattr(
@@ -315,7 +321,9 @@ def _install_launcher_fakes(monkeypatch, *, exec_result: int = 0, exec_error: Ex
 
 
 def test_run_echozero_main_wires_widget_and_smoke_timer(monkeypatch):
-    _, runtime_audio, build_calls, log_calls, _, _ = _install_launcher_fakes(monkeypatch, exec_result=27)
+    _, runtime_audio, build_calls, log_calls, _, _ = _install_launcher_fakes(
+        monkeypatch, exec_result=27
+    )
 
     result = run_echozero.main(["--smoke-exit-seconds", "1.25", "--style", "fusion"])
 
@@ -348,7 +356,9 @@ def test_run_echozero_main_wires_widget_and_smoke_timer(monkeypatch):
 
 
 def test_run_echozero_main_skips_timer_when_not_requested(monkeypatch):
-    _, runtime_audio, build_calls, log_calls, _, _ = _install_launcher_fakes(monkeypatch, exec_result=5)
+    _, runtime_audio, build_calls, log_calls, _, _ = _install_launcher_fakes(
+        monkeypatch, exec_result=5
+    )
 
     result = run_echozero.main([])
 
@@ -368,7 +378,9 @@ def test_run_echozero_main_skips_timer_when_not_requested(monkeypatch):
 
 
 def test_run_echozero_main_shuts_down_audio_on_exec_failure(monkeypatch):
-    _, runtime_audio, build_calls, log_calls, _, _ = _install_launcher_fakes(monkeypatch, exec_error=RuntimeError("boom"))
+    _, runtime_audio, build_calls, log_calls, _, _ = _install_launcher_fakes(
+        monkeypatch, exec_error=RuntimeError("boom")
+    )
 
     try:
         run_echozero.main([])
@@ -387,7 +399,9 @@ def test_run_echozero_main_shuts_down_audio_on_exec_failure(monkeypatch):
 
 
 def test_run_echozero_main_starts_and_stops_automation_bridge(monkeypatch, capsys):
-    _, runtime_audio, build_calls, log_calls, _, _ = _install_launcher_fakes(monkeypatch, exec_result=11)
+    _, runtime_audio, build_calls, log_calls, _, _ = _install_launcher_fakes(
+        monkeypatch, exec_result=11
+    )
 
     result = run_echozero.main(["--automation-port", "0"])
 
@@ -407,7 +421,9 @@ def test_run_echozero_main_writes_automation_info_file(monkeypatch, tmp_path):
     _, _, _, _, _, _ = _install_launcher_fakes(monkeypatch, exec_result=0)
     info_path = tmp_path / "automation" / "bridge.txt"
 
-    result = run_echozero.main(["--automation-port", "0", "--automation-info-file", str(info_path)])
+    result = run_echozero.main(
+        ["--automation-port", "0", "--automation-info-file", str(info_path)]
+    )
 
     assert result == 0
     assert info_path.read_text(encoding="utf-8").strip() == "http://127.0.0.1:43210"
@@ -592,7 +608,9 @@ def test_launcher_actions_invoke_canonical_runtime_methods(monkeypatch):
         lambda *args, **kwargs: ("C:/projects/saved-as.ez", run_echozero.PROJECT_FILE_FILTER),
     )
 
-    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    widget = FakeWidget(
+        runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+    )
     launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
     launcher.install()
 
@@ -635,7 +653,9 @@ def test_launcher_sets_window_title_from_project_name(monkeypatch):
 
     monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
 
-    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    widget = FakeWidget(
+        runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+    )
     launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
     launcher.install()
 
@@ -654,12 +674,16 @@ def test_launcher_exposes_enable_phone_review_service_when_runtime_supports_it(m
         presentation=lambda: "presentation",
         dispatch=lambda intent: intent,
     )
-    runtime.enable_phone_review_service = lambda: phone_review_events.append("enable") or SimpleNamespace(
+    runtime.enable_phone_review_service = lambda: phone_review_events.append(
+        "enable"
+    ) or SimpleNamespace(
         url="http://127.0.0.1:8421/",
         desktop_url="http://127.0.0.1:8421/",
         phone_url="http://192.168.1.44:8421/",
     )
-    runtime.open_project_review_session = lambda **kwargs: open_review_calls.append(kwargs) or SimpleNamespace(
+    runtime.open_project_review_session = lambda **kwargs: open_review_calls.append(
+        kwargs
+    ) or SimpleNamespace(
         url="http://127.0.0.1:8421/",
         desktop_url="http://127.0.0.1:8421/",
         phone_url="http://192.168.1.44:8421/",
@@ -671,7 +695,9 @@ def test_launcher_exposes_enable_phone_review_service_when_runtime_supports_it(m
         lambda _parent, title, message: info_messages.append((title, message)),
     )
 
-    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    widget = FakeWidget(
+        runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+    )
     launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
     launcher.install()
 
@@ -713,7 +739,9 @@ def test_launcher_new_project_prompts_to_save_dirty_changes(monkeypatch):
         lambda *args, **kwargs: QMessageBox.StandardButton.Save,
     )
 
-    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    widget = FakeWidget(
+        runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+    )
     launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
     launcher.install()
 
@@ -745,7 +773,9 @@ def test_launcher_open_project_cancel_keeps_current_project(monkeypatch):
         lambda *args, **kwargs: QMessageBox.StandardButton.Cancel,
     )
 
-    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    widget = FakeWidget(
+        runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+    )
     launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
     launcher.install()
 
@@ -772,7 +802,9 @@ def test_launcher_save_project_as_appends_ez_extension(monkeypatch):
         lambda *args, **kwargs: ("C:/projects/saved-project", run_echozero.PROJECT_FILE_FILTER),
     )
 
-    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    widget = FakeWidget(
+        runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+    )
     launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
     launcher.install()
 
@@ -808,7 +840,9 @@ def test_launcher_open_project_reports_errors(monkeypatch):
         lambda _parent, title, message: errors.append((title, message)),
     )
 
-    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    widget = FakeWidget(
+        runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+    )
     launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
     launcher.install()
 
@@ -866,8 +900,12 @@ def test_launcher_open_project_tracks_recent_projects(monkeypatch):
         lambda *args, **kwargs: ("C:/projects/opened.ez", run_echozero.PROJECT_FILE_FILTER),
     )
 
-    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
-    launcher = run_echozero.LauncherController(runtime=runtime, widget=widget, app_settings_service=settings)
+    widget = FakeWidget(
+        runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+    )
+    launcher = run_echozero.LauncherController(
+        runtime=runtime, widget=widget, app_settings_service=settings
+    )
     launcher.install()
 
     widget._launcher_actions["open_project"].trigger()
@@ -908,7 +946,9 @@ def test_launcher_open_project_recovery_prompt_uses_recover_path(monkeypatch):
         lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
     )
 
-    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    widget = FakeWidget(
+        runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+    )
     launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
     launcher.install()
 
@@ -967,8 +1007,12 @@ def test_launcher_open_recent_project_recovery_cancel_keeps_recent_entry(monkeyp
         lambda *args, **kwargs: QMessageBox.StandardButton.Cancel,
     )
 
-    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
-    launcher = run_echozero.LauncherController(runtime=runtime, widget=widget, app_settings_service=settings)
+    widget = FakeWidget(
+        runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+    )
+    launcher = run_echozero.LauncherController(
+        runtime=runtime, widget=widget, app_settings_service=settings
+    )
     launcher.install()
 
     result = launcher.open_recent_project_path(Path("C:/projects/recent.ez"))
@@ -1026,8 +1070,12 @@ def test_launcher_open_recent_project_path_forgets_failed_entry(monkeypatch):
         lambda _parent, title, message: errors.append((title, message)),
     )
 
-    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
-    launcher = run_echozero.LauncherController(runtime=runtime, widget=widget, app_settings_service=settings)
+    widget = FakeWidget(
+        runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+    )
+    launcher = run_echozero.LauncherController(
+        runtime=runtime, widget=widget, app_settings_service=settings
+    )
     launcher.install()
 
     result = launcher.open_recent_project_path(Path("C:/projects/broken.ez"))
@@ -1062,7 +1110,9 @@ def test_launcher_preferences_action_opens_dialog(monkeypatch):
     monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
     monkeypatch.setattr(launcher_surface, "PreferencesDialog", FakePreferencesDialog)
 
-    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    widget = FakeWidget(
+        runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+    )
     launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
     launcher.install()
 
@@ -1095,7 +1145,9 @@ def test_launcher_osc_settings_action_opens_dialog(monkeypatch):
     monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
     monkeypatch.setattr(launcher_surface, "OscSettingsDialog", FakeOscSettingsDialog)
 
-    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    widget = FakeWidget(
+        runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+    )
     launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
     launcher.install()
 
@@ -1133,8 +1185,12 @@ def test_launcher_audio_settings_rebinds_widget_runtime_audio_controller(monkeyp
 
     monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
 
-    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
-    launcher = run_echozero.LauncherController(runtime=runtime, widget=widget, app_settings_service=settings)
+    widget = FakeWidget(
+        runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+    )
+    launcher = run_echozero.LauncherController(
+        runtime=runtime, widget=widget, app_settings_service=settings
+    )
     launcher.install()
 
     launcher._apply_runtime_audio_settings()
@@ -1180,7 +1236,9 @@ def test_launcher_project_settings_action_updates_ma3_push_offset(monkeypatch):
         ),
     )
 
-    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    widget = FakeWidget(
+        runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+    )
     launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
     launcher.install()
 
@@ -1190,7 +1248,11 @@ def test_launcher_project_settings_action_updates_ma3_push_offset(monkeypatch):
 
 
 def test_launcher_close_prompt_cancel_prevents_close(monkeypatch):
-    runtime = SimpleNamespace(runtime_audio=FakeRuntimeAudio(), is_dirty=True, project_path=Path("C:/projects/current.ez"))
+    runtime = SimpleNamespace(
+        runtime_audio=FakeRuntimeAudio(),
+        is_dirty=True,
+        project_path=Path("C:/projects/current.ez"),
+    )
     runtime.presentation = lambda: "presentation"
     runtime.dispatch = lambda intent: intent
     runtime.save_project = lambda: None
@@ -1202,7 +1264,9 @@ def test_launcher_close_prompt_cancel_prevents_close(monkeypatch):
         lambda *args, **kwargs: QMessageBox.StandardButton.Cancel,
     )
 
-    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    widget = FakeWidget(
+        runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+    )
     launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
     launcher.install()
     event = FakeCloseEvent()
@@ -1216,7 +1280,11 @@ def test_launcher_close_prompt_cancel_prevents_close(monkeypatch):
 
 def test_launcher_close_prompt_save_uses_current_path(monkeypatch):
     calls: list[str] = []
-    runtime = SimpleNamespace(runtime_audio=FakeRuntimeAudio(), is_dirty=True, project_path=Path("C:/projects/current.ez"))
+    runtime = SimpleNamespace(
+        runtime_audio=FakeRuntimeAudio(),
+        is_dirty=True,
+        project_path=Path("C:/projects/current.ez"),
+    )
     runtime.presentation = lambda: "presentation"
     runtime.dispatch = lambda intent: intent
     runtime.save_project = lambda: calls.append("save_project")
@@ -1228,7 +1296,9 @@ def test_launcher_close_prompt_save_uses_current_path(monkeypatch):
         lambda *args, **kwargs: QMessageBox.StandardButton.Save,
     )
 
-    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    widget = FakeWidget(
+        runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+    )
     launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
     launcher.install()
     event = FakeCloseEvent()
@@ -1242,7 +1312,11 @@ def test_launcher_close_prompt_save_uses_current_path(monkeypatch):
 
 
 def test_launcher_close_prompt_discard_closes(monkeypatch):
-    runtime = SimpleNamespace(runtime_audio=FakeRuntimeAudio(), is_dirty=True, project_path=Path("C:/projects/current.ez"))
+    runtime = SimpleNamespace(
+        runtime_audio=FakeRuntimeAudio(),
+        is_dirty=True,
+        project_path=Path("C:/projects/current.ez"),
+    )
     runtime.presentation = lambda: "presentation"
     runtime.dispatch = lambda intent: intent
 
@@ -1253,7 +1327,9 @@ def test_launcher_close_prompt_discard_closes(monkeypatch):
         lambda *args, **kwargs: QMessageBox.StandardButton.Discard,
     )
 
-    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    widget = FakeWidget(
+        runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+    )
     launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
     launcher.install()
     event = FakeCloseEvent()
@@ -1272,7 +1348,9 @@ def test_launcher_actions_noop_safely_without_project_controls(monkeypatch):
         presentation=lambda: "presentation",
         dispatch=lambda intent: intent,
     )
-    widget = FakeWidget(runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio)
+    widget = FakeWidget(
+        runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+    )
 
     monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
 

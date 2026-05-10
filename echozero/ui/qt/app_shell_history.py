@@ -93,7 +93,9 @@ class HistoryShell(Protocol):
 
     def _sync_storage_backed_timeline(self) -> None: ...
 
-    def _sync_runtime_audio_from_presentation(self, presentation: TimelinePresentation) -> None: ...
+    def _sync_runtime_audio_from_presentation(
+        self, presentation: TimelinePresentation
+    ) -> None: ...
 
 
 def is_undoable_intent(intent: object) -> bool:

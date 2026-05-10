@@ -40,7 +40,9 @@ def test_echozero_backend_imports_song_and_exposes_timeline_targets():
         assert source_layer is not None
         assert source_layer.label in {"Automation Song", "automation-import"}
         assert any(action.action_id == "timeline.extract_stems" for action in snapshot.actions)
-        assert any(action.action_id == "timeline.extract_song_drum_events" for action in snapshot.actions)
+        assert any(
+            action.action_id == "timeline.extract_song_drum_events" for action in snapshot.actions
+        )
         assert session.screenshot(target_id="shell.timeline").startswith(b"\x89PNG\r\n\x1a\n")
     finally:
         session.close()

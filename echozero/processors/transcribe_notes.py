@@ -22,10 +22,10 @@ from echozero.execution import ExecutionContext
 from echozero.progress import ProgressReport
 from echozero.result import Result, err, ok
 
-
 # ---------------------------------------------------------------------------
 # Note result type
 # ---------------------------------------------------------------------------
+
 
 class NoteInfo(NamedTuple):
     """A single transcribed note."""
@@ -56,8 +56,8 @@ def midi_to_frequency(midi: int) -> float:
 
 TranscribeFn = Callable[
     [
-        str,    # file_path
-        int,    # sample_rate
+        str,  # file_path
+        int,  # sample_rate
         float,  # onset_threshold
         float,  # frame_threshold
         float,  # min_note_length (seconds)
@@ -86,6 +86,7 @@ def _default_transcribe(
 # ---------------------------------------------------------------------------
 # Processor
 # ---------------------------------------------------------------------------
+
 
 class TranscribeNotesProcessor:
     """Transcribes audio into note events with pitch, duration, and velocity."""
@@ -128,21 +129,23 @@ class TranscribeNotesProcessor:
 
         # Validate
         if not isinstance(onset_threshold, (int, float)) or not (0.0 <= onset_threshold <= 1.0):
-            return err(ValidationError(
-                f"onset_threshold must be between 0.0 and 1.0, got {onset_threshold}"
-            ))
+            return err(
+                ValidationError(
+                    f"onset_threshold must be between 0.0 and 1.0, got {onset_threshold}"
+                )
+            )
         if not isinstance(frame_threshold, (int, float)) or not (0.0 <= frame_threshold <= 1.0):
-            return err(ValidationError(
-                f"frame_threshold must be between 0.0 and 1.0, got {frame_threshold}"
-            ))
+            return err(
+                ValidationError(
+                    f"frame_threshold must be between 0.0 and 1.0, got {frame_threshold}"
+                )
+            )
         if not isinstance(min_frequency, (int, float)) or min_frequency < 1.0:
-            return err(ValidationError(
-                f"min_frequency must be >= 1.0 Hz, got {min_frequency}"
-            ))
+            return err(ValidationError(f"min_frequency must be >= 1.0 Hz, got {min_frequency}"))
         if not isinstance(max_frequency, (int, float)) or max_frequency <= min_frequency:
-            return err(ValidationError(
-                f"max_frequency must be > min_frequency, got {max_frequency}"
-            ))
+            return err(
+                ValidationError(f"max_frequency must be > min_frequency, got {max_frequency}")
+            )
 
         context.progress_bus.publish(
             ProgressReport(
@@ -165,14 +168,14 @@ class TranscribeNotesProcessor:
                 max_frequency=max_frequency,
             )
         except NotImplementedError:
-            return err(ExecutionError(
-                f"Note transcription backend not available for block '{block_id}'. "
-                f"Install basic-pitch or provide a custom transcribe_fn."
-            ))
+            return err(
+                ExecutionError(
+                    f"Note transcription backend not available for block '{block_id}'. "
+                    f"Install basic-pitch or provide a custom transcribe_fn."
+                )
+            )
         except Exception as exc:
-            return err(ExecutionError(
-                f"Note transcription failed for block '{block_id}': {exc}"
-            ))
+            return err(ExecutionError(f"Note transcription failed for block '{block_id}': {exc}"))
 
         context.progress_bus.publish(
             ProgressReport(
@@ -196,25 +199,29 @@ class TranscribeNotesProcessor:
             note_list = notes_by_name[note_name]
             events: list[Event] = []
             for note in note_list:
-                events.append(Event(
-                    id=f"{block_id}_note_{event_counter}",
-                    time=note.start_time,
-                    duration=note.end_time - note.start_time,
-                    classifications={"note": note_name},
-                    metadata={
-                        "midi_note": note.midi_note,
-                        "velocity": note.velocity,
-                        "frequency_hz": midi_to_frequency(note.midi_note),
-                        "origin_block": block_id,
-                    },
-                    origin=block_id,
-                ))
+                events.append(
+                    Event(
+                        id=f"{block_id}_note_{event_counter}",
+                        time=note.start_time,
+                        duration=note.end_time - note.start_time,
+                        classifications={"note": note_name},
+                        metadata={
+                            "midi_note": note.midi_note,
+                            "velocity": note.velocity,
+                            "frequency_hz": midi_to_frequency(note.midi_note),
+                            "origin_block": block_id,
+                        },
+                        origin=block_id,
+                    )
+                )
                 event_counter += 1
-            layers.append(Layer(
-                id=f"{block_id}_{note_name}",
-                name=note_name,
-                events=tuple(events),
-            ))
+            layers.append(
+                Layer(
+                    id=f"{block_id}_{note_name}",
+                    name=note_name,
+                    events=tuple(events),
+                )
+            )
 
         context.progress_bus.publish(
             ProgressReport(
@@ -226,5 +233,3 @@ class TranscribeNotesProcessor:
         )
 
         return ok(EventData(layers=tuple(layers)))
-
-

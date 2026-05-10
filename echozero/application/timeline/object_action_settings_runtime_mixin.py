@@ -15,7 +15,10 @@ from echozero.application.timeline.object_action_model_picker_options import (
     build_runtime_model_picker_options,
 )
 from echozero.application.timeline.object_content import is_imported_song_object_id
-from echozero.application.timeline.object_actions.descriptors import ActionDescriptor, workflow_descriptor_for_action
+from echozero.application.timeline.object_actions.descriptors import (
+    ActionDescriptor,
+    workflow_descriptor_for_action,
+)
 from echozero.application.timeline.object_actions.settings import (
     ObjectActionSettingField,
     ObjectActionSettingOption,
@@ -187,7 +190,9 @@ def build_object_action_setting_fields(
         value = resolved_params.get(key, persisted_value)
         widget_name = _knob_widget_name(knob.widget)
         options = tuple(
-            ObjectActionSettingOption(value=option, label=_option_label_for_setting(key=key, option=option))
+            ObjectActionSettingOption(
+                value=option, label=_option_label_for_setting(key=key, option=option)
+            )
             for option in (knob.options or ())
         )
         model_options = build_runtime_model_picker_options(knob=knob, value=value)
@@ -304,13 +309,14 @@ def _resolve_installed_binary_drum_bundles_compat(
 
     kwargs: dict[str, object] = {}
     if "models_dir" in parameters or any(
-        parameter.kind is inspect.Parameter.VAR_KEYWORD
-        for parameter in parameters.values()
+        parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
     ):
         kwargs["models_dir"] = models_dir
     if labels is not None and (
         "labels" in parameters
-        or any(parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters.values())
+        or any(
+            parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
+        )
     ):
         kwargs["labels"] = labels
     if kwargs:
@@ -359,7 +365,9 @@ def _object_action_binding_resolvers(
     }
 
 
-def _object_action_runtime_param_coercers() -> dict[str, Callable[[dict[str, object]], dict[str, object]]]:
+def _object_action_runtime_param_coercers() -> (
+    dict[str, Callable[[dict[str, object]], dict[str, object]]]
+):
     return {
         "classify_drum_events": _coerce_classify_drum_events_runtime_params,
     }
@@ -417,7 +425,9 @@ def _resolve_classify_drum_events_object_bindings(
 ) -> dict[str, object]:
     del shell
     assert layer is not None
-    return _bindings_for_classify_drum_events(layer, params=params, include_runtime_overrides=False)
+    return _bindings_for_classify_drum_events(
+        layer, params=params, include_runtime_overrides=False
+    )
 
 
 def _resolve_extract_classified_drums_object_bindings(
@@ -432,7 +442,9 @@ def _resolve_extract_classified_drums_object_bindings(
 
 
 def _coerce_classify_drum_events_runtime_params(params: dict[str, object]) -> dict[str, object]:
-    from echozero.application.timeline.object_action_settings_service import resolve_runtime_model_path
+    from echozero.application.timeline.object_action_settings_service import (
+        resolve_runtime_model_path,
+    )
 
     resolved = dict(params)
     model_path = resolved.pop("model_path", None)
@@ -440,9 +452,7 @@ def _coerce_classify_drum_events_runtime_params(params: dict[str, object]) -> di
         resolved["classify_model_path"] = model_path
     classify_model_path = resolved.get("classify_model_path")
     if classify_model_path is not None:
-        resolved["classify_model_path"] = str(
-            resolve_runtime_model_path(str(classify_model_path))
-        )
+        resolved["classify_model_path"] = str(resolve_runtime_model_path(str(classify_model_path)))
     return resolved
 
 
@@ -525,7 +535,9 @@ def _resolve_source_song_audio_layer(
     ]
     if not audio_layers:
         return None
-    direct_source = next((candidate for candidate in audio_layers if _is_imported_song_audio_layer(candidate)), None)
+    direct_source = next(
+        (candidate for candidate in audio_layers if _is_imported_song_audio_layer(candidate)), None
+    )
     if direct_source is not None:
         return direct_source
     canonical_song_layer = next(
@@ -556,7 +568,9 @@ def _bindings_for_classify_drum_events(
     params: dict[str, object],
     include_runtime_overrides: bool = True,
 ) -> dict[str, object]:
-    from echozero.application.timeline.object_action_settings_service import resolve_runtime_model_path
+    from echozero.application.timeline.object_action_settings_service import (
+        resolve_runtime_model_path,
+    )
 
     _validate_drum_derived_audio_layer(layer, action_name="timeline.classify_drum_events")
     bindings: dict[str, object] = {"audio_file": str(layer.source_audio_path)}
@@ -577,14 +591,12 @@ def _bindings_for_extract_classified_drums(layer: LayerPresentation) -> dict[str
 
 def _validate_drum_derived_audio_layer(layer: LayerPresentation, *, action_name: str) -> None:
     if layer.kind is not LayerKind.AUDIO:
-        raise ValueError(
-            f"{action_name} requires an audio layer, got {layer.kind.name.lower()}."
-        )
+        raise ValueError(f"{action_name} requires an audio layer, got {layer.kind.name.lower()}.")
     if not layer.source_audio_path:
         raise RuntimeError(f"{action_name} requires a source audio path on the selected layer.")
 
     title_lower = layer.title.lower()
-    source_label = (layer.status.source_label if layer.status is not None else "")
+    source_label = layer.status.source_label if layer.status is not None else ""
     source_label_lower = source_label.lower()
     badges = {str(badge).strip().lower() for badge in layer.badges}
     if "drum" not in title_lower and "drums" not in badges and "drum" not in source_label_lower:
@@ -596,13 +608,11 @@ def _validate_drum_derived_audio_layer(layer: LayerPresentation, *, action_name:
 
 def _validate_stem_derived_audio_layer(layer: LayerPresentation, *, action_name: str) -> None:
     if layer.kind is not LayerKind.AUDIO:
-        raise ValueError(
-            f"{action_name} requires an audio layer, got {layer.kind.name.lower()}."
-        )
+        raise ValueError(f"{action_name} requires an audio layer, got {layer.kind.name.lower()}.")
     if not layer.source_audio_path:
         raise RuntimeError(f"{action_name} requires a source audio path on the selected layer.")
     title_lower = layer.title.lower()
-    source_label = (layer.status.source_label if layer.status is not None else "")
+    source_label = layer.status.source_label if layer.status is not None else ""
     source_label_lower = source_label.lower()
     badges = {str(badge).strip().lower() for badge in layer.badges}
     output_name = (layer.status.output_name if layer.status is not None else "").strip().lower()
@@ -623,10 +633,7 @@ def _is_imported_song_audio_layer(layer: LayerPresentation) -> bool:
         return False
     if is_imported_song_object_id(layer.object_id):
         return True
-    return (
-        layer.status is None
-        or (
-            not str(layer.status.source_layer_id or "").strip()
-            and not str(layer.status.pipeline_id or "").strip()
-        )
+    return layer.status is None or (
+        not str(layer.status.source_layer_id or "").strip()
+        and not str(layer.status.pipeline_id or "").strip()
     )

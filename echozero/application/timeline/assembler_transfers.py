@@ -247,11 +247,7 @@ def assemble_operation_progress_banner(
             song_version_id=song_version_id,
         )
     ]
-    active = [
-        state
-        for state in operations
-        if state.status in ACTIVE_OPERATION_PROGRESS_STATUSES
-    ]
+    active = [state for state in operations if state.status in ACTIVE_OPERATION_PROGRESS_STATUSES]
     if active:
         state = max(active, key=lambda value: value.started_at)
         return OperationProgressBannerPresentation(

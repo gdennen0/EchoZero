@@ -5,6 +5,7 @@ Connects the compatibility wrapper to the bounded regression slice.
 
 from tests.audio_engine_shared_support import *  # noqa: F401,F403
 
+
 class TestBatch1Fixes:
     """Tests for ship-readiness audit Batch 1 fixes (A1-A9, A11-A14)."""
 
@@ -290,6 +291,7 @@ class TestBatch2Fixes:
 
         class FakeStatus:
             """Truthy status object representing a glitch."""
+
             pass
 
         status = FakeStatus()
@@ -507,5 +509,6 @@ class TestBatch2Fixes:
         # The first sample should be ramped from prior tail, not jump to -1 instantly.
         assert float(outdata_b[0, 0]) > 0.5
         assert float(outdata_b[255, 0]) < -0.9
+
 
 __all__ = [name for name in globals() if name.startswith("Test")]

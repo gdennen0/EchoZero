@@ -30,7 +30,15 @@ BASELINE_ALLOWLIST: dict[str, set[int]] = {
 
 def _git_changed_files(repo_root: Path, *, base: str, head: str) -> list[Path]:
     result = subprocess.run(
-        ["git", "-C", str(repo_root), "diff", "--name-only", "--diff-filter=ACMR", f"{base}..{head}"],
+        [
+            "git",
+            "-C",
+            str(repo_root),
+            "diff",
+            "--name-only",
+            "--diff-filter=ACMR",
+            f"{base}..{head}",
+        ],
         capture_output=True,
         text=True,
         check=True,
@@ -75,7 +83,9 @@ def _check_assignment(path: Path, node: ast.AST) -> list[str]:
     if _is_feel_or_style_symbol(value):
         return []
     if _is_numeric_constant(value):
-        return [f"{path}:{node.lineno}: move UI tuning literal {ast.unparse(value)} into FEEL/style"]
+        return [
+            f"{path}:{node.lineno}: move UI tuning literal {ast.unparse(value)} into FEEL/style"
+        ]
     return []
 
 

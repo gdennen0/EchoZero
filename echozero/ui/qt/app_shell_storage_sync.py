@@ -58,7 +58,9 @@ def persist_manual_layer(
     order: int | None = None,
 ) -> None:
     persisted_order = (
-        next_persisted_manual_layer_order(shell.project_storage.layers.list_by_version(song_version_id))
+        next_persisted_manual_layer_order(
+            shell.project_storage.layers.list_by_version(song_version_id)
+        )
         if order is None
         else int(order)
     )
@@ -270,9 +272,11 @@ def _sync_empty_main_take(
         shell.project_storage.takes.update(
             replace(
                 existing_main,
-                data=EventData(layers=())
-                if is_event_like_layer_kind(layer.kind)
-                else existing_main.data,
+                data=(
+                    EventData(layers=())
+                    if is_event_like_layer_kind(layer.kind)
+                    else existing_main.data
+                ),
                 is_main=True,
             )
         )

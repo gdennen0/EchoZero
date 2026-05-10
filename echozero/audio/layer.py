@@ -90,8 +90,16 @@ class AudioTrack:
     """
 
     __slots__ = (
-        "id", "name", "buffer", "sample_rate", "original_sample_rate",
-        "offset", "volume", "muted", "solo", "output_bus",
+        "id",
+        "name",
+        "buffer",
+        "sample_rate",
+        "original_sample_rate",
+        "offset",
+        "volume",
+        "muted",
+        "solo",
+        "output_bus",
     )
 
     def __init__(
@@ -222,7 +230,7 @@ class AudioTrack:
         copied_channels = min(source_channels, output_channels)
         destination[:, :copied_channels] = source[:, :copied_channels]
         if copied_channels < output_channels:
-            destination[:, copied_channels:] = source[:, copied_channels - 1:copied_channels]
+            destination[:, copied_channels:] = source[:, copied_channels - 1 : copied_channels]
 
     def read_samples(self, position: int, frames: int) -> np.ndarray:
         """Read a chunk of audio (allocating version, for non-hot-path use).

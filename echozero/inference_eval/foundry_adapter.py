@@ -59,7 +59,11 @@ class FoundrySharedAdapter:
         context: Mapping[str, Any] | None = None,
     ) -> InferenceRequest:
         contract = self.inference_contract_from_run_spec(run_spec, class_map=class_map)
-        return InferenceRequest(contract=contract, inputs=tuple(dict(item) for item in inputs), context=dict(context or {}))
+        return InferenceRequest(
+            contract=contract,
+            inputs=tuple(dict(item) for item in inputs),
+            context=dict(context or {}),
+        )
 
     def to_eval_payload(self, request: EvalRequest, result: EvalResult) -> dict[str, Any]:
         """Shape payload to match current Foundry eval service/report expectations."""
@@ -73,12 +77,16 @@ class FoundrySharedAdapter:
             "aggregate_metrics": dict(result.aggregate_metrics),
             "per_class_metrics": dict(result.per_class_metrics),
             "baseline": dict(result.baseline),
-            "threshold_policy": dict(result.threshold_policy) if result.threshold_policy is not None else None,
+            "threshold_policy": (
+                dict(result.threshold_policy) if result.threshold_policy is not None else None
+            ),
             "confusion": dict(result.confusion) if result.confusion is not None else None,
             "summary": dict(result.summary or request.summary),
         }
 
-    def contract_fingerprint_from_run_spec(self, run_spec: Mapping[str, Any], *, class_map: Sequence[str]) -> str:
+    def contract_fingerprint_from_run_spec(
+        self, run_spec: Mapping[str, Any], *, class_map: Sequence[str]
+    ) -> str:
         inference_contract = self.inference_contract_from_run_spec(run_spec, class_map=class_map)
         eval_contract = self.eval_contract_from_run_spec(run_spec)
         return contract_fingerprint(inference_contract, eval_contract)

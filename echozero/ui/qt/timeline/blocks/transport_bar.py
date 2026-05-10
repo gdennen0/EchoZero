@@ -54,7 +54,10 @@ class TransportLayout:
 
             tentative_clock = min(clock_pref_width, available * 0.58)
             tentative_meta = available - tentative_clock
-            if tentative_meta >= section_gap + meta_min_width and tentative_clock >= clock_min_width:
+            if (
+                tentative_meta >= section_gap + meta_min_width
+                and tentative_clock >= clock_min_width
+            ):
                 time_x = cursor
                 time_width = tentative_clock
                 meta_x = time_x + time_width + section_gap

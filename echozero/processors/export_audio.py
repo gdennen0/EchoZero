@@ -65,6 +65,7 @@ def _default_export(source_path: str, output_path: str, fmt: str) -> str:
 # Processor
 # ---------------------------------------------------------------------------
 
+
 class ExportAudioProcessor:
     """Exports audio files to a directory in a specified format."""
 
@@ -107,13 +108,15 @@ class ExportAudioProcessor:
 
         # Validate
         if not output_dir:
-            return err(ValidationError(
-                f"Block '{block_id}' is missing required setting 'output_dir'"
-            ))
+            return err(
+                ValidationError(f"Block '{block_id}' is missing required setting 'output_dir'")
+            )
         if fmt not in SUPPORTED_FORMATS:
-            return err(ValidationError(
-                f"Unsupported format '{fmt}'. Valid: {', '.join(sorted(SUPPORTED_FORMATS))}"
-            ))
+            return err(
+                ValidationError(
+                    f"Unsupported format '{fmt}'. Valid: {', '.join(sorted(SUPPORTED_FORMATS))}"
+                )
+            )
 
         # Build output filename
         if not filename:
@@ -137,9 +140,7 @@ class ExportAudioProcessor:
         try:
             written_path = self._export_fn(audio.file_path, output_path, fmt)
         except Exception as exc:
-            return err(ExecutionError(
-                f"Audio export failed for block '{block_id}': {exc}"
-            ))
+            return err(ExecutionError(f"Audio export failed for block '{block_id}': {exc}"))
 
         context.progress_bus.publish(
             ProgressReport(
@@ -151,5 +152,3 @@ class ExportAudioProcessor:
         )
 
         return ok(written_path)
-
-

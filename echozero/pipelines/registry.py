@@ -8,7 +8,11 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from echozero.domain.graph import Graph
-from echozero.pipelines.params import Knob, extract_knobs, validate_bindings as _validate_knob_bindings
+from echozero.pipelines.params import (
+    Knob,
+    extract_knobs,
+    validate_bindings as _validate_knob_bindings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +137,7 @@ def get_registry() -> PipelineRegistry:
 def pipeline_template(
     id: str,
     name: str,
-    description: str = '',
+    description: str = "",
     knobs: dict[str, Knob] | None = None,
 ) -> Callable:
     """Decorator that registers a builder function as a pipeline template.
@@ -153,6 +157,7 @@ def pipeline_template(
             p.output("onsets", onsets.events_out)
             return p
     """
+
     def decorator(fn: Callable) -> Callable:
         # Extract knobs from function signature if not provided explicitly
         resolved_knobs = knobs if knobs is not None else extract_knobs(fn)
@@ -166,4 +171,5 @@ def pipeline_template(
         )
         _registry.register(template)
         return fn
+
     return decorator

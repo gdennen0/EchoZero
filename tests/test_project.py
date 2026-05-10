@@ -30,7 +30,6 @@ from echozero.project import Project
 from echozero.result import Ok, Err, is_ok, is_err, unwrap
 from tests.foundry.audio_fixtures import write_percussion_dataset
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -70,7 +69,9 @@ def _create_project(tmp_path: Path, name: str = "Test Project") -> Project:
     )
 
 
-def _create_foundry_version_for_project(p: Project, tmp_path: Path, *, label_counts: dict[str, int] | None = None) -> Any:
+def _create_foundry_version_for_project(
+    p: Project, tmp_path: Path, *, label_counts: dict[str, int] | None = None
+) -> Any:
     """Create and plan a tiny foundry dataset version for project-level run tests."""
     counts = label_counts or {"kick": 2, "snare": 2}
     dataset_root = tmp_path / f"foundry_dataset_{uuid.uuid4().hex[:8]}"
@@ -240,6 +241,7 @@ class TestExecution:
     def test_run_async_returns_execution_handle(self, tmp_path):
         """run_async() returns an ExecutionHandle."""
         from echozero.editor.coordinator import ExecutionHandle
+
         with _create_project(tmp_path) as p:
             result = p.run_async()
             assert is_ok(result)
@@ -566,7 +568,7 @@ class TestFoundryIntegration:
                 "schema": "foundry.train_run_spec.v1",
                 "classificationMode": "multiclass",
                 "data": {
-                "datasetVersionId": version.id,
+                    "datasetVersionId": version.id,
                     "sampleRate": 22050,
                     "maxLength": 22050,
                     "nFft": 2048,
@@ -712,6 +714,7 @@ class TestNamingIdentity:
     def test_project_graph_property(self, tmp_path):
         """project.graph returns the Graph instance."""
         from echozero.domain.graph import Graph
+
         with _create_project(tmp_path) as p:
             assert isinstance(p.graph, Graph)
 
@@ -745,11 +748,13 @@ class TestNamingIdentity:
     def test_event_bus_property(self, tmp_path):
         """project.event_bus returns the EventBus."""
         from echozero.event_bus import EventBus
+
         with _create_project(tmp_path) as p:
             assert isinstance(p.event_bus, EventBus)
 
     def test_stale_tracker_property(self, tmp_path):
         """project.stale_tracker returns the StaleTracker."""
         from echozero.editor.staleness import StaleTracker
+
         with _create_project(tmp_path) as p:
             assert isinstance(p.stale_tracker, StaleTracker)

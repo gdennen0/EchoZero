@@ -64,6 +64,8 @@ class EventBus:
                         # Never let one broken handler kill the bus
                         logger.error(
                             "EventBus: handler %r raised %r for %s",
-                            handler, exc, type(event).__name__,
+                            handler,
+                            exc,
+                            type(event).__name__,
                             exc_info=True,
                         )

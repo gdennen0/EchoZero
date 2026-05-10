@@ -36,12 +36,22 @@ class MockLoadAudio:
 
 class MockSeparator:
     def execute(self, block_id, context):
-        return ok({
-            'drums_out': AudioData(sample_rate=44100, duration=180.0, file_path='drums.wav', channel_count=2),
-            'bass_out': AudioData(sample_rate=44100, duration=180.0, file_path='bass.wav', channel_count=2),
-            'vocals_out': AudioData(sample_rate=44100, duration=180.0, file_path='vocals.wav', channel_count=2),
-            'other_out': AudioData(sample_rate=44100, duration=180.0, file_path='other.wav', channel_count=2),
-        })
+        return ok(
+            {
+                "drums_out": AudioData(
+                    sample_rate=44100, duration=180.0, file_path="drums.wav", channel_count=2
+                ),
+                "bass_out": AudioData(
+                    sample_rate=44100, duration=180.0, file_path="bass.wav", channel_count=2
+                ),
+                "vocals_out": AudioData(
+                    sample_rate=44100, duration=180.0, file_path="vocals.wav", channel_count=2
+                ),
+                "other_out": AudioData(
+                    sample_rate=44100, duration=180.0, file_path="other.wav", channel_count=2
+                ),
+            }
+        )
 
 
 class MockSeparatorWithTempFiles:
@@ -65,21 +75,23 @@ class MockSeparatorWithTempFiles:
 
 
 def _create_session(tmp_path):
-    session = ProjectStorage.create_new('Test ProjectRecord', working_dir_root=tmp_path)
+    session = ProjectStorage.create_new("Test ProjectRecord", working_dir_root=tmp_path)
     source_audio_file = session.working_dir / "audio" / "mix.wav"
     source_audio_file.parent.mkdir(parents=True, exist_ok=True)
     source_audio_file.write_bytes(b"RIFF0000WAVEfmt ")
     now = datetime.now(timezone.utc)
-    song = SongRecord(id=uuid.uuid4().hex, project_id=session.project.id, title='Song', artist='Artist', order=0)
+    song = SongRecord(
+        id=uuid.uuid4().hex, project_id=session.project.id, title="Song", artist="Artist", order=0
+    )
     session.songs.create(song)
     version = SongVersionRecord(
         id=uuid.uuid4().hex,
         song_id=song.id,
-        label='Studio Mix',
-        audio_file='audio/mix.wav',
+        label="Studio Mix",
+        audio_file="audio/mix.wav",
         duration_seconds=180.0,
         original_sample_rate=44100,
-        audio_hash='abc123',
+        audio_hash="abc123",
         created_at=now,
     )
     session.song_versions.create(version)
@@ -116,16 +128,16 @@ def test_stem_separation_persists_audio_layers_and_takes(tmp_path):
     orch = Orchestrator(
         registry=get_registry(),
         executors={
-            'LoadAudio': MockLoadAudio(),
-            'SeparateAudio': MockSeparator(),
+            "LoadAudio": MockLoadAudio(),
+            "SeparateAudio": MockSeparator(),
         },
     )
 
-    result = orch.analyze(session, version.id, 'stem_separation')
+    result = orch.analyze(session, version.id, "stem_separation")
     assert isinstance(result, Ok)
 
     layers = session.layers.list_by_version(version.id)
-    assert sorted(layer.name for layer in layers) == ['bass', 'drums', 'other', 'vocals']
+    assert sorted(layer.name for layer in layers) == ["bass", "drums", "other", "vocals"]
 
     for layer in layers:
         takes = session.takes.list_by_layer(layer.id)
@@ -148,12 +160,12 @@ def test_stem_audio_outputs_are_materialized_into_project_audio_storage(tmp_path
     orch = Orchestrator(
         registry=get_registry(),
         executors={
-            'LoadAudio': MockLoadAudio(),
-            'SeparateAudio': MockSeparatorWithTempFiles(stems_root),
+            "LoadAudio": MockLoadAudio(),
+            "SeparateAudio": MockSeparatorWithTempFiles(stems_root),
         },
     )
 
-    result = orch.analyze(session, version.id, 'stem_separation')
+    result = orch.analyze(session, version.id, "stem_separation")
     assert isinstance(result, Ok)
 
     for layer in session.layers.list_by_version(version.id):

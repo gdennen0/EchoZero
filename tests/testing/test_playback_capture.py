@@ -54,7 +54,9 @@ def test_capture_playback_video_writes_simulated_audio_and_video():
     harness = AppFlowHarness(working_dir_root=temp_root / "working")
 
     try:
-        runtime_audio = TimelineRuntimeAudioController(engine=AudioEngine(stream_factory=_fake_stream_factory))
+        runtime_audio = TimelineRuntimeAudioController(
+            engine=AudioEngine(stream_factory=_fake_stream_factory)
+        )
         harness.install_runtime_audio(runtime_audio)
         audio_path = write_test_tone_wav(
             temp_root / "fixtures" / "capture-tone.wav",
@@ -70,7 +72,9 @@ def test_capture_playback_video_writes_simulated_audio_and_video():
             harness=harness,
             runtime_audio=runtime_audio,
             output_dir=temp_root / "capture-output",
-            segments=[PlaybackSegment(label="main", layer_id=str(layer.layer_id), duration_seconds=0.5)],
+            segments=[
+                PlaybackSegment(label="main", layer_id=str(layer.layer_id), duration_seconds=0.5)
+            ],
             fps=10,
             callback_frames=1024,
         )

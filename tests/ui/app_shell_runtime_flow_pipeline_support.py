@@ -13,7 +13,9 @@ def _assert_presentation_object_refs_resolve(runtime, presentation) -> None:
             assert object_record is not None
             assert object_record.main_content_id == str(layer.main_content_id)
         if layer.main_content_id is not None:
-            content_record = runtime.project_storage.object_contents.get(str(layer.main_content_id))
+            content_record = runtime.project_storage.object_contents.get(
+                str(layer.main_content_id)
+            )
             assert content_record is not None
             assert content_record.revision_id == str(layer.main_revision_id)
             if layer.source_content_ref is not None:
@@ -71,9 +73,7 @@ def test_app_shell_runtime_extract_stems_persists_audio_layers_and_takes():
             layer_object = runtime.project_storage.timeline_objects.get(str(layer.object_id))
             assert layer_object is not None
             assert layer_object.main_content_id == str(layer.main_content_id)
-            main_content = runtime.project_storage.object_contents.get(
-                str(layer.main_content_id)
-            )
+            main_content = runtime.project_storage.object_contents.get(str(layer.main_content_id))
             assert main_content is not None
             assert main_content.source_ref == layer.source_content_ref.to_dict()
     finally:
@@ -231,9 +231,14 @@ def test_app_shell_runtime_delete_take_persists_numbered_take_labels_on_reload()
         runtime.save_project_as(save_path)
         runtime.open_project(save_path)
 
-        reloaded_drums = next(layer for layer in runtime.presentation().layers if layer.title == "Drums")
+        reloaded_drums = next(
+            layer for layer in runtime.presentation().layers if layer.title == "Drums"
+        )
         assert reloaded_drums.takes == []
-        assert runtime.project_storage.object_contents.get(str(reloaded_drums.main_content_id)) is not None
+        assert (
+            runtime.project_storage.object_contents.get(str(reloaded_drums.main_content_id))
+            is not None
+        )
         _assert_presentation_object_refs_resolve(runtime, runtime.presentation())
     finally:
         runtime.shutdown()
@@ -286,17 +291,24 @@ def test_app_shell_runtime_add_selection_to_main_persists_after_reload():
             )
         )
 
-        after_action = next(layer for layer in runtime.presentation().layers if layer.title == "Onsets")
+        after_action = next(
+            layer for layer in runtime.presentation().layers if layer.title == "Onsets"
+        )
         assert len(after_action.events) == len(onsets_first.events) + 1
         onsets_object = runtime.project_storage.timeline_objects.get(str(after_action.object_id))
         assert onsets_object is not None
         assert onsets_object.main_content_id == str(after_action.main_content_id)
-        assert runtime.project_storage.object_contents.get(str(after_action.main_content_id)) is not None
+        assert (
+            runtime.project_storage.object_contents.get(str(after_action.main_content_id))
+            is not None
+        )
 
         runtime.save_project_as(save_path)
         runtime.open_project(save_path)
 
-        reloaded = next(layer for layer in runtime.presentation().layers if layer.title == "Onsets")
+        reloaded = next(
+            layer for layer in runtime.presentation().layers if layer.title == "Onsets"
+        )
         assert len(reloaded.events) == len(onsets_first.events) + 1
     finally:
         runtime.shutdown()
@@ -402,8 +414,14 @@ def test_app_shell_runtime_extract_song_drum_events_from_source_audio(monkeypatc
         titles = {layer.title for layer in event_layers}
         assert "Kick" in titles
         assert "Snare" in titles
-        source_layer = next(layer for layer in presentation.layers if layer.object_id and str(layer.object_id).startswith("object_song_"))
-        assert all(layer.status.source_layer_id == str(source_layer.layer_id) for layer in event_layers)
+        source_layer = next(
+            layer
+            for layer in presentation.layers
+            if layer.object_id and str(layer.object_id).startswith("object_song_")
+        )
+        assert all(
+            layer.status.source_layer_id == str(source_layer.layer_id) for layer in event_layers
+        )
         assert all(layer.source_content_ref is not None for layer in event_layers)
         assert all(
             Path(str(layer.source_content_ref.locator)).name == "drums.wav"
@@ -424,7 +442,10 @@ def test_app_shell_runtime_extract_song_drum_events_from_source_audio(monkeypatc
         }
         assert ("kick_onsets", "kick_filter.wav") in detect_calls
         assert ("snare_onsets", "snare_filter.wav") in detect_calls
-        assert [(block_id, target_class, Path(audio_path).name) for block_id, target_class, audio_path in binary_executor.calls] == [
+        assert [
+            (block_id, target_class, Path(audio_path).name)
+            for block_id, target_class, audio_path in binary_executor.calls
+        ] == [
             ("classify_drums", "", "drums.wav"),
         ]
         assert runtime.is_dirty is True
@@ -510,7 +531,10 @@ def test_app_shell_runtime_extract_song_drum_events_adds_selected_stem_layers(mo
         event_titles = {layer.title for layer in event_layers}
         assert "Kick" in event_titles
         assert "Snare" in event_titles
-        assert [(block_id, target_class, Path(audio_path).name) for block_id, target_class, audio_path in binary_executor.calls] == [
+        assert [
+            (block_id, target_class, Path(audio_path).name)
+            for block_id, target_class, audio_path in binary_executor.calls
+        ] == [
             ("classify_drums", "", "drums.wav"),
         ]
     finally:
@@ -535,7 +559,9 @@ def test_app_shell_runtime_extract_song_drum_events_source_audio_survives_save_a
         runtime.save_project_as(save_path)
         runtime.open_project(save_path)
 
-        event_layers = [layer for layer in runtime.presentation().layers if layer.kind.name == "EVENT"]
+        event_layers = [
+            layer for layer in runtime.presentation().layers if layer.kind.name == "EVENT"
+        ]
         assert event_layers
         assert all(layer.source_content_ref is not None for layer in event_layers)
         assert all(
@@ -571,7 +597,9 @@ def test_app_shell_runtime_extract_drum_events_persists_event_layers_from_drums_
         event_layers = [layer for layer in presentation.layers if layer.kind.name == "EVENT"]
         assert event_layers
         assert any(layer.events for layer in event_layers)
-        assert all(layer.status.source_layer_id == str(drums_layer.layer_id) for layer in event_layers)
+        assert all(
+            layer.status.source_layer_id == str(drums_layer.layer_id) for layer in event_layers
+        )
         assert any(
             (layer.status.source_label or "").startswith("onset_detection")
             for layer in event_layers
@@ -1114,7 +1142,9 @@ def test_app_shell_runtime_extract_song_sections_persists_section_layer():
         assert presentation.section_cues
         assert presentation.section_cues[0].cue_ref == "intro_01"
         rerun_presentation = runtime.extract_song_sections(section_layer.layer_id)
-        rerun_section_layer = next(layer for layer in rerun_presentation.layers if layer.title == "Sections")
+        rerun_section_layer = next(
+            layer for layer in rerun_presentation.layers if layer.title == "Sections"
+        )
         assert rerun_section_layer.kind is LayerKind.SECTION
         assert len(captured_audio_paths) == 2
         assert all(Path(path).exists() for path in captured_audio_paths)
@@ -1122,7 +1152,6 @@ def test_app_shell_runtime_extract_song_sections_persists_section_layer():
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
-
 
 
 __all__ = [name for name in globals() if name.startswith("test_")]

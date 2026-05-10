@@ -3,7 +3,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-
 UI_ROOT = Path(__file__).resolve().parents[2] / "echozero" / "foundry" / "ui"
 FORBIDDEN_IMPORT_PREFIX = "echozero.foundry.persistence"
 

@@ -28,7 +28,9 @@ def select_review_items(
     selected = list(items)
     if normalized_mode == "questionables":
         if questionable_score_threshold is None:
-            raise ValueError("questionable_score_threshold is required for questionables review mode")
+            raise ValueError(
+                "questionable_score_threshold is required for questionables review mode"
+            )
         selected = _select_questionable_items(
             selected,
             questionable_score_threshold=questionable_score_threshold,

@@ -173,9 +173,7 @@ def build_session_transfer_signature(session: Session) -> AssemblerSignature:
         session.manual_pull_flow.import_mode,
         tuple(
             (coord, mode)
-            for coord, mode in sorted(
-                session.manual_pull_flow.import_mode_by_source_track.items()
-            )
+            for coord, mode in sorted(session.manual_pull_flow.import_mode_by_source_track.items())
         ),
         tuple(
             (coord, str(layer_id))

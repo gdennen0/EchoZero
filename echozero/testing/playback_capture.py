@@ -152,7 +152,9 @@ def _capture_sequence(
             snap()
 
     audio_path = output_root / "simulated-playback.wav"
-    audio_data = np.concatenate(captured_audio) if captured_audio else np.zeros(0, dtype=np.float32)
+    audio_data = (
+        np.concatenate(captured_audio) if captured_audio else np.zeros(0, dtype=np.float32)
+    )
     sf.write(audio_path, audio_data, sample_rate)
 
     video_path = output_root / "simulated-playback.mp4"
@@ -170,7 +172,9 @@ def _capture_sequence(
     )
 
 
-def _write_video_with_audio(*, frames_dir: Path, audio_path: Path, output_path: Path, fps: int) -> None:
+def _write_video_with_audio(
+    *, frames_dir: Path, audio_path: Path, output_path: Path, fps: int
+) -> None:
     ffmpeg = _ffmpeg_exe()
     if ffmpeg is None:
         raise RuntimeError("ffmpeg is required to write playback video")

@@ -8,7 +8,10 @@ import pytest
 from echozero.errors import ValidationError
 from echozero.foundry.app import FoundryApp
 from echozero.foundry.persistence import ModelArtifactRepository
-from echozero.inference_eval.runtime_preflight import checkpoint_contract_fingerprint, run_runtime_preflight
+from echozero.inference_eval.runtime_preflight import (
+    checkpoint_contract_fingerprint,
+    run_runtime_preflight,
+)
 from tests.foundry.audio_fixtures import write_percussion_dataset
 
 
@@ -19,7 +22,9 @@ def _prepare_run(tmp_path: Path):
     app = FoundryApp(tmp_path)
     dataset = app.datasets.create_dataset("Parity Drums", source_ref=str(samples))
     version = app.datasets.ingest_from_folder(dataset.id, samples)
-    app.plan_version(version.id, validation_split=0.2, test_split=0.2, seed=43, balance_strategy="none")
+    app.plan_version(
+        version.id, validation_split=0.2, test_split=0.2, seed=43, balance_strategy="none"
+    )
 
     run_spec = {
         "schema": "foundry.train_run_spec.v1",
@@ -80,7 +85,9 @@ def test_train_artifact_runtime_contract_parity_guard(tmp_path: Path) -> None:
     model_path.write_bytes(b"weights")
 
     checkpoint = _checkpoint_from_run(run, version)
-    assert artifact.manifest["sharedContractFingerprint"] == checkpoint_contract_fingerprint(checkpoint)
+    assert artifact.manifest["sharedContractFingerprint"] == checkpoint_contract_fingerprint(
+        checkpoint
+    )
 
     run_runtime_preflight(model_path, checkpoint)
 

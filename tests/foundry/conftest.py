@@ -8,7 +8,6 @@ import _pytest.pathlib
 import _pytest.tmpdir
 import pytest
 
-
 _BASE_TMP_PARENT = Path(__file__).resolve().parents[2] / ".foundry-test-tmp"
 
 

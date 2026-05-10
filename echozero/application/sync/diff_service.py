@@ -79,7 +79,9 @@ class SyncDiffService:
         return self._added_only_summary(rows), rows
 
     @staticmethod
-    def resolve_pull_event_range(source_event: _PullEventOptionLike, *, order_index: int) -> tuple[float, float]:
+    def resolve_pull_event_range(
+        source_event: _PullEventOptionLike, *, order_index: int
+    ) -> tuple[float, float]:
         default_duration = 0.30
         if (
             source_event.start is not None

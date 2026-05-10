@@ -313,8 +313,7 @@ class TimelineWidgetContractActionMixin:
             return True
         parameters = signature.parameters
         if any(
-            parameter.kind is inspect.Parameter.VAR_KEYWORD
-            for parameter in parameters.values()
+            parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
         ):
             return True
         return any(keyword in parameters for keyword in kwargs)
@@ -331,15 +330,10 @@ class TimelineWidgetContractActionMixin:
             return method(*args, **kwargs)
         parameters = signature.parameters
         if any(
-            parameter.kind is inspect.Parameter.VAR_KEYWORD
-            for parameter in parameters.values()
+            parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
         ):
             return method(*args, **kwargs)
-        supported_kwargs = {
-            key: value
-            for key, value in kwargs.items()
-            if key in parameters
-        }
+        supported_kwargs = {key: value for key, value in kwargs.items() if key in parameters}
         return method(*args, **supported_kwargs)
 
     def trigger_contract_action(self, action: InspectorAction) -> None:
@@ -356,7 +350,9 @@ class TimelineWidgetContractActionMixin:
             raw_direction = params.get("direction", "left")
             direction = 1 if raw_direction in {1, "1", "right"} else -1
             host._dispatch(
-                NudgeSelectedEvents(direction=direction, steps=_coerce_step_count(params.get("steps", 1)))
+                NudgeSelectedEvents(
+                    direction=direction, steps=_coerce_step_count(params.get("steps", 1))
+                )
             )
             return
         if action_id == "timeline.duplicate_selection":
@@ -643,9 +639,7 @@ class TimelineWidgetContractActionMixin:
         call_kwargs: dict[str, object] = {}
         if configured_action_ids is not None:
             call_kwargs["run_import_pipeline"] = bool(configured_action_ids)
-            call_kwargs["import_pipeline_action_ids"] = (
-                configured_action_ids or None
-            )
+            call_kwargs["import_pipeline_action_ids"] = configured_action_ids or None
         self._require_native_import_pipeline_control(
             runtime_name=type(runtime).__name__,
             action_name="add_song_from_path",
@@ -1020,10 +1014,7 @@ class TimelineWidgetContractActionMixin:
         reply = host._message_box.question(
             host._widget,
             "Delete Layer",
-            (
-                f'Delete layer "{label}"?\n\n'
-                "This action cannot be undone."
-            ),
+            (f'Delete layer "{label}"?\n\n' "This action cannot be undone."),
             host._message_box.StandardButton.Yes | host._message_box.StandardButton.No,
             host._message_box.StandardButton.No,
         )
@@ -1069,8 +1060,8 @@ class TimelineWidgetContractActionMixin:
         if not audio_path:
             return
 
-        accepted, ltc_channel_override, strip_ltc_timecode = self._resolve_smpte_import_ltc_strategy(
-            audio_path
+        accepted, ltc_channel_override, strip_ltc_timecode = (
+            self._resolve_smpte_import_ltc_strategy(audio_path)
         )
         if not accepted:
             return
@@ -1120,9 +1111,7 @@ class TimelineWidgetContractActionMixin:
         prompt = "LTC detection was not confident. Choose how to import this stereo file."
 
         if aggressive_channel in {"left", "right"}:
-            recommended_label = (
-                f"Use {aggressive_channel.title()} Channel as LTC (Recommended)"
-            )
+            recommended_label = f"Use {aggressive_channel.title()} Channel as LTC (Recommended)"
             alternate_channel = "right" if aggressive_channel == "left" else "left"
             alternate_label = f"Use {alternate_channel.title()} Channel as LTC"
             option_labels = [
@@ -1200,7 +1189,11 @@ class TimelineWidgetContractActionMixin:
     def _resolve_selected_layer_id(self) -> str | None:
         host = cast(_ContractActionHost, self)
         presentation = host._get_presentation()
-        return str(presentation.selected_layer_id) if presentation.selected_layer_id is not None else None
+        return (
+            str(presentation.selected_layer_id)
+            if presentation.selected_layer_id is not None
+            else None
+        )
 
     def _handle_preview_event_clip(self, params: dict[str, object]) -> None:
         host = cast(_ContractActionHost, self)
@@ -1427,10 +1420,7 @@ class TimelineWidgetContractActionMixin:
         selected_mode, accepted = host._input_dialog.getItem(
             host._widget,
             "Add Version",
-            (
-                "Layer transfer options\n"
-                "(the source song layer is excluded automatically)"
-            ),
+            ("Layer transfer options\n" "(the source song layer is excluded automatically)"),
             transfer_mode_options,
             1,
             False,
@@ -1487,8 +1477,7 @@ class TimelineWidgetContractActionMixin:
     ) -> list[str] | None:
         host = cast(_ContractActionHost, self)
         layer_lines = "\n".join(
-            f"{index + 1}. {label}"
-            for index, (_layer_id, label) in enumerate(available_layers)
+            f"{index + 1}. {label}" for index, (_layer_id, label) in enumerate(available_layers)
         )
         while True:
             selected_text, accepted = host._input_dialog.getText(
@@ -1566,17 +1555,9 @@ class TimelineWidgetContractActionMixin:
         if value is None:
             return None
         if isinstance(value, str):
-            return [
-                token.strip()
-                for token in value.split(",")
-                if token.strip()
-            ]
+            return [token.strip() for token in value.split(",") if token.strip()]
         if isinstance(value, (list, tuple)):
-            normalized = [
-                item.strip()
-                for item in value
-                if isinstance(item, str) and item.strip()
-            ]
+            normalized = [item.strip() for item in value if isinstance(item, str) and item.strip()]
             return normalized
         return None
 
@@ -1669,9 +1650,7 @@ class TimelineWidgetContractActionMixin:
             return None
 
         threshold_labels = [label for label, _value in _FIND_SIMILAR_THRESHOLD_LABELS]
-        threshold_lookup = {
-            label: value for label, value in _FIND_SIMILAR_THRESHOLD_LABELS
-        }
+        threshold_lookup = {label: value for label, value in _FIND_SIMILAR_THRESHOLD_LABELS}
         selected_threshold_label, accepted = host._input_dialog.getItem(
             host._widget,
             "Find Similar Sounds",

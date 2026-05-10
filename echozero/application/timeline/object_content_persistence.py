@@ -74,7 +74,9 @@ def require_imported_song_ref(
 
     version = session.song_versions.get(song_version_id)
     if version is None:
-        raise PersistenceError(f"Song version not found for object/content projection: {song_version_id}")
+        raise PersistenceError(
+            f"Song version not found for object/content projection: {song_version_id}"
+        )
     return require_source_ref(
         session,
         object_id=imported_song_object_id(song_version_id),
@@ -214,7 +216,11 @@ def persist_take_object_content(
             song_version_id=song_version_id,
             name=layer_name,
             object_kind=content_kind,
-            main_content_id=content_id if is_main else _existing_main_content_id(session, object_id, content_id),
+            main_content_id=(
+                content_id
+                if is_main
+                else _existing_main_content_id(session, object_id, content_id)
+            ),
             created_at=now,
         ),
     )

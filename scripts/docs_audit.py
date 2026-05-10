@@ -16,7 +16,6 @@ import re
 import sys
 from pathlib import Path
 
-
 ROOT_CORE_DOCS = ("README.md", "AGENTS.md", "GLOSSARY.md", "STYLE.md")
 ALLOWED_STATUS = {"active", "historical", "reference", "draft"}
 CANONICAL_DOCS = {
@@ -168,7 +167,9 @@ def audit(repo_root: Path) -> tuple[list[str], list[dict[str, str]]]:
     return errors, inventory
 
 
-def write_inventory(inventory: list[dict[str, str]], json_path: Path | None, csv_path: Path | None) -> None:
+def write_inventory(
+    inventory: list[dict[str, str]], json_path: Path | None, csv_path: Path | None
+) -> None:
     if json_path:
         json_path.parent.mkdir(parents=True, exist_ok=True)
         json_path.write_text(json.dumps(inventory, indent=2) + "\n")
@@ -181,7 +182,9 @@ def write_inventory(inventory: list[dict[str, str]], json_path: Path | None, csv
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Audit docs metadata, links, and archive promotion.")
+    parser = argparse.ArgumentParser(
+        description="Audit docs metadata, links, and archive promotion."
+    )
     parser.add_argument("--root", default=".", help="Repository root path")
     parser.add_argument("--inventory-json", help="Optional JSON inventory output path")
     parser.add_argument("--inventory-csv", help="Optional CSV inventory output path")

@@ -75,7 +75,9 @@ class _TimelineRuntimeShell(Protocol):
 class _TimelineWidgetActionRouter(Protocol):
     def open_object_action_settings(self, action: InspectorAction) -> None: ...
     def trigger_contract_action(self, action: InspectorAction) -> None: ...
-    def _handle_runtime_pipeline_action(self, action_id: str, params: dict[str, object]) -> bool: ...
+    def _handle_runtime_pipeline_action(
+        self, action_id: str, params: dict[str, object]
+    ) -> bool: ...
 
 
 class _TimelineWidgetContractHost(Protocol):
@@ -203,9 +205,7 @@ class TimelineWidgetContractMixin:
             return
         layer_id, take_id = target_lane
         start_seconds = max(0.0, float(self.presentation.playhead))
-        end_seconds = (
-            start_seconds + float(TIMELINE_ADD_MODE_DEFAULT_EVENT_DURATION_SECONDS)
-        )
+        end_seconds = start_seconds + float(TIMELINE_ADD_MODE_DEFAULT_EVENT_DURATION_SECONDS)
         self._create_event(
             layer_id,
             take_id,
@@ -236,11 +236,7 @@ class TimelineWidgetContractMixin:
         if layer_id is None:
             return None
         return next(
-            (
-                layer
-                for layer in self.presentation.layers
-                if layer.layer_id == layer_id
-            ),
+            (layer for layer in self.presentation.layers if layer.layer_id == layer_id),
             None,
         )
 
@@ -267,9 +263,7 @@ class TimelineWidgetContractMixin:
         if self._is_fix_mode_remove():
             rejected_event_refs = self._resolve_event_refs_for_fix_review(ids)
             if len(rejected_event_refs) > 1:
-                self._dispatch(
-                    CommitRejectedEventsReview(event_refs=rejected_event_refs)
-                )
+                self._dispatch(CommitRejectedEventsReview(event_refs=rejected_event_refs))
             elif len(rejected_event_refs) == 1:
                 event_ref = rejected_event_refs[0]
                 self._dispatch(
@@ -749,7 +743,9 @@ class TimelineWidgetContractMixin:
         contract: InspectorContract,
     ) -> tuple[ObjectActionSettingsPlan, ...]:
         runtime = self._resolve_runtime_shell()
-        describe = getattr(runtime, "describe_object_action", None) if runtime is not None else None
+        describe = (
+            getattr(runtime, "describe_object_action", None) if runtime is not None else None
+        )
         if not callable(describe):
             return ()
         plans: list[ObjectActionSettingsPlan] = []

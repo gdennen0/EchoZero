@@ -19,7 +19,6 @@ from echozero.pipelines.params import Knob, KnobWidget, knob
 from echozero.pipelines.pipeline import BlockHandle, Pipeline, PipelineOutput, PortRef
 from echozero.pipelines.registry import get_registry, pipeline_template
 
-
 # ---------------------------------------------------------------------------
 # BlockHandle / PortRef basics
 # ---------------------------------------------------------------------------
@@ -39,12 +38,15 @@ class TestBlockHandle:
             _ = handle.bogus
 
     def test_multi_output_attribute_access(self):
-        handle = BlockHandle("sep_1", {
-            "drums_out": "AUDIO",
-            "bass_out": "AUDIO",
-            "vocals_out": "AUDIO",
-            "other_out": "AUDIO",
-        })
+        handle = BlockHandle(
+            "sep_1",
+            {
+                "drums_out": "AUDIO",
+                "bass_out": "AUDIO",
+                "vocals_out": "AUDIO",
+                "other_out": "AUDIO",
+            },
+        )
         drums = handle.drums_out
         assert isinstance(drums, PortRef)
         assert drums.block_id == "sep_1"
@@ -300,7 +302,9 @@ class TestPipelineKnobs:
         @pipeline_template(id="test_partial_bind_new", name="Partial Bind")
         def test_partial_bind_new(
             threshold=knob(0.3, label="Threshold", min_value=0.0, max_value=1.0),
-            device=knob("auto", label="Device", widget=KnobWidget.DROPDOWN, options=("auto", "cpu", "cuda")),
+            device=knob(
+                "auto", label="Device", widget=KnobWidget.DROPDOWN, options=("auto", "cpu", "cuda")
+            ),
         ):
             p = Pipeline("test_partial_bind_new")
             load = p.add(LoadAudio())
@@ -380,12 +384,17 @@ class TestBlockSpecs:
     def test_all_specs_port_directions(self):
         """All input ports should have direction INPUT, output ports OUTPUT."""
         from echozero.domain.enums import Direction
+
         specs = [LoadAudio(), Separator(), DetectOnsets(), AudioFilter(), Classify()]
         for spec in specs:
             for port in spec.input_ports:
-                assert port.direction == Direction.INPUT, f"{spec.block_type} input port {port.name}"
+                assert (
+                    port.direction == Direction.INPUT
+                ), f"{spec.block_type} input port {port.name}"
             for port in spec.output_ports:
-                assert port.direction == Direction.OUTPUT, f"{spec.block_type} output port {port.name}"
+                assert (
+                    port.direction == Direction.OUTPUT
+                ), f"{spec.block_type} output port {port.name}"
 
     def test_output_port_names_follow_convention(self):
         """Output ports should end with '_out', input ports with '_in'."""

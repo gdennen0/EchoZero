@@ -11,6 +11,7 @@ from tests.ui.timeline_shell_shared_support import *  # noqa: F401,F403
 
 from echozero.ui.qt.song_browser_drop import SongBrowserAudioDrop
 
+
 def test_contract_add_song_action_calls_runtime(monkeypatch):
     app = QApplication.instance() or QApplication([])
 
@@ -62,9 +63,7 @@ def test_contract_add_song_action_passes_import_pipeline_kwargs_when_runtime_sup
 
         def __init__(self) -> None:
             self._preferences = AppPreferences(
-                song_import=SongImportPreferences(
-                    pipeline_action_ids=("timeline.extract_stems",)
-                )
+                song_import=SongImportPreferences(pipeline_action_ids=("timeline.extract_stems",))
             )
 
         def load(self) -> AppPreferences:
@@ -95,9 +94,7 @@ def test_contract_add_song_action_passes_import_pipeline_kwargs_when_runtime_sup
             run_import_pipeline: bool | None = None,
             import_pipeline_action_ids: tuple[str, ...] | None = None,
         ):
-            self.calls.append(
-                (title, audio_path, run_import_pipeline, import_pipeline_action_ids)
-            )
+            self.calls.append((title, audio_path, run_import_pipeline, import_pipeline_action_ids))
             self._presentation = replace(self._presentation, title=title)
             return self._presentation
 
@@ -150,9 +147,7 @@ def test_contract_add_song_action_queues_import_pipeline_actions_when_request_pa
 
         def __init__(self) -> None:
             self._preferences = AppPreferences(
-                song_import=SongImportPreferences(
-                    pipeline_action_ids=("timeline.extract_stems",)
-                )
+                song_import=SongImportPreferences(pipeline_action_ids=("timeline.extract_stems",))
             )
 
         def load(self) -> AppPreferences:
@@ -189,9 +184,7 @@ def test_contract_add_song_action_queues_import_pipeline_actions_when_request_pa
             run_import_pipeline: bool | None = None,
             import_pipeline_action_ids: tuple[str, ...] | None = None,
         ):
-            self.calls.append(
-                (title, audio_path, run_import_pipeline, import_pipeline_action_ids)
-            )
+            self.calls.append((title, audio_path, run_import_pipeline, import_pipeline_action_ids))
             self._presentation = replace(
                 self._presentation,
                 title=title,
@@ -272,9 +265,7 @@ def test_contract_add_song_action_legacy_runtime_runs_configured_import_pipeline
 
         def __init__(self) -> None:
             self._preferences = AppPreferences(
-                song_import=SongImportPreferences(
-                    pipeline_action_ids=("timeline.extract_stems",)
-                )
+                song_import=SongImportPreferences(pipeline_action_ids=("timeline.extract_stems",))
             )
 
         def load(self) -> AppPreferences:
@@ -566,9 +557,7 @@ def test_contract_add_song_version_action_calls_runtime():
             )
         )
 
-        assert runtime.calls == [
-            ("song_alpha", "C:/audio/version-3.wav", "Deluxe Edit")
-        ]
+        assert runtime.calls == [("song_alpha", "C:/audio/version-3.wav", "Deluxe Edit")]
         assert widget.presentation.active_song_version_id == "song_version_deluxe"
         assert widget.presentation.active_song_version_label == "Deluxe Edit"
     finally:
@@ -589,9 +578,7 @@ def test_contract_add_song_version_action_passes_import_pipeline_kwargs_when_run
 
         def __init__(self) -> None:
             self._preferences = AppPreferences(
-                song_import=SongImportPreferences(
-                    pipeline_action_ids=("timeline.extract_stems",)
-                )
+                song_import=SongImportPreferences(pipeline_action_ids=("timeline.extract_stems",))
             )
 
         def load(self) -> AppPreferences:
@@ -702,9 +689,7 @@ def test_contract_add_song_version_action_legacy_runtime_runs_configured_import_
 
         def __init__(self) -> None:
             self._preferences = AppPreferences(
-                song_import=SongImportPreferences(
-                    pipeline_action_ids=("timeline.extract_stems",)
-                )
+                song_import=SongImportPreferences(pipeline_action_ids=("timeline.extract_stems",))
             )
 
         def load(self) -> AppPreferences:
@@ -804,9 +789,7 @@ def test_contract_add_song_version_action_passes_layer_transfer_params():
             transfer_layers: bool = False,
             transfer_layer_ids: list[str] | None = None,
         ):
-            self.calls.append(
-                (song_id, audio_path, label, transfer_layers, transfer_layer_ids)
-            )
+            self.calls.append((song_id, audio_path, label, transfer_layers, transfer_layer_ids))
             self._presentation = replace(
                 self._presentation,
                 active_song_id=song_id,
@@ -880,7 +863,9 @@ def test_contract_delete_song_action_calls_runtime(monkeypatch):
     widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
     try:
         widget._trigger_contract_action(
-            InspectorAction(action_id="song.delete", label="Delete Song", params={"song_id": "song_alpha"})
+            InspectorAction(
+                action_id="song.delete", label="Delete Song", params={"song_id": "song_alpha"}
+            )
         )
 
         assert runtime.calls == ["song_alpha"]
@@ -1292,7 +1277,7 @@ def test_timeline_drop_import_offers_new_version_when_song_is_loaded(monkeypatch
         assert prompts == [
             (
                 "Create New Version",
-                'This timeline already has a source song loaded.\n\n'
+                "This timeline already has a source song loaded.\n\n"
                 'Create a new version of "Alpha Song" from "festival-edit.wav"?',
             )
         ]
@@ -1659,9 +1644,7 @@ def test_timeline_drop_batch_import_queues_pipeline_runs_in_context_menu_path_or
 
         def __init__(self) -> None:
             self._preferences = AppPreferences(
-                song_import=SongImportPreferences(
-                    pipeline_action_ids=("timeline.extract_stems",)
-                )
+                song_import=SongImportPreferences(pipeline_action_ids=("timeline.extract_stems",))
             )
 
         def load(self) -> AppPreferences:
@@ -2283,9 +2266,7 @@ def test_contract_import_smpte_audio_to_layer_prompts_for_uncertain_ltc_channel(
             strip_ltc_timecode: bool = True,
             ltc_channel_override: str | None = None,
         ):
-            self.calls.append(
-                (layer_id, audio_path, strip_ltc_timecode, ltc_channel_override)
-            )
+            self.calls.append((layer_id, audio_path, strip_ltc_timecode, ltc_channel_override))
             return self._presentation
 
     source_path = tmp_path / "printed-dual-track.wav"
@@ -2325,9 +2306,7 @@ def test_contract_import_smpte_audio_to_layer_prompts_for_uncertain_ltc_channel(
             )
         )
 
-        assert runtime.calls == [
-            ("layer_smpte", str(source_path), True, "left")
-        ]
+        assert runtime.calls == [("layer_smpte", str(source_path), True, "left")]
     finally:
         widget.close()
         app.processEvents()
@@ -2374,9 +2353,7 @@ def test_contract_import_smpte_audio_to_layer_can_import_stereo_as_is_when_promp
             strip_ltc_timecode: bool = True,
             ltc_channel_override: str | None = None,
         ):
-            self.calls.append(
-                (layer_id, audio_path, strip_ltc_timecode, ltc_channel_override)
-            )
+            self.calls.append((layer_id, audio_path, strip_ltc_timecode, ltc_channel_override))
             return self._presentation
 
     source_path = tmp_path / "printed-stereo.wav"
@@ -2410,9 +2387,7 @@ def test_contract_import_smpte_audio_to_layer_can_import_stereo_as_is_when_promp
             )
         )
 
-        assert runtime.calls == [
-            ("layer_smpte", str(source_path), False, None)
-        ]
+        assert runtime.calls == [("layer_smpte", str(source_path), False, None)]
     finally:
         widget.close()
         app.processEvents()
@@ -2628,7 +2603,6 @@ def test_unknown_registered_object_action_routes_through_runtime(monkeypatch):
     finally:
         widget.close()
         app.processEvents()
-
 
 
 __all__ = [name for name in globals() if name.startswith("test_")]

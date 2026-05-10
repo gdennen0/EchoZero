@@ -6,7 +6,9 @@ import numpy as np
 import soundfile as sf
 
 
-def write_percussion_dataset(root: Path, *, sample_rate: int = 22050, sample_count: int = 4) -> None:
+def write_percussion_dataset(
+    root: Path, *, sample_rate: int = 22050, sample_count: int = 4
+) -> None:
     (root / "kick").mkdir(parents=True, exist_ok=True)
     (root / "snare").mkdir(parents=True, exist_ok=True)
     for index in range(sample_count):

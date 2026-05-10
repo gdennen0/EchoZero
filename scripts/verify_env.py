@@ -6,13 +6,13 @@ Usage:
     python scripts/verify_env.py --quiet
     python scripts/verify_env.py --build
 """
+
 from __future__ import annotations
 
 import argparse
 import importlib
 import sys
 from importlib import metadata
-
 
 BASE_IMPORTS: tuple[tuple[str, str], ...] = (
     ("numpy", "numpy"),
@@ -117,7 +117,7 @@ def main() -> int:
         print("FAIL: environment verification failed.")
         for item in failures:
             print(f" - {item}")
-        print('Fix base env with: python -m pip install -e .')
+        print("Fix base env with: python -m pip install -e .")
         if args.build:
             print('Fix build extras with: python -m pip install -e ".[packaging]"')
         return 1

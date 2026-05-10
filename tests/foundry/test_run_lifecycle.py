@@ -8,7 +8,11 @@ import pytest
 
 from echozero.foundry.app import FoundryApp
 from echozero.foundry.domain import DatasetSample, TrainRunStatus
-from echozero.foundry.persistence import DatasetVersionRepository, ModelArtifactRepository, TrainRunRepository
+from echozero.foundry.persistence import (
+    DatasetVersionRepository,
+    ModelArtifactRepository,
+    TrainRunRepository,
+)
 from echozero.foundry.services import TrainRunService
 from echozero.foundry.services.dataset_service import DatasetService
 from echozero.foundry.services.split_balance_service import SplitBalanceService
@@ -21,7 +25,9 @@ def _prepared_version(root: Path):
     app = FoundryApp(root)
     dataset = app.datasets.create_dataset("Run Lifecycle Drums")
     version = app.datasets.ingest_from_folder(dataset.id, samples)
-    app.plan_version(version.id, validation_split=0.2, test_split=0.2, seed=5, balance_strategy="none")
+    app.plan_version(
+        version.id, validation_split=0.2, test_split=0.2, seed=5, balance_strategy="none"
+    )
     return app.datasets.get_version(version.id)
 
 
@@ -110,7 +116,9 @@ def _mark_train_samples_synthetic(root: Path, version_id: str) -> tuple[object, 
     version.manifest = {
         **version.manifest,
         "synthetic_sample_ids": synthetic_ids,
-        "real_sample_ids": [sample.sample_id for sample in version.samples if not sample.is_synthetic],
+        "real_sample_ids": [
+            sample.sample_id for sample in version.samples if not sample.is_synthetic
+        ],
     }
     splitter = SplitBalanceService()
     version.split_plan = splitter.plan_splits(
@@ -174,7 +182,9 @@ def _write_export_payloads(
                 "sample_count": 2,
             }
         }
-    (exports_dir / "metrics.json").write_text(json.dumps(metrics_payload, indent=2), encoding="utf-8")
+    (exports_dir / "metrics.json").write_text(
+        json.dumps(metrics_payload, indent=2), encoding="utf-8"
+    )
     (exports_dir / "run_summary.json").write_text(
         json.dumps(
             {
@@ -311,7 +321,9 @@ def test_create_run_requires_dataset_planning_and_matching_spec(tmp_path: Path):
     with pytest.raises(ValueError, match="split assignments"):
         svc.create_run(version.id, _run_spec(version.id))
 
-    app.plan_version(version.id, validation_split=0.2, test_split=0.2, seed=3, balance_strategy="none")
+    app.plan_version(
+        version.id, validation_split=0.2, test_split=0.2, seed=3, balance_strategy="none"
+    )
     with pytest.raises(ValueError, match="datasetVersionId"):
         svc.create_run(version.id, _run_spec("dsv_other"))
 
@@ -364,7 +376,9 @@ def test_synthetic_disabled_excludes_synthetic_from_training_path(tmp_path: Path
     run = app.runs.start_run(run.id)
     assert run.status == TrainRunStatus.COMPLETED
 
-    run_summary = json.loads((run.exports_dir(tmp_path) / "run_summary.json").read_text(encoding="utf-8"))
+    run_summary = json.loads(
+        (run.exports_dir(tmp_path) / "run_summary.json").read_text(encoding="utf-8")
+    )
     metrics = json.loads((run.exports_dir(tmp_path) / "metrics.json").read_text(encoding="utf-8"))
     artifact = ModelArtifactRepository(tmp_path).list_for_run(run.id)[0]
 
@@ -389,13 +403,17 @@ def test_synthetic_enabled_with_ratio_bounds_inclusion(tmp_path: Path):
     run = app.runs.start_run(run.id)
     assert run.status == TrainRunStatus.COMPLETED
 
-    run_summary = json.loads((run.exports_dir(tmp_path) / "run_summary.json").read_text(encoding="utf-8"))
+    run_summary = json.loads(
+        (run.exports_dir(tmp_path) / "run_summary.json").read_text(encoding="utf-8")
+    )
     synthetic_mix = run_summary["syntheticMix"]
 
     assert synthetic_mix["enabled"] is True
     assert synthetic_mix["availableSyntheticCount"] == len(synthetic_ids)
     assert synthetic_mix["actualSyntheticCount"] == 1
-    assert synthetic_mix["actualSyntheticCount"] <= int(synthetic_mix["realTrainCount"] * synthetic_mix["ratio"])
+    assert synthetic_mix["actualSyntheticCount"] <= int(
+        synthetic_mix["realTrainCount"] * synthetic_mix["ratio"]
+    )
 
 
 def test_stronger_profile_persists_best_checkpoint_and_training_controls(tmp_path: Path):
@@ -420,7 +438,9 @@ def test_stronger_profile_persists_best_checkpoint_and_training_controls(tmp_pat
     run = app.runs.start_run(run.id)
     assert run.status == TrainRunStatus.COMPLETED
 
-    run_summary = json.loads((run.exports_dir(tmp_path) / "run_summary.json").read_text(encoding="utf-8"))
+    run_summary = json.loads(
+        (run.exports_dir(tmp_path) / "run_summary.json").read_text(encoding="utf-8")
+    )
     metrics = json.loads((run.exports_dir(tmp_path) / "metrics.json").read_text(encoding="utf-8"))
     reports = app.eval._repo.list_for_run(run.id)
 
@@ -478,8 +498,12 @@ def test_promotion_gate_failure_persists_reasons_in_exports_and_manifest(tmp_pat
     )
 
     artifact = app.artifacts.finalize_artifact(run.id, _artifact_manifest_payload())
-    metrics_payload = json.loads((run.exports_dir(tmp_path) / "metrics.json").read_text(encoding="utf-8"))
-    run_summary = json.loads((run.exports_dir(tmp_path) / "run_summary.json").read_text(encoding="utf-8"))
+    metrics_payload = json.loads(
+        (run.exports_dir(tmp_path) / "metrics.json").read_text(encoding="utf-8")
+    )
+    run_summary = json.loads(
+        (run.exports_dir(tmp_path) / "run_summary.json").read_text(encoding="utf-8")
+    )
 
     assert artifact.manifest["promotionGate"]["passed"] is False
     assert len(artifact.manifest["promotionGate"]["reasons"]) == 3
@@ -502,7 +526,9 @@ def test_reference_comparison_summary_persists_in_exports_and_manifest(tmp_path:
         accuracy=0.81,
         per_class_recall={"kick": 0.8, "snare": 0.78},
     )
-    reference_artifact = app.artifacts.finalize_artifact(reference_run.id, _artifact_manifest_payload())
+    reference_artifact = app.artifacts.finalize_artifact(
+        reference_run.id, _artifact_manifest_payload()
+    )
 
     current_spec = _run_spec(version.id)
     current_spec["promotion"] = {
@@ -524,15 +550,20 @@ def test_reference_comparison_summary_persists_in_exports_and_manifest(tmp_path:
     )
 
     artifact = app.artifacts.finalize_artifact(current_run.id, _artifact_manifest_payload())
-    metrics_payload = json.loads((current_run.exports_dir(tmp_path) / "metrics.json").read_text(encoding="utf-8"))
-    run_summary = json.loads((current_run.exports_dir(tmp_path) / "run_summary.json").read_text(encoding="utf-8"))
+    metrics_payload = json.loads(
+        (current_run.exports_dir(tmp_path) / "metrics.json").read_text(encoding="utf-8")
+    )
+    run_summary = json.loads(
+        (current_run.exports_dir(tmp_path) / "run_summary.json").read_text(encoding="utf-8")
+    )
 
     assert artifact.manifest["promotionGate"]["passed"] is True
     assert artifact.manifest["referenceComparison"]["referenceArtifactId"] == reference_artifact.id
-    assert artifact.manifest["referenceComparison"]["delta"]["macroF1"] == pytest.approx(-0.02, abs=1e-6)
+    assert artifact.manifest["referenceComparison"]["delta"]["macroF1"] == pytest.approx(
+        -0.02, abs=1e-6
+    )
     assert metrics_payload["referenceComparison"] == artifact.manifest["referenceComparison"]
     assert run_summary["referenceComparison"] == artifact.manifest["referenceComparison"]
-
 
 
 def test_start_run_cancels_when_cancel_event_is_set_before_execution(tmp_path: Path):
@@ -555,7 +586,9 @@ def test_start_run_cancels_when_cancel_event_is_set_before_execution(tmp_path: P
     assert "RUN_COMPLETED" not in events
 
 
-def test_start_run_transitions_to_failed_when_export_step_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_start_run_transitions_to_failed_when_export_step_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     version = _prepared_version(tmp_path)
     assert version is not None
     app = FoundryApp(tmp_path)

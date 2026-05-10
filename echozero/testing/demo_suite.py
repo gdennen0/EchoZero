@@ -15,7 +15,6 @@ from echozero.testing.demo_suite_scenarios import (
     find_latest_smoke_report,
 )
 
-
 DEFAULT_OUTPUT_ROOT = Path("artifacts/demo-suite")
 
 
@@ -46,7 +45,9 @@ def _write_json(path: Path, payload: dict[str, Any]) -> Path:
     return path
 
 
-def build_manifest(*, run_id: str, run_folder: Path, scenario_results: list[ScenarioResult]) -> dict[str, Any]:
+def build_manifest(
+    *, run_id: str, run_folder: Path, scenario_results: list[ScenarioResult]
+) -> dict[str, Any]:
     passed = sum(1 for result in scenario_results if result.status == "passed")
     skipped = sum(1 for result in scenario_results if result.status == "skipped")
     missing = sum(1 for result in scenario_results if result.status == "missing")
@@ -126,7 +127,9 @@ def run_demo_suite(
             )
         )
 
-    manifest = build_manifest(run_id=run_id, run_folder=run_folder, scenario_results=scenario_results)
+    manifest = build_manifest(
+        run_id=run_id, run_folder=run_folder, scenario_results=scenario_results
+    )
     summary_path = _write_summary(run_folder, manifest)
     manifest["summary_path"] = _relative_path(summary_path, run_folder)
     manifest_path = _write_json(run_folder / "manifest.json", manifest)

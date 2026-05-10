@@ -361,7 +361,9 @@ def test_timeline_and_phone_equivalent_commits_persist_equivalent_signal_payload
         assert normalized_first.get(key) == normalized_second.get(key)
 
 
-def test_project_backed_review_relabel_writes_back_and_defers_local_dataset_extraction(tmp_path: Path):
+def test_project_backed_review_relabel_writes_back_and_defers_local_dataset_extraction(
+    tmp_path: Path,
+):
     _ez_path, working_dir, refs = _build_project_review_fixture(tmp_path)
     service = ReviewSessionService(tmp_path)
 
@@ -469,7 +471,9 @@ def test_boundary_corrected_review_skips_dataset_materialization_without_source_
 
 def test_explicit_review_hot_path_defers_extraction_by_default(tmp_path: Path):
     service = ReviewSignalService(tmp_path)
-    session = ReviewSessionService(tmp_path).import_session_file(_write_review_items_json(tmp_path))
+    session = ReviewSessionService(tmp_path).import_session_file(
+        _write_review_items_json(tmp_path)
+    )
 
     signal = service.record_explicit_review(
         ReviewCommitContext(
@@ -502,7 +506,9 @@ def test_explicit_review_hot_path_defers_extraction_by_default(tmp_path: Path):
 
 def test_explicit_review_commit_defers_extraction_to_explicit_pipeline(tmp_path: Path):
     service = ReviewSignalService(tmp_path)
-    session = ReviewSessionService(tmp_path).import_session_file(_write_review_items_json(tmp_path))
+    session = ReviewSessionService(tmp_path).import_session_file(
+        _write_review_items_json(tmp_path)
+    )
 
     signal = service.record_explicit_review(
         ReviewCommitContext(
@@ -520,7 +526,9 @@ def test_explicit_review_commit_defers_extraction_to_explicit_pipeline(tmp_path:
             score=session.items[0].score,
             source_provenance=dict(session.items[0].source_provenance),
             review_outcome=ReviewOutcome.CORRECT,
-            review_decision=build_review_decision(ReviewOutcome.CORRECT, corrected_label=None, review_note=None),
+            review_decision=build_review_decision(
+                ReviewOutcome.CORRECT, corrected_label=None, review_note=None
+            ),
             corrected_label=None,
             review_note=None,
         ),
@@ -561,7 +569,9 @@ def test_review_session_updates_route_through_shared_review_pipeline_controller(
     assert command.commit.review_decision.kind == ReviewDecisionKind.RELABELED
 
 
-def test_review_extraction_service_materializes_project_review_signal_on_explicit_request(tmp_path: Path):
+def test_review_extraction_service_materializes_project_review_signal_on_explicit_request(
+    tmp_path: Path,
+):
     _ez_path, working_dir, refs = _build_project_review_fixture(tmp_path)
     service = ReviewSessionService(tmp_path)
 

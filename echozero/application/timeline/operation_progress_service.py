@@ -94,7 +94,10 @@ class OperationProgressService:
         project_storage_getter: Callable[[], ProjectStorage],
         session_getter: Callable[[], Session],
         analysis_service: Orchestrator,
-        prepare_operation: Callable[[str, dict[str, object] | None, object | None, str | None, str | None], PreparedOperation],
+        prepare_operation: Callable[
+            [str, dict[str, object] | None, object | None, str | None, str | None],
+            PreparedOperation,
+        ],
         persist_generated_source_layer_id: Callable[..., None],
         max_workers: int = 4,
     ) -> None:
@@ -227,9 +230,7 @@ class OperationProgressService:
         requested_object_id = str(object_id or "")
         requested_object_type = str(object_type or "object")
         requested_song_id = str(song_id) if song_id is not None else None
-        requested_song_version_id = (
-            str(song_version_id) if song_version_id is not None else None
-        )
+        requested_song_version_id = str(song_version_id) if song_version_id is not None else None
         with self._lock:
             matching = [
                 state
@@ -404,15 +405,17 @@ class OperationProgressService:
             updated = replace(
                 current,
                 workflow_id=workflow_id if workflow_id is not None else current.workflow_id,
-                display_label=display_label if display_label is not None else current.display_label,
+                display_label=(
+                    display_label if display_label is not None else current.display_label
+                ),
                 object_id=object_id if object_id is not None else current.object_id,
                 object_type=object_type if object_type is not None else current.object_type,
-                source_layer_id=source_layer_id if source_layer_id is not None else current.source_layer_id,
+                source_layer_id=(
+                    source_layer_id if source_layer_id is not None else current.source_layer_id
+                ),
                 song_id=song_id if song_id is not None else current.song_id,
                 song_version_id=(
-                    song_version_id
-                    if song_version_id is not None
-                    else current.song_version_id
+                    song_version_id if song_version_id is not None else current.song_version_id
                 ),
                 status=status if status is not None else current.status,
                 message=message if message is not None else current.message,
@@ -424,7 +427,9 @@ class OperationProgressService:
                 finished_at=finished_at if finished_at is not None else current.finished_at,
                 error=error if error is not None else current.error,
                 exception=exception if exception is not None else current.exception,
-                output_layer_ids=output_layer_ids if output_layer_ids is not None else current.output_layer_ids,
+                output_layer_ids=(
+                    output_layer_ids if output_layer_ids is not None else current.output_layer_ids
+                ),
             )
             if updated == current:
                 if refresh_presentation:

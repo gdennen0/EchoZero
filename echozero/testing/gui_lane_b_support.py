@@ -190,7 +190,9 @@ def trigger_layer_contract_action(harness, layer_id, action_id: str) -> None:
         harness.presentation(),
         hit_target=TimelineInspectorHitTarget(kind="layer", layer_id=layer_id),
     )
-    harness.widget._trigger_contract_action(find_contract_action(contract.context_sections, action_id))
+    harness.widget._trigger_contract_action(
+        find_contract_action(contract.context_sections, action_id)
+    )
     QApplication.processEvents()
 
 
@@ -263,9 +265,7 @@ def resolve_song_version(harness, params: dict[str, object]):
         raise RuntimeError(
             f"Lane B found multiple song versions matching version_label '{version_label}'."
         )
-    raise RuntimeError(
-        "Lane B action requires params.song_version_id or params.version_label."
-    )
+    raise RuntimeError("Lane B action requires params.song_version_id or params.version_label.")
 
 
 def snapshot_harness(harness) -> dict[str, object]:

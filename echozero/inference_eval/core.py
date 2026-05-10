@@ -5,7 +5,6 @@ from hashlib import sha256
 import json
 from typing import Any, Mapping, Protocol
 
-
 JsonDict = dict[str, Any]
 
 
@@ -104,7 +103,9 @@ class EvalCore(Protocol):
     def evaluate(self, request: EvalRequest) -> EvalResult: ...
 
 
-def canonical_contract_payload(inference_contract: InferenceContract, eval_contract: EvalContract) -> JsonDict:
+def canonical_contract_payload(
+    inference_contract: InferenceContract, eval_contract: EvalContract
+) -> JsonDict:
     return {
         "inference": {
             "schema": inference_contract.schema,
@@ -121,7 +122,9 @@ def canonical_contract_payload(inference_contract: InferenceContract, eval_contr
     }
 
 
-def contract_fingerprint(inference_contract: InferenceContract, eval_contract: EvalContract) -> str:
+def contract_fingerprint(
+    inference_contract: InferenceContract, eval_contract: EvalContract
+) -> str:
     payload = canonical_contract_payload(inference_contract, eval_contract)
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return sha256(canonical.encode("utf-8")).hexdigest()

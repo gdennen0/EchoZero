@@ -14,7 +14,14 @@ from echozero.application.session.models import (
 )
 from echozero.application.session.service import SessionService
 from echozero.application.shared.enums import LayerKind
-from echozero.application.shared.ids import LayerId, ProjectId, SessionId, SongVersionId, TakeId, TimelineId
+from echozero.application.shared.ids import (
+    LayerId,
+    ProjectId,
+    SessionId,
+    SongVersionId,
+    TakeId,
+    TimelineId,
+)
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
 from echozero.application.timeline.intents import (
@@ -160,7 +167,9 @@ class _SyncService(SyncService):
     def align_transport(self, transport: TransportState) -> TransportState:
         return transport
 
-    def list_pull_track_options(self, *, timecode_no: int | None = None, track_group_no: int | None = None):
+    def list_pull_track_options(
+        self, *, timecode_no: int | None = None, track_group_no: int | None = None
+    ):
         tracks = list(self._tracks)
         if timecode_no is not None:
             tracks = [
@@ -254,13 +263,15 @@ def test_open_pull_intent_hydrates_hierarchy_and_defaults_to_new_layer_when_unli
     orchestrator.handle(timeline, OpenPullFromMA3Dialog())
 
     assert session.manual_pull_flow.workspace_active is True
-    assert [(timecode.number, timecode.name) for timecode in session.manual_pull_flow.available_timecodes] == [
-        (1, None)
-    ]
+    assert [
+        (timecode.number, timecode.name)
+        for timecode in session.manual_pull_flow.available_timecodes
+    ] == [(1, None)]
     assert session.manual_pull_flow.selected_timecode_no == 1
-    assert [(group.number, group.track_count) for group in session.manual_pull_flow.available_track_groups] == [
-        (1, 1)
-    ]
+    assert [
+        (group.number, group.track_count)
+        for group in session.manual_pull_flow.available_track_groups
+    ] == [(1, 1)]
     assert session.manual_pull_flow.selected_track_group_no == 1
     assert session.manual_pull_flow.available_tracks == [
         ManualPullTrackOption(
@@ -358,8 +369,12 @@ def test_apply_pull_import_creates_new_take_and_preserves_start_times():
             tracks=[ManualPullTrackOption(coord="tc1_tg2_tr3", name="MA3 Track", number=3)],
             events_by_track={
                 "tc1_tg2_tr3": [
-                    ManualPullEventOption(event_id="ma3_evt_1", label="Cue 1", start=1.0, end=1.5, cue_number=11),
-                    ManualPullEventOption(event_id="ma3_evt_2", label="Cue 2", start=3.0, cue_number=12),
+                    ManualPullEventOption(
+                        event_id="ma3_evt_1", label="Cue 1", start=1.0, end=1.5, cue_number=11
+                    ),
+                    ManualPullEventOption(
+                        event_id="ma3_evt_2", label="Cue 2", start=3.0, cue_number=12
+                    ),
                     ManualPullEventOption(event_id="ma3_evt_3", label="Cue 3", cue_number=13),
                 ]
             },
@@ -587,7 +602,9 @@ def test_apply_pull_create_new_target_creates_event_layer_and_imports_events():
     ]
     assert timeline.selection.selected_layer_id == created_layer.id
     assert timeline.selection.selected_take_id == created_layer.takes[0].id
-    assert session.manual_pull_flow.target_layer_id_by_source_track["tc1_tg2_tr3"] == created_layer.id
+    assert (
+        session.manual_pull_flow.target_layer_id_by_source_track["tc1_tg2_tr3"] == created_layer.id
+    )
 
 
 def test_apply_pull_create_section_target_creates_section_layer_and_imports_main():
@@ -634,7 +651,9 @@ def test_apply_pull_create_section_target_creates_section_layer_and_imports_main
     ]
     assert timeline.selection.selected_layer_id == created_layer.id
     assert timeline.selection.selected_take_id == created_layer.takes[0].id
-    assert session.manual_pull_flow.target_layer_id_by_source_track["tc1_tg2_tr3"] == created_layer.id
+    assert (
+        session.manual_pull_flow.target_layer_id_by_source_track["tc1_tg2_tr3"] == created_layer.id
+    )
 
 
 def test_apply_pull_create_section_target_preserves_float_cue_numbers():
@@ -797,8 +816,12 @@ def test_select_pull_source_track_preserves_multi_track_selection_and_per_source
                 ManualPullTrackOption(coord="tc1_tg2_tr4", name="Track 4", number=4),
             ],
             events_by_track={
-                "tc1_tg2_tr3": [ManualPullEventOption(event_id="ma3_evt_1", label="Cue 1", start=1.0)],
-                "tc1_tg2_tr4": [ManualPullEventOption(event_id="ma3_evt_2", label="Cue 2", start=2.0)],
+                "tc1_tg2_tr3": [
+                    ManualPullEventOption(event_id="ma3_evt_1", label="Cue 1", start=1.0)
+                ],
+                "tc1_tg2_tr4": [
+                    ManualPullEventOption(event_id="ma3_evt_2", label="Cue 2", start=2.0)
+                ],
             },
         )
     )
@@ -813,7 +836,9 @@ def test_select_pull_source_track_preserves_multi_track_selection_and_per_source
         "+ Create New Layer Per Source Track...",
     )
     orchestrator.handle(timeline, SelectPullSourceTrack(source_track_coord="tc1_tg2_tr4"))
-    orchestrator.handle(timeline, SelectPullTargetLayer(target_layer_id=create_per_source_target_id))
+    orchestrator.handle(
+        timeline, SelectPullTargetLayer(target_layer_id=create_per_source_target_id)
+    )
 
     assert session.manual_pull_flow.selected_source_track_coords == [
         "tc1_tg2_tr3",
@@ -830,13 +855,17 @@ def test_select_pull_source_track_preserves_multi_track_selection_and_per_source
 def test_apply_pull_requires_selected_source_events_and_target():
     orchestrator, timeline, session, _playback_service = _build_orchestrator()
 
-    with pytest.raises(ValueError, match="ApplyPullFromMA3 requires a selected source_track_coord"):
+    with pytest.raises(
+        ValueError, match="ApplyPullFromMA3 requires a selected source_track_coord"
+    ):
         orchestrator.handle(timeline, ApplyPullFromMA3())
 
     orchestrator, timeline, session, _playback_service = _build_orchestrator(
         sync_service=_SyncService(
             tracks=[ManualPullTrackOption(coord="tc1_tg2_tr3", name="Track 3", number=3)],
-            events_by_track={"tc1_tg2_tr3": [ManualPullEventOption(event_id="evt_1", label="Cue 1")]},
+            events_by_track={
+                "tc1_tg2_tr3": [ManualPullEventOption(event_id="evt_1", label="Cue 1")]
+            },
         )
     )
     orchestrator.handle(timeline, OpenPullFromMA3Dialog())
@@ -858,7 +887,9 @@ def test_pull_flow_validation_errors_reject_unknown_scoped_values():
     orchestrator, timeline, _session, _playback_service = _build_orchestrator(
         sync_service=_SyncService(
             tracks=[ManualPullTrackOption(coord="tc1_tg2_tr3", name="MA3 Track", number=3)],
-            events_by_track={"tc1_tg2_tr3": [ManualPullEventOption(event_id="ma3_evt_1", label="Cue 1")]},
+            events_by_track={
+                "tc1_tg2_tr3": [ManualPullEventOption(event_id="ma3_evt_1", label="Cue 1")]
+            },
         )
     )
     orchestrator.handle(timeline, OpenPullFromMA3Dialog())

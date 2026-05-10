@@ -17,7 +17,9 @@ def _prepared_version(root: Path):
     app = FoundryApp(root)
     dataset = app.datasets.create_dataset("Support Services Drums")
     version = app.datasets.ingest_from_folder(dataset.id, samples)
-    app.plan_version(version.id, validation_split=0.2, test_split=0.2, seed=13, balance_strategy="none")
+    app.plan_version(
+        version.id, validation_split=0.2, test_split=0.2, seed=13, balance_strategy="none"
+    )
     saved_version = app.datasets.get_version(version.id)
     assert saved_version is not None
     return saved_version
@@ -65,19 +67,23 @@ def test_run_telemetry_service_writes_snapshots_and_latest_payload(tmp_path: Pat
 
     service.write_status_snapshot(run.id, status=run.status.value, event_type="RUN_STARTED")
     service.write_progress_snapshot(run.id, epoch=2, metric_snapshot={"train_loss": 0.42})
-    service.append_run_telemetry(run, epoch=2, metric_snapshot={"train_loss": 0.42, "eta_seconds": 9})
+    service.append_run_telemetry(
+        run, epoch=2, metric_snapshot={"train_loss": 0.42, "eta_seconds": 9}
+    )
 
     status_payload = json.loads(
-        (tmp_path / "foundry" / "tracking" / "snapshots" / f"{run.id}_latest_status.json").read_text(
-            encoding="utf-8"
-        )
+        (
+            tmp_path / "foundry" / "tracking" / "snapshots" / f"{run.id}_latest_status.json"
+        ).read_text(encoding="utf-8")
     )
     progress_payload = json.loads(
-        (tmp_path / "foundry" / "tracking" / "snapshots" / f"{run.id}_latest_progress.json").read_text(
-            encoding="utf-8"
-        )
+        (
+            tmp_path / "foundry" / "tracking" / "snapshots" / f"{run.id}_latest_progress.json"
+        ).read_text(encoding="utf-8")
     )
-    latest_payload = json.loads((run.run_dir(tmp_path) / "telemetry.latest.json").read_text(encoding="utf-8"))
+    latest_payload = json.loads(
+        (run.run_dir(tmp_path) / "telemetry.latest.json").read_text(encoding="utf-8")
+    )
 
     assert status_payload["event_type"] == "RUN_STARTED"
     assert progress_payload["epoch"] == 2

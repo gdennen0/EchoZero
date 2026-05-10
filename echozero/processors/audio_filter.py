@@ -189,6 +189,7 @@ def _default_filter(
     # Write filtered audio
     import tempfile
     import os
+
     fd, output_file = tempfile.mkstemp(suffix=".wav")
     os.close(fd)
 
@@ -257,9 +258,7 @@ class AudioFilterProcessor:
                 ValidationError(f"Block '{block_id}' is missing required setting 'filter_type'")
             )
         if freq is None:
-            return err(
-                ValidationError(f"Block '{block_id}' is missing required setting 'freq'")
-            )
+            return err(ValidationError(f"Block '{block_id}' is missing required setting 'freq'"))
 
         if filter_type not in VALID_FILTER_TYPES:
             return err(
@@ -300,9 +299,7 @@ class AudioFilterProcessor:
         except (ValidationError, ExecutionError) as exc:
             return err(exc)
         except Exception as exc:
-            return err(
-                ExecutionError(f"Filtering failed for block '{block_id}': {exc}")
-            )
+            return err(ExecutionError(f"Filtering failed for block '{block_id}': {exc}"))
 
         # Report complete
         context.progress_bus.publish(
@@ -322,4 +319,3 @@ class AudioFilterProcessor:
                 channel_count=audio.channel_count,
             )
         )
-

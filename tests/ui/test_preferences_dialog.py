@@ -68,9 +68,7 @@ def test_preferences_dialog_restore_defaults_resets_form_values() -> None:
 
         restored = dialog._form.values()
         expected = {
-            key: value
-            for key, value in service.default_values().items()
-            if key in restored
+            key: value for key, value in service.default_values().items() if key in restored
         }
         assert restored == expected
     finally:

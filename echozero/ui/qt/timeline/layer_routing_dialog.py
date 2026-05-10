@@ -130,9 +130,7 @@ class LayerRoutingSettingsDialog(QDialog):
             self._summary.setText(f"Routing summary: Output {start_channel}.")
             return
         if end_channel == start_channel + 1:
-            self._summary.setText(
-                f"Routing summary: Outputs {start_channel}/{end_channel}."
-            )
+            self._summary.setText(f"Routing summary: Outputs {start_channel}/{end_channel}.")
             return
         self._summary.setText(f"Routing summary: Outputs {start_channel}-{end_channel}.")
 

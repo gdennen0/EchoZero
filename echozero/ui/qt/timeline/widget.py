@@ -116,9 +116,7 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setWindowTitle(self._style.window_title)
         self._space_play_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Space), self)
-        self._space_play_shortcut.setContext(
-            Qt.ShortcutContext.WidgetWithChildrenShortcut
-        )
+        self._space_play_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self._space_play_shortcut.activated.connect(self._play_transport_from_spacebar)
         self._space_play_shortcut.setEnabled(True)
         self._shift_space_preview_shortcut = QShortcut(QKeySequence("Shift+Space"), self)
@@ -160,15 +158,11 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._editor_bar.fix_nav_include_demoted_toggled.connect(self._set_fix_nav_include_demoted)
         self._editor_bar.snap_toggled.connect(self._set_snap_enabled)
         self._editor_bar.grid_mode_changed.connect(self._set_grid_mode)
-        self._editor_bar.add_event_at_playhead_requested.connect(
-            self._create_event_at_playhead
-        )
+        self._editor_bar.add_event_at_playhead_requested.connect(self._create_event_at_playhead)
         self._editor_bar.zoom_fit_requested.connect(self._zoom_to_fit_all)
         self._editor_bar.settings_requested.connect(self._open_settings_dialog)
         self._editor_bar.osc_settings_requested.connect(self._open_osc_settings_dialog)
-        self._editor_bar.pipeline_settings_requested.connect(
-            self._open_pipeline_settings_browser
-        )
+        self._editor_bar.pipeline_settings_requested.connect(self._open_pipeline_settings_browser)
         left_layout.addWidget(self._editor_bar)
 
         self._pipeline_status = QFrame(self)
@@ -257,7 +251,9 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._canvas.preview_transfer_plan_requested.connect(self._preview_active_transfer_plan)
         self._canvas.apply_transfer_plan_requested.connect(self._apply_active_transfer_plan)
         self._canvas.cancel_transfer_plan_requested.connect(self._cancel_active_transfer_plan)
-        self._canvas.preview_selected_event_clip_requested.connect(self._preview_selected_event_clip)
+        self._canvas.preview_selected_event_clip_requested.connect(
+            self._preview_selected_event_clip
+        )
         self._canvas.header_width_changed.connect(self._on_canvas_header_width_changed)
         self._ruler.seek_requested.connect(self._seek)
         self._scroll.setWidget(self._canvas)
@@ -309,7 +305,9 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._runtime_structural_sync_pending_presentation: TimelinePresentation | None = None
         self._runtime_structural_sync_timer = QTimer(self)
         self._runtime_structural_sync_timer.setSingleShot(True)
-        self._runtime_structural_sync_timer.timeout.connect(self._on_runtime_structural_sync_timeout)
+        self._runtime_structural_sync_timer.timeout.connect(
+            self._on_runtime_structural_sync_timeout
+        )
         self._action_router = TimelineWidgetActionRouter(
             widget=self,
             dispatch=cast(Callable[[object], None], self._dispatch),
@@ -332,9 +330,7 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._song_browser_panel.add_song_version_requested.connect(
             self._action_router.add_song_version
         )
-        self._song_browser_panel.move_song_up_requested.connect(
-            self._action_router.move_song_up
-        )
+        self._song_browser_panel.move_song_up_requested.connect(self._action_router.move_song_up)
         self._song_browser_panel.move_song_down_requested.connect(
             self._action_router.move_song_down
         )
@@ -355,9 +351,7 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
             self._action_router.reorder_songs
         )
         self._song_browser_panel.audio_paths_dropped.connect(self._handle_song_browser_drop)
-        self._song_browser_panel.collapsed_changed.connect(
-            self._sync_song_browser_collapsed_state
-        )
+        self._song_browser_panel.collapsed_changed.connect(self._sync_song_browser_collapsed_state)
         self._object_info.collapsed_changed.connect(self._sync_object_info_collapsed_state)
         self._install_song_drop_targets(
             left_pane,
@@ -510,7 +504,9 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         current_draft = next((cue for cue in layer_drafts if cue.cue_id == section_cue_id), None)
         if current_draft is None:
             return
-        current_name = str(current_draft.name or "").strip() or str(current_draft.cue_ref or "").strip()
+        current_name = (
+            str(current_draft.name or "").strip() or str(current_draft.cue_ref or "").strip()
+        )
         renamed_value, accepted = QInputDialog.getText(
             self,
             "Rename Section",
@@ -613,7 +609,11 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
 
     def _default_fix_event_label(self, layer_id: object) -> str:
         layer = next(
-            (candidate for candidate in self.presentation.layers if candidate.layer_id == layer_id),
+            (
+                candidate
+                for candidate in self.presentation.layers
+                if candidate.layer_id == layer_id
+            ),
             None,
         )
         if layer is None:
@@ -694,9 +694,7 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
     @staticmethod
     def _add_recent_project_menu(menu: QMenu, actions: Mapping[str, QAction]) -> None:
         recent_action_ids = [
-            action_id
-            for action_id in actions
-            if action_id.startswith("open_recent_project::")
+            action_id for action_id in actions if action_id.startswith("open_recent_project::")
         ]
         if not recent_action_ids:
             return

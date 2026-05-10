@@ -19,10 +19,14 @@ from echozero.result import Ok, is_err, is_ok, unwrap
 
 class MockLoadAudio:
     def execute(self, block_id, context):
-        return Ok(AudioData(
-            sample_rate=44100, duration=5.0,
-            file_path="test.wav", channel_count=2,
-        ))
+        return Ok(
+            AudioData(
+                sample_rate=44100,
+                duration=5.0,
+                file_path="test.wav",
+                channel_count=2,
+            )
+        )
 
 
 def _fake_eq(file_path, sample_rate, bands, filter_order):
@@ -35,21 +39,28 @@ def _build_graph(bands=None, filter_order=4) -> Graph:
         settings["bands"] = bands
 
     g = Graph()
-    g.add_block(Block(
-        id="load", name="Load", block_type="LoadAudio",
-        category=BlockCategory.PROCESSOR,
-        input_ports=(), output_ports=(
-            Port("audio_out", PortType.AUDIO, Direction.OUTPUT),
-        ),
-        settings=BlockSettings({"file_path": "test.wav"}),
-    ))
-    g.add_block(Block(
-        id="eq", name="EQ", block_type="EQBands",
-        category=BlockCategory.PROCESSOR,
-        input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
-        output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
-        settings=BlockSettings(settings),
-    ))
+    g.add_block(
+        Block(
+            id="load",
+            name="Load",
+            block_type="LoadAudio",
+            category=BlockCategory.PROCESSOR,
+            input_ports=(),
+            output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
+            settings=BlockSettings({"file_path": "test.wav"}),
+        )
+    )
+    g.add_block(
+        Block(
+            id="eq",
+            name="EQ",
+            block_type="EQBands",
+            category=BlockCategory.PROCESSOR,
+            input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
+            output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
+            settings=BlockSettings(settings),
+        )
+    )
     g.add_connection(Connection("load", "audio_out", "eq", "audio_in"))
     return g
 
@@ -66,6 +77,7 @@ def _run(graph, eq_fn=_fake_eq):
 # ---------------------------------------------------------------------------
 # validate_bands
 # ---------------------------------------------------------------------------
+
 
 class TestValidateBands:
     def test_valid_bands(self):
@@ -102,6 +114,7 @@ class TestValidateBands:
 # Integration
 # ---------------------------------------------------------------------------
 
+
 class TestEQBandsProcessor:
     def test_produces_audio_data(self):
         result = _run(_build_graph())
@@ -130,25 +143,33 @@ class TestEQBandsProcessor:
 
     def test_invalid_bands_type_returns_error(self):
         g = _build_graph()
-        g.replace_block(Block(
-            id="eq", name="EQ", block_type="EQBands",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
-            output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
-            settings=BlockSettings({"bands": "not_a_list"}),
-        ))
+        g.replace_block(
+            Block(
+                id="eq",
+                name="EQ",
+                block_type="EQBands",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
+                output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
+                settings=BlockSettings({"bands": "not_a_list"}),
+            )
+        )
         result = _run(g)
         assert is_err(result)
 
     def test_no_audio_input_returns_error(self):
         g = Graph()
-        g.add_block(Block(
-            id="eq", name="EQ", block_type="EQBands",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
-            output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
-            settings=BlockSettings({}),
-        ))
+        g.add_block(
+            Block(
+                id="eq",
+                name="EQ",
+                block_type="EQBands",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
+                output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
+                settings=BlockSettings({}),
+            )
+        )
         bus = RuntimeBus()
         engine = ExecutionEngine(g, bus)
         engine.register_executor("EQBands", EQBandsProcessor(_fake_eq))
@@ -158,8 +179,6 @@ class TestEQBandsProcessor:
     def test_eq_fn_failure_returns_error(self):
         def failing_eq(*args, **kwargs):
             raise RuntimeError("scipy missing")
+
         result = _run(_build_graph(), eq_fn=failing_eq)
         assert is_err(result)
-
-
-

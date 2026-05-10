@@ -857,7 +857,9 @@ class TimelineOrchestratorOwner(
                     next_active_coord
                 )
                 session.manual_pull_flow.selected_ma3_event_ids = list(
-                    session.manual_pull_flow.selected_ma3_event_ids_by_track.get(next_active_coord, [])
+                    session.manual_pull_flow.selected_ma3_event_ids_by_track.get(
+                        next_active_coord, []
+                    )
                 )
                 session.manual_pull_flow.import_mode = (
                     session.manual_pull_flow.import_mode_by_source_track.get(
@@ -884,8 +886,8 @@ class TimelineOrchestratorOwner(
                 session,
                 source_track_coord=source_track.coord,
             )
-            session.manual_pull_flow.selected_track_group_no = self._ma3_track_coord_track_group_no(
-                source_track.coord
+            session.manual_pull_flow.selected_track_group_no = (
+                self._ma3_track_coord_track_group_no(source_track.coord)
             )
             if session.manual_pull_flow.workspace_active:
                 self._rebuild_pull_transfer_plan(timeline, session)
@@ -915,8 +917,8 @@ class TimelineOrchestratorOwner(
                 or session.manual_pull_flow.source_track_coord
             )
             if active_source_coord:
-                session.manual_pull_flow.selected_ma3_event_ids_by_track[active_source_coord] = list(
-                    intent.selected_ma3_event_ids
+                session.manual_pull_flow.selected_ma3_event_ids_by_track[active_source_coord] = (
+                    list(intent.selected_ma3_event_ids)
                 )
             session.manual_pull_flow.diff_gate_open = False
             session.manual_pull_flow.diff_preview = None
@@ -1908,7 +1910,9 @@ class MA3TransferWorkspaceService(TimelineOrchestratorOwner):
                     next_active_coord
                 )
                 session.manual_pull_flow.selected_ma3_event_ids = list(
-                    session.manual_pull_flow.selected_ma3_event_ids_by_track.get(next_active_coord, [])
+                    session.manual_pull_flow.selected_ma3_event_ids_by_track.get(
+                        next_active_coord, []
+                    )
                 )
                 session.manual_pull_flow.import_mode = (
                     session.manual_pull_flow.import_mode_by_source_track.get(
@@ -1935,8 +1939,8 @@ class MA3TransferWorkspaceService(TimelineOrchestratorOwner):
                 session,
                 source_track_coord=source_track.coord,
             )
-            session.manual_pull_flow.selected_track_group_no = self._ma3_track_coord_track_group_no(
-                source_track.coord
+            session.manual_pull_flow.selected_track_group_no = (
+                self._ma3_track_coord_track_group_no(source_track.coord)
             )
             if session.manual_pull_flow.workspace_active:
                 self._rebuild_pull_transfer_plan(timeline, session)
@@ -1966,8 +1970,8 @@ class MA3TransferWorkspaceService(TimelineOrchestratorOwner):
                 or session.manual_pull_flow.source_track_coord
             )
             if active_source_coord:
-                session.manual_pull_flow.selected_ma3_event_ids_by_track[active_source_coord] = list(
-                    intent.selected_ma3_event_ids
+                session.manual_pull_flow.selected_ma3_event_ids_by_track[active_source_coord] = (
+                    list(intent.selected_ma3_event_ids)
                 )
             session.manual_pull_flow.diff_gate_open = False
             session.manual_pull_flow.diff_preview = None

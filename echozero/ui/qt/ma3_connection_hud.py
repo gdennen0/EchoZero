@@ -152,7 +152,9 @@ class MA3ConnectionHUD(QDialog):
             "osc_receive.port": int(self._receive_port.value()),
             "osc_send.enabled": self._send_enabled.isChecked(),
             "osc_send.host": self._send_host.text().strip() or "127.0.0.1",
-            "osc_send.port": int(self._send_port.value()) if self._send_enabled.isChecked() else None,
+            "osc_send.port": (
+                int(self._send_port.value()) if self._send_enabled.isChecked() else None
+            ),
         }
 
     def _run_send_probe(self) -> str:

@@ -173,7 +173,9 @@ class PlaybackTrackBuilder:
             return playback_track.buffer, playback_track.sample_rate
         source_ref = str(playback_track.source_ref or "").strip()
         if not source_ref:
-            raise ValueError(f"Playback track '{playback_track.track_id}' has no source audio ref.")
+            raise ValueError(
+                f"Playback track '{playback_track.track_id}' has no source audio ref."
+            )
         buffer, sample_rate = self.load_source_buffer(playback_track.source_key, source_ref)
         playback_track.buffer = buffer
         playback_track.sample_rate = sample_rate
@@ -187,13 +189,10 @@ class PlaybackTrackBuilder:
             resolve_audio=True,
         )
         cache_keys = frozenset(
-            cache_key
-            for playback_track in tracks
-            for cache_key in playback_track.cache_keys
+            cache_key for playback_track in tracks for cache_key in playback_track.cache_keys
         )
         signature = tuple(
-            (playback_track.track_id, playback_track.signature_token)
-            for playback_track in tracks
+            (playback_track.track_id, playback_track.signature_token) for playback_track in tracks
         )
         return PlaybackTrackPlan(
             tracks=tracks,
@@ -213,8 +212,7 @@ class PlaybackTrackBuilder:
             resolve_audio=False,
         )
         return tuple(
-            (playback_track.track_id, playback_track.signature_token)
-            for playback_track in tracks
+            (playback_track.track_id, playback_track.signature_token) for playback_track in tracks
         )
 
     def build_mix_plan(self, presentation: TimelinePresentation) -> PlaybackMixPlan:
@@ -225,8 +223,7 @@ class PlaybackTrackBuilder:
             resolve_audio=False,
         )
         signature = tuple(
-            (playback_track.track_id, playback_track.signature_token)
-            for playback_track in tracks
+            (playback_track.track_id, playback_track.signature_token) for playback_track in tracks
         )
         return PlaybackMixPlan(
             tracks=tracks,
@@ -275,8 +272,7 @@ class PlaybackTrackBuilder:
         if not layer_candidates:
             return []
         has_soloed_layers = any(
-            bool(getattr(layer, "soloed", False))
-            for layer in layer_candidates
+            bool(getattr(layer, "soloed", False)) for layer in layer_candidates
         )
         selected_layer_id = (
             str(presentation.selected_layer_id)
@@ -495,10 +491,7 @@ class PlaybackTrackBuilder:
             PlaybackTrackBuilder._audio_source_ref(layer)
             and not PlaybackTrackBuilder._is_event_like_layer(layer)
         )
-        return bool(
-            has_continuous_source
-            or PlaybackTrackBuilder._is_event_track_source(layer)
-        )
+        return bool(has_continuous_source or PlaybackTrackBuilder._is_event_track_source(layer))
 
     @staticmethod
     def _is_event_like_layer(layer: object) -> bool:

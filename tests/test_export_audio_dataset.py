@@ -7,7 +7,14 @@ import pytest
 from echozero.domain.enums import BlockCategory, Direction, PortType
 from echozero.domain.graph import Graph
 from echozero.domain.types import (
-    AudioData, Block, BlockSettings, Connection, Event, EventData, Layer, Port,
+    AudioData,
+    Block,
+    BlockSettings,
+    Connection,
+    Event,
+    EventData,
+    Layer,
+    Port,
 )
 from echozero.execution import ExecutionEngine, GraphPlanner
 from echozero.processors.export_audio_dataset import ExportAudioDatasetProcessor
@@ -17,31 +24,72 @@ from echozero.result import Ok, is_err, is_ok, unwrap
 
 class MockLoadAudio:
     def execute(self, block_id, context):
-        return Ok(AudioData(
-            sample_rate=44100, duration=5.0,
-            file_path="song.wav", channel_count=2,
-        ))
+        return Ok(
+            AudioData(
+                sample_rate=44100,
+                duration=5.0,
+                file_path="song.wav",
+                channel_count=2,
+            )
+        )
 
 
 def _make_event_data() -> EventData:
-    return EventData(layers=(
-        Layer(id="drums", name="Drums", events=(
-            Event(id="kick_1", time=0.5, duration=0.2,
-                  classifications={"class": "kick"}, metadata={}, origin="test"),
-            Event(id="snare_1", time=1.0, duration=0.3,
-                  classifications={"class": "snare"}, metadata={}, origin="test"),
-            Event(id="kick_2", time=1.5, duration=0.2,
-                  classifications={"class": "kick"}, metadata={}, origin="test"),
-        )),
-    ))
+    return EventData(
+        layers=(
+            Layer(
+                id="drums",
+                name="Drums",
+                events=(
+                    Event(
+                        id="kick_1",
+                        time=0.5,
+                        duration=0.2,
+                        classifications={"class": "kick"},
+                        metadata={},
+                        origin="test",
+                    ),
+                    Event(
+                        id="snare_1",
+                        time=1.0,
+                        duration=0.3,
+                        classifications={"class": "snare"},
+                        metadata={},
+                        origin="test",
+                    ),
+                    Event(
+                        id="kick_2",
+                        time=1.5,
+                        duration=0.2,
+                        classifications={"class": "kick"},
+                        metadata={},
+                        origin="test",
+                    ),
+                ),
+            ),
+        )
+    )
 
 
 def _make_no_duration_events() -> EventData:
-    return EventData(layers=(
-        Layer(id="l", name="L", events=(
-            Event(id="e1", time=0.5, duration=0.0, classifications={}, metadata={}, origin="t"),
-        )),
-    ))
+    return EventData(
+        layers=(
+            Layer(
+                id="l",
+                name="L",
+                events=(
+                    Event(
+                        id="e1",
+                        time=0.5,
+                        duration=0.0,
+                        classifications={},
+                        metadata={},
+                        origin="t",
+                    ),
+                ),
+            ),
+        )
+    )
 
 
 class FakeEventSource:
@@ -50,41 +98,54 @@ class FakeEventSource:
 
     def execute(self, block_id, context):
         from echozero.result import ok
+
         return ok(self._data)
 
 
 def _build_graph(output_dir="/tmp/dataset", fmt="wav", organize=True, min_dur=0.01) -> Graph:
     g = Graph()
-    g.add_block(Block(
-        id="load", name="Load", block_type="LoadAudio",
-        category=BlockCategory.PROCESSOR,
-        input_ports=(), output_ports=(
-            Port("audio_out", PortType.AUDIO, Direction.OUTPUT),
-        ),
-        settings=BlockSettings({"file_path": "song.wav"}),
-    ))
-    g.add_block(Block(
-        id="events_src", name="Events", block_type="EventSource",
-        category=BlockCategory.PROCESSOR,
-        input_ports=(), output_ports=(
-            Port("events_out", PortType.EVENT, Direction.OUTPUT),
-        ),
-    ))
-    g.add_block(Block(
-        id="export", name="Export", block_type="ExportAudioDataset",
-        category=BlockCategory.PROCESSOR,
-        input_ports=(
-            Port("audio_in", PortType.AUDIO, Direction.INPUT),
-            Port("events_in", PortType.EVENT, Direction.INPUT),
-        ),
-        output_ports=(),
-        settings=BlockSettings({
-            "output_dir": output_dir,
-            "format": fmt,
-            "organize_by_class": organize,
-            "min_duration": min_dur,
-        }),
-    ))
+    g.add_block(
+        Block(
+            id="load",
+            name="Load",
+            block_type="LoadAudio",
+            category=BlockCategory.PROCESSOR,
+            input_ports=(),
+            output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
+            settings=BlockSettings({"file_path": "song.wav"}),
+        )
+    )
+    g.add_block(
+        Block(
+            id="events_src",
+            name="Events",
+            block_type="EventSource",
+            category=BlockCategory.PROCESSOR,
+            input_ports=(),
+            output_ports=(Port("events_out", PortType.EVENT, Direction.OUTPUT),),
+        )
+    )
+    g.add_block(
+        Block(
+            id="export",
+            name="Export",
+            block_type="ExportAudioDataset",
+            category=BlockCategory.PROCESSOR,
+            input_ports=(
+                Port("audio_in", PortType.AUDIO, Direction.INPUT),
+                Port("events_in", PortType.EVENT, Direction.INPUT),
+            ),
+            output_ports=(),
+            settings=BlockSettings(
+                {
+                    "output_dir": output_dir,
+                    "format": fmt,
+                    "organize_by_class": organize,
+                    "min_duration": min_dur,
+                }
+            ),
+        )
+    )
     g.add_connection(Connection("load", "audio_out", "export", "audio_in"))
     g.add_connection(Connection("events_src", "events_out", "export", "events_in"))
     return g
@@ -146,22 +207,27 @@ class TestExportAudioDatasetProcessor:
 
     def test_missing_output_dir_returns_error(self):
         g = _build_graph()
-        g.replace_block(Block(
-            id="export", name="E", block_type="ExportAudioDataset",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(
-                Port("audio_in", PortType.AUDIO, Direction.INPUT),
-                Port("events_in", PortType.EVENT, Direction.INPUT),
-            ),
-            output_ports=(),
-            settings=BlockSettings({}),
-        ))
+        g.replace_block(
+            Block(
+                id="export",
+                name="E",
+                block_type="ExportAudioDataset",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(
+                    Port("audio_in", PortType.AUDIO, Direction.INPUT),
+                    Port("events_in", PortType.EVENT, Direction.INPUT),
+                ),
+                output_ports=(),
+                settings=BlockSettings({}),
+            )
+        )
         result, _ = _run(g)
         assert is_err(result)
 
     def test_export_fn_failure_returns_error(self):
         def failing(*args, **kwargs):
             raise RuntimeError("disk full")
+
         result, _ = _run(_build_graph(), export_fn=failing)
         assert is_err(result)
 
@@ -171,5 +237,3 @@ class TestExportAudioDatasetProcessor:
         filenames = [c["filename"] for c in clips]
         assert "kick_1.wav" in filenames
         assert "snare_1.wav" in filenames
-
-

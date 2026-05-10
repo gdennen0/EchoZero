@@ -71,8 +71,11 @@ def build_index() -> list[dict]:
 
         row = {
             "run_id": run_id,
-            "status": run_state.get("status") or last_event.get("payload", {}).get("status") or "unknown",
-            "dataset_version_id": run_state.get("dataset_version_id") or spec.get("data", {}).get("datasetVersionId"),
+            "status": run_state.get("status")
+            or last_event.get("payload", {}).get("status")
+            or "unknown",
+            "dataset_version_id": run_state.get("dataset_version_id")
+            or spec.get("data", {}).get("datasetVersionId"),
             "classification_mode": spec.get("classificationMode"),
             "trainer_profile": spec.get("training", {}).get("trainerProfile"),
             "optimizer": spec.get("training", {}).get("optimizer"),
@@ -85,7 +88,9 @@ def build_index() -> list[dict]:
             "loss": metrics.get("loss"),
             "sample_count": metrics.get("sample_count"),
             "artifact_ids": [a.get("id") for a in artifacts_by_run.get(run_id, []) if a.get("id")],
-            "artifact_paths": [a.get("path") for a in artifacts_by_run.get(run_id, []) if a.get("path")],
+            "artifact_paths": [
+                a.get("path") for a in artifacts_by_run.get(run_id, []) if a.get("path")
+            ],
             "run_dir": str(run_dir),
         }
         rows.append(row)
@@ -143,12 +148,17 @@ def main() -> None:
     TRACK_DIR.mkdir(parents=True, exist_ok=True)
     (TRACK_DIR / "training_index.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
     write_human_ledger(rows)
-    print(json.dumps({
-        "runs_indexed": len(rows),
-        "ledger": str(TRACK_DIR / "TRAINING_LEDGER.md"),
-        "index": str(TRACK_DIR / "training_index.json"),
-        "cards_dir": str(MODEL_CARDS_DIR),
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "runs_indexed": len(rows),
+                "ledger": str(TRACK_DIR / "TRAINING_LEDGER.md"),
+                "index": str(TRACK_DIR / "training_index.json"),
+                "cards_dir": str(MODEL_CARDS_DIR),
+            },
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

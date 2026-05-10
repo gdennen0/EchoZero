@@ -19,7 +19,6 @@ from echozero.execution import ExecutionContext
 from echozero.progress import ProgressReport
 from echozero.result import Result, err, ok
 
-
 # ---------------------------------------------------------------------------
 # Available Demucs models
 # ---------------------------------------------------------------------------
@@ -80,6 +79,7 @@ def cleanup_stem_temp_dirs(working_dir: Path) -> int:
     if not tmp_stems.exists():
         return 0
     import shutil
+
     count = 0
     for d in tmp_stems.iterdir():
         if d.is_dir():
@@ -91,6 +91,7 @@ def cleanup_stem_temp_dirs(working_dir: Path) -> int:
 # ---------------------------------------------------------------------------
 # Stem result type
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class StemResult:
@@ -111,14 +112,14 @@ class StemResult:
 # Returns a list of StemResults (one per output stem).
 SeparateFn = Callable[
     [
-        str,   # input_file_path
-        str,   # model name
-        str,   # device (cpu/cuda)
-        int,   # shifts
+        str,  # input_file_path
+        str,  # model name
+        str,  # device (cpu/cuda)
+        int,  # shifts
         str | None,  # two_stems (None = all stems)
-        str,   # output_dir
-        str,   # output_format (wav/mp3)
-        int,   # mp3_bitrate
+        str,  # output_dir
+        str,  # output_format (wav/mp3)
+        int,  # mp3_bitrate
     ],
     list[StemResult],
 ]
@@ -130,6 +131,7 @@ def _detect_device(requested: str) -> str:
         return requested
     try:
         import torch
+
         if torch.cuda.is_available():
             return "cuda"
     except ImportError:
@@ -181,6 +183,7 @@ def _default_separate(
 
     if output_format == "mp3":
         import logging
+
         logging.getLogger(__name__).warning(
             "MP3 output format requested but not yet supported in API path. Writing WAV instead."
         )
@@ -205,6 +208,7 @@ def _default_separate(
             )
 
         import torch
+
         other_tensor = torch.zeros_like(next(iter(separated.values())))
         for name, tensor in separated.items():
             if name != two_stems:
@@ -289,6 +293,7 @@ def _separate_via_native_demucs(
 
     if output_format == "mp3":
         import logging
+
         logging.getLogger(__name__).warning(
             "MP3 output requested; fallback path writes WAV to avoid TorchCodec dependency."
         )
@@ -298,7 +303,9 @@ def _separate_via_native_demucs(
 
     if two_stems:
         if two_stems not in names:
-            raise ExecutionError(f"Requested two_stems '{two_stems}' not in model sources: {names}")
+            raise ExecutionError(
+                f"Requested two_stems '{two_stems}' not in model sources: {names}"
+            )
         selected = tensors[names.index(two_stems)]
         remainder = th.zeros_like(selected)
         for name, tensor in zip(names, tensors):
@@ -367,6 +374,7 @@ def _write_audio(
 # Processor
 # ---------------------------------------------------------------------------
 
+
 class SeparateAudioProcessor:
     """Separates audio into stems and returns multiple AudioData outputs."""
 
@@ -429,27 +437,33 @@ class SeparateAudioProcessor:
         # Validate settings
         if resolved_model not in DEMUCS_MODELS:
             valid_models = tuple(sorted({*DEMUCS_MODELS.keys(), *DEMUCS_MODEL_ALIASES.keys()}))
-            return err(ValidationError(
-                f"Unknown model '{model}'. Valid: {', '.join(valid_models)}"
-            ))
+            return err(
+                ValidationError(f"Unknown model '{model}'. Valid: {', '.join(valid_models)}")
+            )
         if device_setting not in VALID_DEVICES:
-            return err(ValidationError(
-                f"Unknown device '{device_setting}'. Valid: {', '.join(VALID_DEVICES)}"
-            ))
+            return err(
+                ValidationError(
+                    f"Unknown device '{device_setting}'. Valid: {', '.join(VALID_DEVICES)}"
+                )
+            )
         if two_stems is not None and two_stems not in VALID_TWO_STEMS:
-            return err(ValidationError(
-                f"Unknown two_stems '{two_stems}'. Valid: {', '.join(VALID_TWO_STEMS)}"
-            ))
+            return err(
+                ValidationError(
+                    f"Unknown two_stems '{two_stems}'. Valid: {', '.join(VALID_TWO_STEMS)}"
+                )
+            )
         if not isinstance(shifts, int) or shifts < 0:
             return err(ValidationError(f"shifts must be a non-negative integer, got {shifts}"))
         if output_format not in VALID_OUTPUT_FORMATS:
-            return err(ValidationError(
-                f"Unknown output_format '{output_format}'. Valid: {', '.join(VALID_OUTPUT_FORMATS)}"
-            ))
+            return err(
+                ValidationError(
+                    f"Unknown output_format '{output_format}'. Valid: {', '.join(VALID_OUTPUT_FORMATS)}"
+                )
+            )
         if mp3_bitrate not in VALID_MP3_BITRATES:
-            return err(ValidationError(
-                f"Invalid mp3_bitrate {mp3_bitrate}. Valid: {VALID_MP3_BITRATES}"
-            ))
+            return err(
+                ValidationError(f"Invalid mp3_bitrate {mp3_bitrate}. Valid: {VALID_MP3_BITRATES}")
+            )
 
         # Resolve device
         device = _detect_device(device_setting)
@@ -490,15 +504,12 @@ class SeparateAudioProcessor:
         except Exception as exc:
             return err(
                 ExecutionError(
-                    f"Separation failed for block '{block_id}': "
-                    f"{type(exc).__name__}: {exc}"
+                    f"Separation failed for block '{block_id}': " f"{type(exc).__name__}: {exc}"
                 )
             )
 
         if not stem_results:
-            return err(ExecutionError(
-                f"Separation produced no stems for block '{block_id}'"
-            ))
+            return err(ExecutionError(f"Separation produced no stems for block '{block_id}'"))
 
         # Report near-complete
         context.progress_bus.publish(

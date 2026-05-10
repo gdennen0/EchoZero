@@ -56,7 +56,9 @@ def load_scoped_action_config(
     song_id: str | None = None,
     song_version_id: str | None = None,
 ) -> ObjectActionConfigRecord:
-    active_song_id = str(shell.session.active_song_id) if shell.session.active_song_id is not None else None
+    active_song_id = (
+        str(shell.session.active_song_id) if shell.session.active_song_id is not None else None
+    )
     active_song_version_id = (
         str(shell.session.active_song_version_id)
         if shell.session.active_song_version_id is not None
@@ -64,7 +66,9 @@ def load_scoped_action_config(
     )
     if scope == "song_default" and (song_id is None or song_id == active_song_id):
         return require_object_action_config(shell, template_id, scope=scope)
-    if scope == "version" and (song_version_id is None or song_version_id == active_song_version_id):
+    if scope == "version" and (
+        song_version_id is None or song_version_id == active_song_version_id
+    ):
         return require_object_action_config(shell, template_id, scope=scope)
     return resolve_scoped_action_config(
         shell,
@@ -88,9 +92,13 @@ def require_object_action_config(
         if match is not None:
             return hydrate_object_action_config_defaults(shell, match, scope=scope)
         song_version_id = shell._require_active_song_version_id(template_id)
-        created = shell._analysis_service.create_config(shell.project_storage, song_version_id, template_id)
+        created = shell._analysis_service.create_config(
+            shell.project_storage, song_version_id, template_id
+        )
         if isinstance(created, Err):
-            raise RuntimeError(f"Failed to create pipeline config for '{template_id}': {created.error}")
+            raise RuntimeError(
+                f"Failed to create pipeline config for '{template_id}': {created.error}"
+            )
         default_config = SongDefaultPipelineConfigRecord.from_version_config(
             created.value,
             song_id=song_id,
@@ -101,12 +109,18 @@ def require_object_action_config(
 
     song_version_id = shell._require_active_song_version_id(template_id)
     version_configs = shell.project_storage.pipeline_configs.list_by_version(song_version_id)
-    version_match = next((config for config in version_configs if config.template_id == template_id), None)
+    version_match = next(
+        (config for config in version_configs if config.template_id == template_id), None
+    )
     if version_match is not None:
         return hydrate_object_action_config_defaults(shell, version_match, scope=scope)
-    created = shell._analysis_service.create_config(shell.project_storage, song_version_id, template_id)
+    created = shell._analysis_service.create_config(
+        shell.project_storage, song_version_id, template_id
+    )
     if isinstance(created, Err):
-        raise RuntimeError(f"Failed to create pipeline config for '{template_id}': {created.error}")
+        raise RuntimeError(
+            f"Failed to create pipeline config for '{template_id}': {created.error}"
+        )
     return hydrate_object_action_config_defaults(shell, created.value, scope=scope)
 
 
@@ -167,7 +181,9 @@ def resolve_scoped_action_config(
 ) -> ObjectActionConfigRecord:
     if scope == "song_default":
         resolved_song_id = song_id or shell._require_active_song_id(template_id)
-        configs = shell.project_storage.song_default_pipeline_configs.list_by_song(resolved_song_id)
+        configs = shell.project_storage.song_default_pipeline_configs.list_by_song(
+            resolved_song_id
+        )
         match = next((config for config in configs if config.template_id == template_id), None)
         if match is None:
             raise ValueError(
@@ -177,7 +193,9 @@ def resolve_scoped_action_config(
 
     resolved_version_id = song_version_id or shell._require_active_song_version_id(template_id)
     version_configs = shell.project_storage.pipeline_configs.list_by_version(resolved_version_id)
-    version_match = next((config for config in version_configs if config.template_id == template_id), None)
+    version_match = next(
+        (config for config in version_configs if config.template_id == template_id), None
+    )
     if version_match is None:
         raise ValueError(
             f"No version settings found for '{template_id}' on version '{resolved_version_id}'."

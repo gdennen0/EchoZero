@@ -362,9 +362,7 @@ class TimelineOrchestratorTransferLookupMixin:
             number=TimelineOrchestratorTransferLookupMixin._coerce_optional_positive_int(number),
             timecode_name=None if timecode_name in {None, ""} else str(timecode_name),
             note=None if note is None else str(note),
-            event_count=TimelineOrchestratorTransferLookupMixin._coerce_optional_int(
-                event_count
-            ),
+            event_count=TimelineOrchestratorTransferLookupMixin._coerce_optional_int(event_count),
             sequence_no=TimelineOrchestratorTransferLookupMixin._coerce_optional_positive_int(
                 sequence_no
             ),
@@ -375,7 +373,9 @@ class TimelineOrchestratorTransferLookupMixin:
         if isinstance(raw_sequence, ManualPushSequenceOption):
             return raw_sequence
 
-        number = TimelineOrchestratorTransferLookupMixin._track_option_value(raw_sequence, "number")
+        number = TimelineOrchestratorTransferLookupMixin._track_option_value(
+            raw_sequence, "number"
+        )
         if number in {None, ""}:
             number = TimelineOrchestratorTransferLookupMixin._track_option_value(
                 raw_sequence, "sequence_no"
@@ -411,9 +411,13 @@ class TimelineOrchestratorTransferLookupMixin:
         if isinstance(raw_timecode, ManualPushTimecodeOption):
             return raw_timecode
 
-        number = TimelineOrchestratorTransferLookupMixin._track_option_value(raw_timecode, "number")
+        number = TimelineOrchestratorTransferLookupMixin._track_option_value(
+            raw_timecode, "number"
+        )
         if number in {None, ""}:
-            number = TimelineOrchestratorTransferLookupMixin._track_option_value(raw_timecode, "no")
+            number = TimelineOrchestratorTransferLookupMixin._track_option_value(
+                raw_timecode, "no"
+            )
         name = TimelineOrchestratorTransferLookupMixin._track_option_value(raw_timecode, "name")
         return ManualPushTimecodeOption(
             number=int(number or 0),
@@ -447,9 +451,13 @@ class TimelineOrchestratorTransferLookupMixin:
         if isinstance(raw_timecode, ManualPullTimecodeOption):
             return raw_timecode
 
-        number = TimelineOrchestratorTransferLookupMixin._track_option_value(raw_timecode, "number")
+        number = TimelineOrchestratorTransferLookupMixin._track_option_value(
+            raw_timecode, "number"
+        )
         if number in {None, ""}:
-            number = TimelineOrchestratorTransferLookupMixin._track_option_value(raw_timecode, "no")
+            number = TimelineOrchestratorTransferLookupMixin._track_option_value(
+                raw_timecode, "no"
+            )
         name = TimelineOrchestratorTransferLookupMixin._track_option_value(raw_timecode, "name")
         return ManualPullTimecodeOption(
             number=int(number or 0),
@@ -506,9 +514,7 @@ class TimelineOrchestratorTransferLookupMixin:
             number=TimelineOrchestratorTransferLookupMixin._coerce_optional_positive_int(number),
             timecode_name=None if timecode_name in {None, ""} else str(timecode_name),
             note=None if note is None else str(note),
-            event_count=TimelineOrchestratorTransferLookupMixin._coerce_optional_int(
-                event_count
-            ),
+            event_count=TimelineOrchestratorTransferLookupMixin._coerce_optional_int(event_count),
         )
 
     @staticmethod
@@ -619,9 +625,7 @@ class TimelineOrchestratorTransferLookupMixin:
         if not parameters:
             return capability()
         supported_kwargs = {
-            key: value
-            for key, value in kwargs.items()
-            if key in parameters and value is not None
+            key: value for key, value in kwargs.items() if key in parameters and value is not None
         }
         return capability(**supported_kwargs)
 

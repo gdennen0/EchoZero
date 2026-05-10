@@ -234,8 +234,8 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
         layer_id: LayerId | None = None,
         take_id: TakeId | None = None,
     ) -> None:
-        preferred_layer_ids = [layer_id] if layer_id is not None else list(
-            timeline.selection.selected_layer_ids
+        preferred_layer_ids = (
+            [layer_id] if layer_id is not None else list(timeline.selection.selected_layer_ids)
         )
         preferred_take_id = take_id if take_id is not None else timeline.selection.selected_take_id
         records = self._selected_event_records(
@@ -274,8 +274,8 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
         if not edits:
             return
 
-        preferred_layer_ids = [layer_id] if layer_id is not None else list(
-            timeline.selection.selected_layer_ids
+        preferred_layer_ids = (
+            [layer_id] if layer_id is not None else list(timeline.selection.selected_layer_ids)
         )
         preferred_take_id = take_id if take_id is not None else timeline.selection.selected_take_id
         event_ids = [edit.event_id for edit in edits]
@@ -324,16 +324,18 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
         existing_by_id = {str(event.id): event for event in main_take.events}
         replacement_events: list[Event] = []
         for cue in sorted(cues, key=lambda value: (float(value.start), str(value.cue_id or ""))):
-            existing = (
-                existing_by_id.get(str(cue.cue_id))
-                if cue.cue_id is not None
-                else None
+            existing = existing_by_id.get(str(cue.cue_id)) if cue.cue_id is not None else None
+            event_id = (
+                existing.id
+                if existing is not None
+                else self._next_created_event_id(
+                    timeline,
+                    main_take,
+                )
             )
-            event_id = existing.id if existing is not None else self._next_created_event_id(
-                timeline,
-                main_take,
+            payload_ref = cue.payload_ref or (
+                existing.payload_ref if existing is not None else None
             )
-            payload_ref = cue.payload_ref or (existing.payload_ref if existing is not None else None)
             replacement_events.append(
                 Event(
                     id=event_id,
@@ -417,7 +419,9 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
             order_index=insert_order,
         )
         timeline.layers.append(section_layer)
-        timeline.layers = sorted(timeline.layers, key=lambda layer: (int(layer.order_index), str(layer.id)))
+        timeline.layers = sorted(
+            timeline.layers, key=lambda layer: (int(layer.order_index), str(layer.id))
+        )
         return section_layer
 
     def _handle_trigger_take_action(
@@ -471,7 +475,9 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
         elif normalized == "delete_take":
             if source_take.id == main_take.id:
                 return
-            layer.takes = [candidate for candidate in layer.takes if candidate.id != source_take.id]
+            layer.takes = [
+                candidate for candidate in layer.takes if candidate.id != source_take.id
+            ]
             timeline.selection.selected_layer_id = layer.id
             timeline.selection.selected_layer_ids = [layer.id]
             timeline.selection.selected_take_id = main_take.id
@@ -580,7 +586,9 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
                 )
                 target_take.events.append(duplicate)
                 existing_ids.add(str(duplicate.id))
-                copied_refs.append(self._event_ref(transfer_target.id, target_take.id, duplicate.id))
+                copied_refs.append(
+                    self._event_ref(transfer_target.id, target_take.id, duplicate.id)
+                )
 
             self._sort_take_events(target_take)
             timeline.selection.selected_layer_id = transfer_target.id
@@ -608,12 +616,18 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
                     if source_layer_id is not None
                     else records[0].layer
                 ),
-                [self._event_ref(record.layer.id, record.take.id, record.event.id) for record in records],
+                [
+                    self._event_ref(record.layer.id, record.take.id, record.event.id)
+                    for record in records
+                ],
                 fallback_take_id=timeline.selection.selected_take_id,
             )
             self._set_selected_event_refs(
                 timeline,
-                [self._event_ref(record.layer.id, record.take.id, record.event.id) for record in records],
+                [
+                    self._event_ref(record.layer.id, record.take.id, record.event.id)
+                    for record in records
+                ],
             )
             return
 
@@ -652,7 +666,9 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
         target_after_layer_id: LayerId | None,
         insert_at_start: bool,
     ) -> None:
-        source_layer = next((layer for layer in timeline.layers if layer.id == source_layer_id), None)
+        source_layer = next(
+            (layer for layer in timeline.layers if layer.id == source_layer_id), None
+        )
         if source_layer is not None and is_imported_song_layer(source_layer):
             return
 
@@ -665,9 +681,7 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
             return
 
         source_layer = ordered_layers[source_index]
-        remaining_layers = [
-            layer for layer in ordered_layers if layer.id != source_layer_id
-        ]
+        remaining_layers = [layer for layer in ordered_layers if layer.id != source_layer_id]
 
         normalized_insert_at_start = bool(insert_at_start)
         target_after = target_after_layer_id
@@ -683,7 +697,11 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
             if target_after == source_layer.id:
                 return
             target_index = next(
-                (index for index, layer in enumerate(remaining_layers) if layer.id == target_after),
+                (
+                    index
+                    for index, layer in enumerate(remaining_layers)
+                    if layer.id == target_after
+                ),
                 None,
             )
             if target_index is None:
@@ -805,12 +823,14 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
         timeline.selection.selected_take_id = selected_take_id
         self._set_selected_event_refs(
             timeline,
-            []
-            if selected_layer_id is None or selected_take_id is None
-            else [
-                self._event_ref(selected_layer_id, selected_take_id, duplicated_id)
-                for duplicated_id in duplicated_ids
-            ],
+            (
+                []
+                if selected_layer_id is None or selected_take_id is None
+                else [
+                    self._event_ref(selected_layer_id, selected_take_id, duplicated_id)
+                    for duplicated_id in duplicated_ids
+                ]
+            ),
         )
 
     @staticmethod

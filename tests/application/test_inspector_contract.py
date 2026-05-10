@@ -137,9 +137,7 @@ def _section_rows(contract):
 
 def test_inspector_contract_no_selection_state():
     contract = build_timeline_inspector_contract(_contract_test_presentation())
-    all_actions = [
-        action for section in contract.context_sections for action in section.actions
-    ]
+    all_actions = [action for section in contract.context_sections for action in section.actions]
     action_ids = [action.action_id for action in all_actions]
     workspace_directions = {
         str(action.params.get("direction", "")).lower()

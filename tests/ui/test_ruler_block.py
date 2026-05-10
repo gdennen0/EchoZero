@@ -64,20 +64,26 @@ def test_visible_ruler_seconds_respects_min_major_tick_spacing_when_zoomed_out()
 
 
 def test_seek_time_for_x_maps_ruler_x_to_timeline_time():
-    assert seek_time_for_x(
-        520.0,
-        scroll_x=120.0,
-        pixels_per_second=100.0,
-        content_start_x=320.0,
-    ) == 3.2
+    assert (
+        seek_time_for_x(
+            520.0,
+            scroll_x=120.0,
+            pixels_per_second=100.0,
+            content_start_x=320.0,
+        )
+        == 3.2
+    )
 
 
 def test_absolute_timeline_x_for_view_x_includes_scroll_offset():
-    assert absolute_timeline_x_for_view_x(
-        520.0,
-        scroll_x=180.0,
-        content_start_x=320.0,
-    ) == 380.0
+    assert (
+        absolute_timeline_x_for_view_x(
+            520.0,
+            scroll_x=180.0,
+            content_start_x=320.0,
+        )
+        == 380.0
+    )
 
 
 def test_timeline_x_for_time_inverts_seek_mapping():
@@ -89,12 +95,15 @@ def test_timeline_x_for_time_inverts_seek_mapping():
     )
 
     assert x == 690.0
-    assert seek_time_for_x(
-        x,
-        scroll_x=80.0,
-        pixels_per_second=100.0,
-        content_start_x=320.0,
-    ) == 4.5
+    assert (
+        seek_time_for_x(
+            x,
+            scroll_x=80.0,
+            pixels_per_second=100.0,
+            content_start_x=320.0,
+        )
+        == 4.5
+    )
 
 
 def test_waveform_x_for_time_matches_ruler_mapping():

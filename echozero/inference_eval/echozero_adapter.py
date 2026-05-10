@@ -54,7 +54,9 @@ class EchoZeroSharedAdapter:
         )
 
     @staticmethod
-    def runtime_summary_payload(*, model_id: str, fingerprint: str, prediction_count: int) -> dict[str, Any]:
+    def runtime_summary_payload(
+        *, model_id: str, fingerprint: str, prediction_count: int
+    ) -> dict[str, Any]:
         return {
             "modelId": model_id,
             "sharedContractFingerprint": fingerprint,
@@ -76,7 +78,9 @@ class EchoZeroSharedAdapter:
         # EchoZero runtime-only path uses default eval scaffold until explicit eval lane is wired.
         from .core import EvalContract
 
-        eval_contract = EvalContract(classification_mode=_classification_mode_from_checkpoint(checkpoint))
+        eval_contract = EvalContract(
+            classification_mode=_classification_mode_from_checkpoint(checkpoint)
+        )
         return contract_fingerprint(inference_contract, eval_contract)
 
 

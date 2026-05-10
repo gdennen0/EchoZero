@@ -63,7 +63,9 @@ def test_runtime_state_load_falls_back_to_v1_metadata_key(tmp_path):
 
 
 def test_runtime_state_load_prefers_json_file_over_metadata(tmp_path):
-    storage = ProjectStorage.create_new(name="Runtime State JSON Priority", working_dir_root=tmp_path)
+    storage = ProjectStorage.create_new(
+        name="Runtime State JSON Priority", working_dir_root=tmp_path
+    )
     try:
         with storage.locked():
             storage.db.execute(

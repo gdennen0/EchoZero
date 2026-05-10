@@ -13,7 +13,13 @@ from echozero.application.shared.ids import (
     TakeId,
     EventId,
 )
-from echozero.application.shared.enums import LayerKind, PlaybackMode, FollowMode, PlaybackStatus, SyncMode
+from echozero.application.shared.enums import (
+    LayerKind,
+    PlaybackMode,
+    FollowMode,
+    PlaybackStatus,
+    SyncMode,
+)
 from echozero.application.shared.ranges import TimeRange
 from echozero.application.project.models import Project
 from echozero.application.song.models import Song, SongVersion
@@ -71,7 +77,9 @@ def to_song(record: SongRecord) -> Song:
         project_id=ProjectId(record.project_id),
         title=record.title,
         versions=[SongVersionId(version_id) for version_id in record.versions],
-        active_version_id=SongVersionId(record.active_version_id) if record.active_version_id else None,
+        active_version_id=(
+            SongVersionId(record.active_version_id) if record.active_version_id else None
+        ),
     )
 
 
@@ -278,8 +286,16 @@ def to_timeline(record: TimelineRecord) -> Timeline:
         layers=[_to_layer(layer) for layer in record.layers],
         loop_region=TimeRange(loop_region["start"], loop_region["end"]) if loop_region else None,
         selection=TimelineSelection(
-            selected_layer_id=LayerId(selection["selected_layer_id"]) if selection.get("selected_layer_id") else None,
-            selected_take_id=TakeId(selection["selected_take_id"]) if selection.get("selected_take_id") else None,
+            selected_layer_id=(
+                LayerId(selection["selected_layer_id"])
+                if selection.get("selected_layer_id")
+                else None
+            ),
+            selected_take_id=(
+                TakeId(selection["selected_take_id"])
+                if selection.get("selected_take_id")
+                else None
+            ),
             selected_event_refs=[
                 EventRef(
                     layer_id=LayerId(event_ref["layer_id"]),
@@ -288,7 +304,9 @@ def to_timeline(record: TimelineRecord) -> Timeline:
                 )
                 for event_ref in selection.get("selected_event_refs", [])
             ],
-            selected_event_ids=[EventId(event_id) for event_id in selection.get("selected_event_ids", [])],
+            selected_event_ids=[
+                EventId(event_id) for event_id in selection.get("selected_event_ids", [])
+            ],
         ),
         viewport=TimelineViewport(
             pixels_per_second=viewport.get("pixels_per_second", 100.0),
@@ -307,11 +325,20 @@ def to_timeline_record(timeline: Timeline) -> TimelineRecord:
         layers=[_to_layer_record(layer) for layer in timeline.layers],
         loop_region=(
             {"start": timeline.loop_region.start, "end": timeline.loop_region.end}
-            if timeline.loop_region else None
+            if timeline.loop_region
+            else None
         ),
         selection={
-            "selected_layer_id": str(timeline.selection.selected_layer_id) if timeline.selection.selected_layer_id else None,
-            "selected_take_id": str(timeline.selection.selected_take_id) if timeline.selection.selected_take_id else None,
+            "selected_layer_id": (
+                str(timeline.selection.selected_layer_id)
+                if timeline.selection.selected_layer_id
+                else None
+            ),
+            "selected_take_id": (
+                str(timeline.selection.selected_take_id)
+                if timeline.selection.selected_take_id
+                else None
+            ),
             "selected_event_refs": [
                 {
                     "layer_id": str(event_ref.layer_id),
@@ -320,7 +347,9 @@ def to_timeline_record(timeline: Timeline) -> TimelineRecord:
                 }
                 for event_ref in timeline.selection.selected_event_refs
             ],
-            "selected_event_ids": [str(event_id) for event_id in timeline.selection.selected_event_ids],
+            "selected_event_ids": [
+                str(event_id) for event_id in timeline.selection.selected_event_ids
+            ],
         },
         viewport={
             "pixels_per_second": timeline.viewport.pixels_per_second,
@@ -339,15 +368,20 @@ def to_session(record: SessionRecord) -> Session:
         id=SessionId(record.id),
         project_id=ProjectId(record.project_id),
         active_song_id=SongId(record.active_song_id) if record.active_song_id else None,
-        active_song_version_id=SongVersionId(record.active_song_version_id) if record.active_song_version_id else None,
-        active_timeline_id=TimelineId(record.active_timeline_id) if record.active_timeline_id else None,
+        active_song_version_id=(
+            SongVersionId(record.active_song_version_id) if record.active_song_version_id else None
+        ),
+        active_timeline_id=(
+            TimelineId(record.active_timeline_id) if record.active_timeline_id else None
+        ),
         transport_state=TransportState(
             is_playing=transport.get("is_playing", False),
             playhead=transport.get("playhead", 0.0),
             loop_enabled=transport.get("loop_enabled", False),
             loop_region=(
                 TimeRange(transport["loop_region"]["start"], transport["loop_region"]["end"])
-                if transport.get("loop_region") else None
+                if transport.get("loop_region")
+                else None
             ),
             preroll_enabled=transport.get("preroll_enabled", False),
             follow_mode=FollowMode(transport.get("follow_mode", FollowMode.CENTER.value)),
@@ -396,7 +430,9 @@ def to_session_record(session: Session) -> SessionRecord:
         id=str(session.id),
         project_id=str(session.project_id),
         active_song_id=str(session.active_song_id) if session.active_song_id else None,
-        active_song_version_id=str(session.active_song_version_id) if session.active_song_version_id else None,
+        active_song_version_id=(
+            str(session.active_song_version_id) if session.active_song_version_id else None
+        ),
         active_timeline_id=str(session.active_timeline_id) if session.active_timeline_id else None,
         ui_prefs_ref=session.ui_prefs_ref,
         transport={
@@ -408,7 +444,8 @@ def to_session_record(session: Session) -> SessionRecord:
                     "start": session.transport_state.loop_region.start,
                     "end": session.transport_state.loop_region.end,
                 }
-                if session.transport_state.loop_region else None
+                if session.transport_state.loop_region
+                else None
             ),
             "preroll_enabled": session.transport_state.preroll_enabled,
             "follow_mode": session.transport_state.follow_mode.value,

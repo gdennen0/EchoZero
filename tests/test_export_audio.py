@@ -15,10 +15,14 @@ from echozero.result import Ok, is_err, is_ok, unwrap
 
 class MockLoadAudio:
     def execute(self, block_id, context):
-        return Ok(AudioData(
-            sample_rate=44100, duration=5.0,
-            file_path="song.wav", channel_count=2,
-        ))
+        return Ok(
+            AudioData(
+                sample_rate=44100,
+                duration=5.0,
+                file_path="song.wav",
+                channel_count=2,
+            )
+        )
 
 
 def _build_graph(output_dir="/tmp/export", fmt="wav", filename=None) -> Graph:
@@ -27,21 +31,28 @@ def _build_graph(output_dir="/tmp/export", fmt="wav", filename=None) -> Graph:
         settings["filename"] = filename
 
     g = Graph()
-    g.add_block(Block(
-        id="load", name="Load", block_type="LoadAudio",
-        category=BlockCategory.PROCESSOR,
-        input_ports=(), output_ports=(
-            Port("audio_out", PortType.AUDIO, Direction.OUTPUT),
-        ),
-        settings=BlockSettings({"file_path": "song.wav"}),
-    ))
-    g.add_block(Block(
-        id="export", name="Export", block_type="ExportAudio",
-        category=BlockCategory.PROCESSOR,
-        input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
-        output_ports=(),
-        settings=BlockSettings(settings),
-    ))
+    g.add_block(
+        Block(
+            id="load",
+            name="Load",
+            block_type="LoadAudio",
+            category=BlockCategory.PROCESSOR,
+            input_ports=(),
+            output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
+            settings=BlockSettings({"file_path": "song.wav"}),
+        )
+    )
+    g.add_block(
+        Block(
+            id="export",
+            name="Export",
+            block_type="ExportAudio",
+            category=BlockCategory.PROCESSOR,
+            input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
+            output_ports=(),
+            settings=BlockSettings(settings),
+        )
+    )
     g.add_connection(Connection("load", "audio_out", "export", "audio_in"))
     return g
 
@@ -93,25 +104,33 @@ class TestExportAudioProcessor:
 
     def test_missing_output_dir_returns_error(self):
         g = _build_graph()
-        g.replace_block(Block(
-            id="export", name="E", block_type="ExportAudio",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
-            output_ports=(),
-            settings=BlockSettings({"format": "wav"}),
-        ))
+        g.replace_block(
+            Block(
+                id="export",
+                name="E",
+                block_type="ExportAudio",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
+                output_ports=(),
+                settings=BlockSettings({"format": "wav"}),
+            )
+        )
         result, _ = _run(g)
         assert is_err(result)
 
     def test_no_audio_input_returns_error(self):
         g = Graph()
-        g.add_block(Block(
-            id="export", name="E", block_type="ExportAudio",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
-            output_ports=(),
-            settings=BlockSettings({"output_dir": "/tmp", "format": "wav"}),
-        ))
+        g.add_block(
+            Block(
+                id="export",
+                name="E",
+                block_type="ExportAudio",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
+                output_ports=(),
+                settings=BlockSettings({"output_dir": "/tmp", "format": "wav"}),
+            )
+        )
         bus = RuntimeBus()
         engine = ExecutionEngine(g, bus)
         engine.register_executor("ExportAudio", ExportAudioProcessor(lambda s, o, f: o))
@@ -122,4 +141,3 @@ class TestExportAudioProcessor:
         assert "wav" in SUPPORTED_FORMATS
         assert "mp3" in SUPPORTED_FORMATS
         assert "flac" in SUPPORTED_FORMATS
-

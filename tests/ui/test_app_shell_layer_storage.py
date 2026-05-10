@@ -3,7 +3,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from echozero.application.shared.enums import LayerKind
-from echozero.application.shared.ids import EventId, LayerId, SectionCueId, SongVersionId, TakeId, TimelineId
+from echozero.application.shared.ids import (
+    EventId,
+    LayerId,
+    SectionCueId,
+    SongVersionId,
+    TakeId,
+    TimelineId,
+)
 from echozero.application.timeline.models import (
     Event,
     Layer,

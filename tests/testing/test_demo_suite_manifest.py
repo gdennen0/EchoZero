@@ -32,7 +32,14 @@ def test_manifest_schema_keys_exist(tmp_path: Path):
         ],
     )
 
-    assert set(manifest) >= {"run_timestamp", "run_id", "run_folder", "scenario_statuses", "counts", "proof_contract"}
+    assert set(manifest) >= {
+        "run_timestamp",
+        "run_id",
+        "run_folder",
+        "scenario_statuses",
+        "counts",
+        "proof_contract",
+    }
     assert manifest["counts"]["passed"] == 1
     assert manifest["counts"]["skipped"] == 1
     assert manifest["counts"]["artifacts"] == 1
@@ -61,7 +68,7 @@ def test_find_latest_smoke_report_prefers_latest_named_release(tmp_path: Path):
     older.mkdir(parents=True)
     newer.mkdir(parents=True)
     (older / "smoke-report.json").write_text("{}", encoding="utf-8")
-    (newer / "smoke-report.json").write_text("{\"status\":\"passed\"}", encoding="utf-8")
+    (newer / "smoke-report.json").write_text('{"status":"passed"}', encoding="utf-8")
 
     latest = find_latest_smoke_report(releases_root)
 

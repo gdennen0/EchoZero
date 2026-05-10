@@ -16,7 +16,13 @@ from echozero.application.session.models import (
 )
 from echozero.application.session.service import SessionService
 from echozero.application.shared.enums import LayerKind, SyncMode
-from echozero.application.shared.ids import EventId, ProjectId, SessionId, SongVersionId, TimelineId
+from echozero.application.shared.ids import (
+    EventId,
+    ProjectId,
+    SessionId,
+    SongVersionId,
+    TimelineId,
+)
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
 from echozero.application.timeline.ma3_push_intents import (
@@ -201,16 +207,10 @@ class _PushSyncService(SyncService):
         tracks = list(self._track_options)
         if timecode_no is not None:
             tracks = [
-                track
-                for track in tracks
-                if track.coord.startswith(f"tc{int(timecode_no)}_")
+                track for track in tracks if track.coord.startswith(f"tc{int(timecode_no)}_")
             ]
         if track_group_no is not None:
-            tracks = [
-                track
-                for track in tracks
-                if f"_tg{int(track_group_no)}_" in track.coord
-            ]
+            tracks = [track for track in tracks if f"_tg{int(track_group_no)}_" in track.coord]
         return tracks
 
     def list_timecodes(self) -> list[ManualPushTimecodeOption]:
@@ -614,7 +614,7 @@ def _build_orchestrator(
                     )
                 ],
             )
-    )
+        )
     layer.sync.ma3_track_coord = saved_route
     layer.sync.ma3_channel_no = saved_channel
     timeline = Timeline(
@@ -719,19 +719,23 @@ def test_refresh_ma3_push_tracks_scopes_timecode_track_group_and_tracks():
             "track_group_no": 4,
         }
     ]
-    assert [(timecode.number, timecode.name) for timecode in session.manual_push_flow.available_timecodes] == [
+    assert [
+        (timecode.number, timecode.name)
+        for timecode in session.manual_push_flow.available_timecodes
+    ] == [
         (1, None),
         (2, None),
     ]
     assert session.manual_push_flow.selected_timecode_no == 2
-    assert [(group.number, group.track_count) for group in session.manual_push_flow.available_track_groups] == [
+    assert [
+        (group.number, group.track_count)
+        for group in session.manual_push_flow.available_track_groups
+    ] == [
         (1, 1),
         (4, 1),
     ]
     assert session.manual_push_flow.selected_track_group_no == 4
-    assert [track.coord for track in session.manual_push_flow.available_tracks] == [
-        "tc2_tg4_tr8"
-    ]
+    assert [track.coord for track in session.manual_push_flow.available_tracks] == ["tc2_tg4_tr8"]
 
 
 def test_create_ma3_timecode_creates_and_selects_new_pool():
@@ -742,10 +746,11 @@ def test_create_ma3_timecode_creates_and_selects_new_pool():
         CreateMA3Timecode(preferred_name="Song B"),
     )
 
-    assert sync_service.create_timecode_calls == [
-        {"preferred_name": "Song B", "number": 2}
-    ]
-    assert [(timecode.number, timecode.name) for timecode in session.manual_push_flow.available_timecodes] == [
+    assert sync_service.create_timecode_calls == [{"preferred_name": "Song B", "number": 2}]
+    assert [
+        (timecode.number, timecode.name)
+        for timecode in session.manual_push_flow.available_timecodes
+    ] == [
         (1, None),
         (2, "Song B"),
     ]
@@ -766,7 +771,10 @@ def test_create_ma3_track_group_creates_and_selects_new_group():
         {"timecode_no": 1, "preferred_name": "FX", "number": 3}
     ]
     assert session.manual_push_flow.selected_timecode_no == 1
-    assert [(group.number, group.name, group.track_count) for group in session.manual_push_flow.available_track_groups] == [
+    assert [
+        (group.number, group.name, group.track_count)
+        for group in session.manual_push_flow.available_track_groups
+    ] == [
         (2, "Group 2", 3),
         (3, "FX", 0),
     ]
@@ -1005,11 +1013,17 @@ def test_push_layer_to_ma3_refreshes_manual_push_track_catalog_after_send():
             "track_group_no": None,
         }
     ]
-    assert [(timecode.number, timecode.name) for timecode in session.manual_push_flow.available_timecodes] == [
+    assert [
+        (timecode.number, timecode.name)
+        for timecode in session.manual_push_flow.available_timecodes
+    ] == [
         (1, None),
     ]
     assert session.manual_push_flow.selected_timecode_no == 1
-    assert [(group.number, group.track_count) for group in session.manual_push_flow.available_track_groups] == [
+    assert [
+        (group.number, group.track_count)
+        for group in session.manual_push_flow.available_track_groups
+    ] == [
         (2, 3),
     ]
     assert session.manual_push_flow.selected_track_group_no == 2

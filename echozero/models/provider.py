@@ -105,15 +105,19 @@ class ModelProvider:
                 current_ver = local.version if local else None
 
                 # Only report if newer or not installed (semantic version comparison)
-                if current_ver is None or parse_version(update.available_version) > parse_version(current_ver):
-                    all_updates.append(ModelUpdate(
-                        model_type=mt,
-                        current_version=current_ver,
-                        available_version=update.available_version,
-                        model_id=update.model_id,
-                        size_bytes=update.size_bytes,
-                        description=update.description,
-                    ))
+                if current_ver is None or parse_version(update.available_version) > parse_version(
+                    current_ver
+                ):
+                    all_updates.append(
+                        ModelUpdate(
+                            model_type=mt,
+                            current_version=current_ver,
+                            available_version=update.available_version,
+                            model_id=update.model_id,
+                            size_bytes=update.size_bytes,
+                            description=update.description,
+                        )
+                    )
 
         return all_updates
 
@@ -144,12 +148,14 @@ class ModelProvider:
         target_dir = self._registry.models_dir / safe_id
 
         if on_progress:
-            on_progress(DownloadProgress(
-                model_id=model_id,
-                bytes_downloaded=0,
-                bytes_total=None,
-                status="downloading",
-            ))
+            on_progress(
+                DownloadProgress(
+                    model_id=model_id,
+                    bytes_downloaded=0,
+                    bytes_total=None,
+                    status="downloading",
+                )
+            )
 
         # Download — clean up on failure
         try:
@@ -184,12 +190,14 @@ class ModelProvider:
         self._registry.save()
 
         if on_progress:
-            on_progress(DownloadProgress(
-                model_id=model_id,
-                bytes_downloaded=0,
-                bytes_total=0,
-                status="complete",
-            ))
+            on_progress(
+                DownloadProgress(
+                    model_id=model_id,
+                    bytes_downloaded=0,
+                    bytes_total=0,
+                    status="complete",
+                )
+            )
 
         logger.info("Installed model %s (v%s) as %s", model_id, version, card.id)
         return card
@@ -246,9 +254,7 @@ class ModelProvider:
         else:
             dest = target / path.name
             if dest.exists() and not force:
-                raise ValueError(
-                    f"Model already exists at {dest}. Use force=True to overwrite."
-                )
+                raise ValueError(f"Model already exists at {dest}. Use force=True to overwrite.")
             shutil.copy2(path, dest)
             relative_path = str(dest.relative_to(self._registry.models_dir))
             metadata["sha256"] = sha256_file(dest)

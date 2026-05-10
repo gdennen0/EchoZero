@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import numpy as np
 
-
 # Default crossfade duration in samples at 44.1kHz ≈ 4ms
 DEFAULT_CROSSFADE_SAMPLES = 176
 
@@ -109,7 +108,7 @@ class CrossfadeBuffer:
         fade_out = self._fade_out[:xfade_len]
         fade_in = self._fade_in[:xfade_len]
 
-        region = output[xfade_start:xfade_start + xfade_len]
+        region = output[xfade_start : xfade_start + xfade_len]
         if region.ndim > 1:
             fade_out = fade_out[:, None]
             fade_in = fade_in[:, None]

@@ -17,7 +17,6 @@ from echozero.persistence.entities import SongVersionRecord
 from echozero.processors.load_audio import AudioFileInfo
 from echozero.services.waveform import generate_waveform_for_version
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

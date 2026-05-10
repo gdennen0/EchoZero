@@ -12,7 +12,11 @@ from typing import Any, cast
 from PyQt6.QtCore import QRectF, Qt
 from PyQt6.QtGui import QBrush, QColor, QPaintEvent, QPainter, QPen
 
-from echozero.application.presentation.models import EventPresentation, LayerPresentation, TakeLanePresentation
+from echozero.application.presentation.models import (
+    EventPresentation,
+    LayerPresentation,
+    TakeLanePresentation,
+)
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.layer_kinds import is_event_like_layer_kind
 from echozero.application.shared.ids import LayerId, TakeId
@@ -145,7 +149,9 @@ class _TimelineCanvasPaintMixin:
             painter.setPen(QPen(grid_color, 1))
             painter.drawLine(int(x), band_top, int(x), band_bottom)
 
-    def _draw_section_backdrop_band(self: Any, painter: QPainter, *, top: int, row_height: int) -> None:
+    def _draw_section_backdrop_band(
+        self: Any, painter: QPainter, *, top: int, row_height: int
+    ) -> None:
         if not self.presentation.section_regions:
             return
         content_left = float(self._header_width)
@@ -170,20 +176,19 @@ class _TimelineCanvasPaintMixin:
             width = max(0.0, right - left)
             if width <= 0.0:
                 continue
-            fill_hex = (
-                region.color
-                or (
-                    self._style.canvas.section_even_hex
-                    if index % 2 == 0
-                    else self._style.canvas.section_odd_hex
-                )
+            fill_hex = region.color or (
+                self._style.canvas.section_even_hex
+                if index % 2 == 0
+                else self._style.canvas.section_odd_hex
             )
             fill_color = QColor(fill_hex)
             fill_color.setAlpha(max(0, min(255, int(self._style.canvas.section_alpha))))
             rect = QRectF(left, float(top), width, float(max(1, row_height) - 1))
             painter.fillRect(rect, fill_color)
 
-    def _draw_section_overlay_band(self: Any, painter: QPainter, *, top: int, row_height: int) -> None:
+    def _draw_section_overlay_band(
+        self: Any, painter: QPainter, *, top: int, row_height: int
+    ) -> None:
         if not self.presentation.section_regions:
             return
         content_left = float(self._header_width)
@@ -208,13 +213,10 @@ class _TimelineCanvasPaintMixin:
             width = max(0.0, right - left)
             if width <= 0.0:
                 continue
-            fill_hex = (
-                region.color
-                or (
-                    self._style.canvas.section_even_hex
-                    if index % 2 == 0
-                    else self._style.canvas.section_odd_hex
-                )
+            fill_hex = region.color or (
+                self._style.canvas.section_even_hex
+                if index % 2 == 0
+                else self._style.canvas.section_odd_hex
             )
             fill_color = QColor(fill_hex)
             fill_color.setAlpha(max(0, min(255, int(self._style.canvas.section_alpha))))
@@ -303,9 +305,7 @@ class _TimelineCanvasPaintMixin:
         labels = badge_tooltip_labels(layer.badges)
         parts: list[str] = []
         if layer.takes:
-            parts.append(
-                "Toggle takes: click chevron | Full collapse: Shift-click chevron"
-            )
+            parts.append("Toggle takes: click chevron | Full collapse: Shift-click chevron")
         if labels:
             parts.append(" | ".join(labels))
         if layer.status.stale:
@@ -403,7 +403,9 @@ class _TimelineCanvasPaintMixin:
         self._header_hover_rects.append((layout.header_rect, layer))
         if is_event_like_layer_kind(layer.kind) and not layer.is_fully_collapsed:
             self._event_drop_rects.append((layout.content_rect, layer.layer_id))
-            self._event_lane_rects.append((layout.content_rect, layer.layer_id, layer.main_take_id))
+            self._event_lane_rects.append(
+                (layout.content_rect, layer.layer_id, layer.main_take_id)
+            )
         hit_targets = self._header_block.paint(painter, slots, layer, dimmed=dimmed)
         for control_id, rect in hit_targets.control_rects:
             if control_id == "set_layer_mute":
@@ -444,9 +446,7 @@ class _TimelineCanvasPaintMixin:
             else:
                 if self._edit_mode in {"move", "select"} or layer.kind is not LayerKind.SECTION:
                     visible_events = self._visible_lane_events(layer.events)
-                    event_lane_top = float(
-                        top + max(0.0, (row_height - self._event_height) * 0.5)
-                    )
+                    event_lane_top = float(top + max(0.0, (row_height - self._event_height) * 0.5))
                     self._draw_fix_overlay_events(
                         painter,
                         layer=layer,
@@ -515,9 +515,7 @@ class _TimelineCanvasPaintMixin:
         if self._shows_section_overlay_for_layer(layer):
             self._draw_section_overlay_band(painter, top=top, row_height=self._take_row_height)
         if layer.kind is not LayerKind.SECTION:
-            self._draw_section_backdrop_band(
-                painter, top=top, row_height=self._take_row_height
-            )
+            self._draw_section_backdrop_band(painter, top=top, row_height=self._take_row_height)
         self._draw_time_grid_band(painter, top=top, row_height=self._take_row_height)
         self._take_rects.append(cast(TakeRect, hit_targets.take_rect))
         self._row_body_select_rects.append((layout.content_rect, layer.layer_id, take.take_id))
@@ -552,7 +550,8 @@ class _TimelineCanvasPaintMixin:
                 if self._edit_mode in {"move", "select"} or take.kind is not LayerKind.SECTION:
                     visible_events = self._visible_lane_events(take.events)
                     event_lane_top = float(
-                        top + max(
+                        top
+                        + max(
                             0.0,
                             (self._take_row_height - self._event_height) * 0.5,
                         )
@@ -700,10 +699,7 @@ class _TimelineCanvasPaintMixin:
             return None
 
         target_is_onset = self._is_onset_layer(layer)
-        lane_source_ids = {
-            str(event.source_event_id or event.event_id)
-            for event in lane_events
-        }
+        lane_source_ids = {str(event.source_event_id or event.event_id) for event in lane_events}
         layer_source_id = str(layer.status.source_layer_id or "").strip()
         best_score = float("-inf")
         best_lane: _FixCandidateLane | None = None
@@ -776,10 +772,7 @@ class _TimelineCanvasPaintMixin:
         *,
         lane_events: list[EventPresentation],
     ) -> set[str]:
-        return {
-            str(event.source_event_id or event.event_id)
-            for event in lane_events
-        }
+        return {str(event.source_event_id or event.event_id) for event in lane_events}
 
     def _visible_lane_events(
         self: Any,
@@ -787,18 +780,11 @@ class _TimelineCanvasPaintMixin:
     ) -> list[EventPresentation]:
         if self._edit_mode == "fix":
             return list(lane_events)
-        return [
-            event
-            for event in lane_events
-            if not self._event_is_demoted(event)
-        ]
+        return [event for event in lane_events if not self._event_is_demoted(event)]
 
     @staticmethod
     def _event_is_demoted(event: EventPresentation) -> bool:
-        return any(
-            str(badge).strip().lower() == "demoted"
-            for badge in (event.badges or [])
-        )
+        return any(str(badge).strip().lower() == "demoted" for badge in (event.badges or []))
 
     @staticmethod
     def _is_onset_layer(layer: LayerPresentation) -> bool:
@@ -806,10 +792,7 @@ class _TimelineCanvasPaintMixin:
         source_label = str(getattr(layer.status, "source_label", "") or "").strip().lower()
         output_name = str(getattr(layer.status, "output_name", "") or "").strip().lower()
         pipeline_id = str(getattr(layer.status, "pipeline_id", "") or "").strip().lower()
-        return any(
-            "onset" in value
-            for value in (title, source_label, output_name, pipeline_id)
-        )
+        return any("onset" in value for value in (title, source_label, output_name, pipeline_id))
 
     def _draw_playhead(self: Any, painter: QPainter) -> None:
         x = timeline_x_for_time(

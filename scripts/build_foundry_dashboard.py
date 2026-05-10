@@ -60,15 +60,20 @@ def build_runs_payload() -> list[dict]:
         events = _read_events(run_dir / "events.jsonl")
         telemetry_latest = _read_json(run_dir / "telemetry.latest.json")
         last_event = events[-1] if events else {}
-        failed_event = next((event for event in reversed(events) if event.get("type") == "RUN_FAILED"), None)
+        failed_event = next(
+            (event for event in reversed(events) if event.get("type") == "RUN_FAILED"), None
+        )
 
         runs.append(
             {
                 "run_id": run_id,
-                "status": state.get("status") or last_event.get("payload", {}).get("status") or "unknown",
+                "status": state.get("status")
+                or last_event.get("payload", {}).get("status")
+                or "unknown",
                 "created_at": state.get("created_at"),
                 "updated_at": state.get("updated_at"),
-                "dataset_version_id": state.get("dataset_version_id") or spec.get("data", {}).get("datasetVersionId"),
+                "dataset_version_id": state.get("dataset_version_id")
+                or spec.get("data", {}).get("datasetVersionId"),
                 "classification_mode": spec.get("classificationMode"),
                 "trainer_profile": spec.get("training", {}).get("trainerProfile"),
                 "optimizer": spec.get("training", {}).get("optimizer"),
@@ -104,7 +109,9 @@ def write_dashboard(runs: list[dict]) -> None:
     TRACK_DIR.mkdir(parents=True, exist_ok=True)
 
     payload = {"updated_at": datetime.now(UTC).isoformat(), "count": len(runs), "runs": runs}
-    (TRACK_DIR / "training_runs_full.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    (TRACK_DIR / "training_runs_full.json").write_text(
+        json.dumps(payload, indent=2), encoding="utf-8"
+    )
 
     html = """<!doctype html>
 <html>
@@ -316,10 +323,14 @@ setInterval(load, 5000);
         )
 
     if failed:
-        lines.extend(["", "## Failed Runs", "", "| Run | Dataset Version | Last Event |", "|---|---|---|"])
+        lines.extend(
+            ["", "## Failed Runs", "", "| Run | Dataset Version | Last Event |", "|---|---|---|"]
+        )
         for r in failed:
             last_type = (r.get("events_tail") or [{}])[-1].get("type", "-")
-            lines.append(f"| {r.get('run_id')} | {r.get('dataset_version_id','-')} | {last_type} |")
+            lines.append(
+                f"| {r.get('run_id')} | {r.get('dataset_version_id','-')} | {last_type} |"
+            )
 
     (TRACK_DIR / "training_brief.md").write_text("\n".join(lines), encoding="utf-8")
 

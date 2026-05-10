@@ -58,18 +58,26 @@ def main(argv: list[str] | None = None) -> int:
     extras = {"dev", *parsed.extras}
     extras_suffix = f"[{','.join(sorted(extras))}]"
 
-    _run([str(venv_python), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"], cwd=repo_root)
+    _run(
+        [str(venv_python), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"],
+        cwd=repo_root,
+    )
     _run([str(venv_python), "-m", "pip", "install", "-e", f".{extras_suffix}"], cwd=repo_root)
     _run([str(venv_python), "scripts/check_repo_hygiene.py"], cwd=repo_root)
 
     if not parsed.skip_smoke:
-        _run([str(venv_python), "-m", "echozero.testing.run", "--lane", parsed.smoke_lane], cwd=repo_root)
+        _run(
+            [str(venv_python), "-m", "echozero.testing.run", "--lane", parsed.smoke_lane],
+            cwd=repo_root,
+        )
 
     print("")
     print("Bootstrap complete.")
     print(f"Activate: source {parsed.venv}/bin/activate")
     print(f"App: {venv_python} run_echozero.py")
-    print("Launch contract: direct repo launch is supported; bootstrap remains the canonical way to install all dev/test tooling.")
+    print(
+        "Launch contract: direct repo launch is supported; bootstrap remains the canonical way to install all dev/test tooling."
+    )
     return 0
 
 

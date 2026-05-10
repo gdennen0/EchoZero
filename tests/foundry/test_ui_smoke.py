@@ -18,7 +18,6 @@ from echozero.ui.style.qt.qss import (
     build_foundry_surface_qss,
 )
 
-
 pytestmark = pytest.mark.skipif(
     importlib.util.find_spec("torch") is None,
     reason="torch is not installed in this environment",
@@ -40,8 +39,7 @@ def _run_ui_script(script: str, workspace: Path) -> dict:
 
 def test_foundry_window_smoke(tmp_path: Path):
     payload = _run_ui_script(
-        textwrap.dedent(
-            """
+        textwrap.dedent("""
             import json
             import sys
             import time
@@ -60,8 +58,7 @@ def test_foundry_window_smoke(tmp_path: Path):
             }))
             window.close()
             app.quit()
-            """
-        ),
+            """),
         tmp_path,
     )
 
@@ -72,8 +69,7 @@ def test_foundry_window_smoke(tmp_path: Path):
 
 def test_foundry_window_applies_shared_shell_stylesheet(tmp_path: Path):
     payload = _run_ui_script(
-        textwrap.dedent(
-            """
+        textwrap.dedent("""
             import json
             import sys
             from pathlib import Path
@@ -92,8 +88,7 @@ def test_foundry_window_applies_shared_shell_stylesheet(tmp_path: Path):
             }))
             window.close()
             app.quit()
-            """
-        ),
+            """),
         tmp_path,
     )
 
@@ -110,8 +105,7 @@ def test_foundry_window_desktop_workflow_exposes_run_artifact_and_eval(tmp_path:
     write_percussion_dataset(samples)
 
     payload = _run_ui_script(
-        textwrap.dedent(
-            """
+        textwrap.dedent("""
             import json
             import sys
             import time
@@ -148,8 +142,7 @@ def test_foundry_window_desktop_workflow_exposes_run_artifact_and_eval(tmp_path:
             }))
             window.close()
             app.quit()
-            """
-        ),
+            """),
         tmp_path,
     )
 
@@ -171,8 +164,7 @@ def test_foundry_window_loads_existing_workspace_state(tmp_path: Path):
     write_percussion_dataset(samples)
 
     payload = _run_ui_script(
-        textwrap.dedent(
-            """
+        textwrap.dedent("""
             import json
             import sys
             from pathlib import Path
@@ -219,8 +211,7 @@ def test_foundry_window_loads_existing_workspace_state(tmp_path: Path):
             }))
             window.close()
             app.quit()
-            """
-        ),
+            """),
         tmp_path,
     )
 

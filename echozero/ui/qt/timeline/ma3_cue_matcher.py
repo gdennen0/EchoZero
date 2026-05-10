@@ -152,7 +152,9 @@ class MA3CueMatcherDialog(QDialog):
             label_item.setFlags(label_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self._table.setItem(row_idx, self._COL_EVENT, label_item)
 
-            current_text = cue_number_text(row.current_cue_number) or str(row.current_cue_ref or "")
+            current_text = cue_number_text(row.current_cue_number) or str(
+                row.current_cue_ref or ""
+            )
             current_item = QTableWidgetItem(current_text)
             current_item.setFlags(current_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self._table.setItem(row_idx, self._COL_CURRENT, current_item)
@@ -163,9 +165,7 @@ class MA3CueMatcherDialog(QDialog):
             for cue in self._cue_options:
                 number_text = cue_number_text(cue.cue_number) or str(cue.cue_number)
                 cue_label = cue.name.strip()
-                combo.addItem(
-                    f"{number_text} - {cue_label}" if cue_label else number_text
-                )
+                combo.addItem(f"{number_text} - {cue_label}" if cue_label else number_text)
             combo.currentTextChanged.connect(
                 lambda _text, idx=row_idx: self._sync_target_name_cell(idx)
             )

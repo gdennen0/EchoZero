@@ -54,7 +54,9 @@ def _write_manifest(path: Path, payload: dict[str, object]) -> None:
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
-def test_runtime_preflight_keeps_human_readable_summary_and_attaches_structured_diagnostics(tmp_path: Path) -> None:
+def test_runtime_preflight_keeps_human_readable_summary_and_attaches_structured_diagnostics(
+    tmp_path: Path,
+) -> None:
     model_path = tmp_path / "model.pth"
     model_path.write_bytes(b"weights")
 
@@ -100,7 +102,9 @@ def test_runtime_preflight_rejects_missing_manifest_for_model_path(tmp_path: Pat
     assert diagnostics["errors"][0]["path"] == "manifest"
 
 
-def test_runtime_preflight_rejects_directory_manifests_that_do_not_resolve_to_model_path(tmp_path: Path) -> None:
+def test_runtime_preflight_rejects_directory_manifests_that_do_not_resolve_to_model_path(
+    tmp_path: Path,
+) -> None:
     model_path = tmp_path / "model.pth"
     model_path.write_bytes(b"weights")
 
@@ -138,7 +142,9 @@ def test_runtime_preflight_rejects_ambiguous_manifest_resolution(tmp_path: Path)
     assert f"b.manifest.json -> {(tmp_path / model_path.name).resolve()}" in message
 
 
-def test_runtime_preflight_rejects_manifest_validation_when_checkpoint_metadata_is_missing(tmp_path: Path) -> None:
+def test_runtime_preflight_rejects_manifest_validation_when_checkpoint_metadata_is_missing(
+    tmp_path: Path,
+) -> None:
     model_path = tmp_path / "model.pth"
     model_path.write_bytes(b"weights")
     legacy_checkpoint = {
@@ -161,9 +167,17 @@ def test_runtime_preflight_rejects_manifest_validation_when_checkpoint_metadata_
         run_runtime_preflight(model_path, legacy_checkpoint)
 
     message = str(exc_info.value)
-    assert "checkpoint.classes must be present when validating against an artifact manifest" in message
-    assert "checkpoint preprocessing missing keys required for manifest verification: fmax" in message
-    assert "checkpoint classification mode must be present when validating against an artifact manifest" in message
+    assert (
+        "checkpoint.classes must be present when validating against an artifact manifest"
+        in message
+    )
+    assert (
+        "checkpoint preprocessing missing keys required for manifest verification: fmax" in message
+    )
+    assert (
+        "checkpoint classification mode must be present when validating against an artifact manifest"
+        in message
+    )
 
     diagnostics = getattr(exc_info.value, "validation_diagnostics", None)
     assert diagnostics is not None

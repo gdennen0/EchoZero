@@ -101,8 +101,12 @@ def fit_window_to_available_screen(widget: Any) -> None:
         return
     left = int(_geometry_dimension(available_geometry, "left", 0)) + INITIAL_WINDOW_EDGE_MARGIN_PX
     top = int(_geometry_dimension(available_geometry, "top", 0)) + INITIAL_WINDOW_EDGE_MARGIN_PX
-    right = int(_geometry_dimension(available_geometry, "right", left)) - INITIAL_WINDOW_EDGE_MARGIN_PX
-    bottom = int(_geometry_dimension(available_geometry, "bottom", top)) - INITIAL_WINDOW_EDGE_MARGIN_PX
+    right = (
+        int(_geometry_dimension(available_geometry, "right", left)) - INITIAL_WINDOW_EDGE_MARGIN_PX
+    )
+    bottom = (
+        int(_geometry_dimension(available_geometry, "bottom", top)) - INITIAL_WINDOW_EDGE_MARGIN_PX
+    )
     frame_width = int(_geometry_dimension(frame_geometry, "width", target_width))
     frame_height = int(_geometry_dimension(frame_geometry, "height", target_height))
     x = int(_geometry_dimension(frame_geometry, "x", left))

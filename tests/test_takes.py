@@ -23,7 +23,6 @@ from echozero.takes import (
     merge_take_into,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -350,7 +349,8 @@ class TestMergeEvents:
         target = (_make_event(1.0), _make_event(2.0), _make_event(3.0), _make_event(4.0))
         source = (_make_event(2.5), _make_event(2.8))
         result = merge_events(
-            target, source,
+            target,
+            source,
             strategy="replace_range",
             time_range=(2.0, 3.0),
         )
@@ -371,7 +371,8 @@ class TestMergeEvents:
         target = (_make_event(1.0), _make_event(5.0))
         source = (_make_event(3.0), _make_event(2.0))
         result = merge_events(
-            target, source,
+            target,
+            source,
             strategy="replace_range",
             time_range=(1.5, 4.0),
         )
@@ -401,7 +402,9 @@ class TestMergeTakes:
         layer.add_take(source)
 
         merged = merge_take_into(
-            layer, source.id, layer.main_take().id,
+            layer,
+            source.id,
+            layer.main_take().id,
             event_indices={0, 2},  # pick events at index 0 and 2
         )
         events = merged.data.layers[0].events
@@ -429,7 +432,9 @@ class TestMergeTakes:
         layer.add_take(source)
 
         merged = merge_take_into(
-            layer, source.id, layer.main_take().id,
+            layer,
+            source.id,
+            layer.main_take().id,
             strategy="subtract",
         )
         events = merged.data.layers[0].events

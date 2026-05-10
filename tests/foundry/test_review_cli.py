@@ -41,7 +41,19 @@ def test_cli_import_review_session_from_jsonl(tmp_path: Path, capsys):
     (tmp_path / "kick.wav").write_bytes(b"RIFFtest")
     (tmp_path / "snare.wav").write_bytes(b"RIFFtest")
 
-    assert main(["--root", str(tmp_path), "import-review-session", str(items_path), "--name", "Field Review"]) == 0
+    assert (
+        main(
+            [
+                "--root",
+                str(tmp_path),
+                "import-review-session",
+                str(items_path),
+                "--name",
+                "Field Review",
+            ]
+        )
+        == 0
+    )
     payload = json.loads(capsys.readouterr().out)
 
     assert payload["name"] == "Field Review"

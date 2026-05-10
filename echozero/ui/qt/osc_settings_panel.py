@@ -269,7 +269,16 @@ class OscSettingsPanel(QWidget):
 
     @staticmethod
     def _monitor_field_summary(fields: Mapping[str, object]) -> str:
-        keys = ("tc", "tg", "track", "to_seconds", "from_seconds", "delta_seconds", "status", "error")
+        keys = (
+            "tc",
+            "tg",
+            "track",
+            "to_seconds",
+            "from_seconds",
+            "delta_seconds",
+            "status",
+            "error",
+        )
         parts: list[str] = []
         for key in keys:
             if key not in fields:

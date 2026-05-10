@@ -75,9 +75,7 @@ def test_app_settings_service_describe_surfaces_audio_osc_and_import_sections() 
     assert any(field.key == "import.strip_ltc_timecode" for field in fields)
     assert import_toggle_keys
     assert import_toggle_keys <= {field.key for field in fields}
-    output_channels_field = next(
-        field for field in fields if field.key == "audio.output_channels"
-    )
+    output_channels_field = next(field for field in fields if field.key == "audio.output_channels")
     output_channel_values = {int(option.value) for option in output_channels_field.options}
     assert 0 in output_channel_values
     assert 16 in output_channel_values
@@ -128,7 +126,9 @@ def test_app_settings_service_apply_updates_accepts_four_output_channels() -> No
     assert result.preferences.audio_output.output_channels == 4
 
 
-def test_app_settings_service_apply_updates_rejects_output_channels_above_supported_range() -> None:
+def test_app_settings_service_apply_updates_rejects_output_channels_above_supported_range() -> (
+    None
+):
     service = AppSettingsService(_MemoryStore(), audio_device_options_provider=_device_options)
 
     with pytest.raises(AppSettingsValidationError, match="between 1 and 16"):
@@ -335,9 +335,7 @@ def test_app_preferences_from_dict_legacy_import_toggle_overrides_pipeline_actio
         }
     )
 
-    assert preferences.song_import.pipeline_action_ids == (
-        "timeline.extract_song_drum_events",
-    )
+    assert preferences.song_import.pipeline_action_ids == ("timeline.extract_song_drum_events",)
     assert preferences.song_import.run_extract_stems is False
     assert preferences.song_import.run_extract_song_drum_events is True
 

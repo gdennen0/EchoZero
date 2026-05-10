@@ -5,6 +5,7 @@ Connects the compatibility wrapper to the bounded save/graph slice.
 
 from tests.session_shared_support import *  # noqa: F401,F403
 
+
 class TestSessionSave:
     def test_save_clears_dirty(self, tmp_root):
         session = ProjectStorage.create_new("Dirty", working_dir_root=tmp_root)
@@ -25,6 +26,7 @@ class TestSessionSave:
             assert ez_path.exists()
 
             import zipfile
+
             assert zipfile.is_zipfile(ez_path)
             with zipfile.ZipFile(ez_path, "r") as zf:
                 assert "manifest.json" in zf.namelist()
@@ -111,13 +113,19 @@ class TestSessionDirtyIntegration:
     def test_event_bus_mutations_dirty_session(self, tmp_root):
         bus = EventBus()
         session = ProjectStorage.create_new(
-            "Evented", event_bus=bus, working_dir_root=tmp_root,
+            "Evented",
+            event_bus=bus,
+            working_dir_root=tmp_root,
         )
         try:
             assert session.is_dirty() is False
-            bus.publish(BlockAddedEvent(
-                **_make_event(), block_id="blk1", block_type="t",
-            ))
+            bus.publish(
+                BlockAddedEvent(
+                    **_make_event(),
+                    block_id="blk1",
+                    block_type="t",
+                )
+            )
             assert session.is_dirty() is True
         finally:
             session.close()
@@ -125,12 +133,18 @@ class TestSessionDirtyIntegration:
     def test_save_clears_event_bus_dirty(self, tmp_root):
         bus = EventBus()
         session = ProjectStorage.create_new(
-            "Evented2", event_bus=bus, working_dir_root=tmp_root,
+            "Evented2",
+            event_bus=bus,
+            working_dir_root=tmp_root,
         )
         try:
-            bus.publish(BlockAddedEvent(
-                **_make_event(), block_id="blk1", block_type="t",
-            ))
+            bus.publish(
+                BlockAddedEvent(
+                    **_make_event(),
+                    block_id="blk1",
+                    block_type="t",
+                )
+            )
             assert session.is_dirty() is True
             session.save()
             assert session.is_dirty() is False
@@ -219,7 +233,6 @@ class TestSessionGraph:
 # ---------------------------------------------------------------------------
 # Autosave
 # ---------------------------------------------------------------------------
-
 
 
 __all__ = [name for name in globals() if name.startswith("Test")]

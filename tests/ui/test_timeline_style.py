@@ -571,9 +571,7 @@ def test_action_settings_dialog_reset_defaults_dispatches_session_command():
     )
     dialog = ActionSettingsDialog(
         session,
-        dispatch_command=lambda _session_id, command: (
-            dispatched.append(command) or session
-        ),
+        dispatch_command=lambda _session_id, command: (dispatched.append(command) or session),
     )
     try:
         assert dialog._reset_defaults.property("appearance") == "subtle"
@@ -644,9 +642,7 @@ def test_action_settings_dialog_save_to_defaults_dispatches_session_command():
     )
     dialog = ActionSettingsDialog(
         session,
-        dispatch_command=lambda _session_id, command: (
-            dispatched.append(command) or session
-        ),
+        dispatch_command=lambda _session_id, command: (dispatched.append(command) or session),
     )
     try:
         assert dialog._save_defaults.text() == "Save to Defaults"
@@ -917,10 +913,7 @@ def test_timeline_editor_mode_bar_groups_tools_and_syncs_state():
         assert bar.findChild(QWidget, "timelineEditorShellGroup") is not None
         assert bar._settings_button.objectName() == "timelineEditorSettingsButton"
         assert bar._osc_settings_button.objectName() == "timelineEditorOscSettingsButton"
-        assert (
-            bar._pipeline_settings_button.objectName()
-            == "timelineEditorPipelineSettingsButton"
-        )
+        assert bar._pipeline_settings_button.objectName() == "timelineEditorPipelineSettingsButton"
         assert list(bar._mode_buttons.keys()) == [
             "select",
             "move",
@@ -1300,9 +1293,7 @@ def test_action_settings_form_shows_threshold_tooltips_on_label_and_input():
 
         widget_tooltip = form._inputs["threshold"].toolTip()
         label = next(
-            widget
-            for widget in form.findChildren(QLabel)
-            if widget.text() == "Threshold"
+            widget for widget in form.findChildren(QLabel) if widget.text() == "Threshold"
         )
 
         assert "Threshold strictness" in widget_tooltip

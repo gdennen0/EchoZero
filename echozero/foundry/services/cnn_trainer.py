@@ -17,11 +17,20 @@ from typing import Callable
 import librosa
 import numpy as np
 import torch
-from sklearn.metrics import accuracy_score, confusion_matrix, log_loss, precision_recall_fscore_support
+from sklearn.metrics import (
+    accuracy_score,
+    confusion_matrix,
+    log_loss,
+    precision_recall_fscore_support,
+)
 
 from echozero.foundry.domain import DatasetSample, DatasetVersion, TrainRun
 from echozero.runtime_models.architectures import SimpleCnnRuntimeModel
-from echozero.foundry.services.baseline_trainer import BaselineTrainer, BaselineTrainingResult, RunCanceledError
+from echozero.foundry.services.baseline_trainer import (
+    BaselineTrainer,
+    BaselineTrainingResult,
+    RunCanceledError,
+)
 from echozero.foundry.services.audio_source_validation import InvalidAudioSourceError
 from echozero.foundry.services.training_runtime import (
     compute_config_fingerprint,
@@ -29,7 +38,6 @@ from echozero.foundry.services.training_runtime import (
     ensure_finite_array,
     ensure_finite_tensor,
 )
-
 
 _SimpleCnn = SimpleCnnRuntimeModel
 
@@ -86,16 +94,36 @@ class CnnTrainer:
         sample_by_id = {sample.sample_id: sample for sample in dataset_version.samples}
         split_plan = dataset_version.split_plan or {}
         train_samples = [sample_by_id[sample_id] for sample_id in split_plan.get("train_ids", [])]
-        val_samples = [sample_by_id[sample_id] for sample_id in split_plan.get("val_ids", []) if sample_id in sample_by_id]
-        test_samples = [sample_by_id[sample_id] for sample_id in split_plan.get("test_ids", []) if sample_id in sample_by_id]
-        train_samples, synthetic_mix = BaselineTrainer._resolve_train_samples(train_samples, synthetic_mix_spec, rng=rng)
+        val_samples = [
+            sample_by_id[sample_id]
+            for sample_id in split_plan.get("val_ids", [])
+            if sample_id in sample_by_id
+        ]
+        test_samples = [
+            sample_by_id[sample_id]
+            for sample_id in split_plan.get("test_ids", [])
+            if sample_id in sample_by_id
+        ]
+        train_samples, synthetic_mix = BaselineTrainer._resolve_train_samples(
+            train_samples, synthetic_mix_spec, rng=rng
+        )
         val_samples = [sample for sample in val_samples if not sample.is_synthetic]
         test_samples = [sample for sample in test_samples if not sample.is_synthetic]
-        synthetic_eval_samples = [sample_by_id[sample_id] for sample_id in split_plan.get("val_ids", []) if sample_id in sample_by_id]
+        synthetic_eval_samples = [
+            sample_by_id[sample_id]
+            for sample_id in split_plan.get("val_ids", [])
+            if sample_id in sample_by_id
+        ]
         synthetic_eval_samples.extend(
-            [sample_by_id[sample_id] for sample_id in split_plan.get("test_ids", []) if sample_id in sample_by_id]
+            [
+                sample_by_id[sample_id]
+                for sample_id in split_plan.get("test_ids", [])
+                if sample_id in sample_by_id
+            ]
         )
-        synthetic_eval_samples = [sample for sample in synthetic_eval_samples if sample.is_synthetic]
+        synthetic_eval_samples = [
+            sample for sample in synthetic_eval_samples if sample.is_synthetic
+        ]
 
         if len(train_samples) < 2:
             raise ValueError("cnn trainer requires at least two training samples")
@@ -105,7 +133,9 @@ class CnnTrainer:
         train_label_ids = {sample.label for sample in train_samples}
         if train_label_ids != set(class_names):
             missing = sorted(set(class_names) - train_label_ids)
-            raise ValueError(f"training split is missing classes required for cnn training: {', '.join(missing)}")
+            raise ValueError(
+                f"training split is missing classes required for cnn training: {', '.join(missing)}"
+            )
 
         train_ds = self._build_dataset(
             train_samples,
@@ -119,7 +149,9 @@ class CnnTrainer:
             cancel_event=cancel_event,
         )
         if len(train_ds.y) < 2:
-            raise ValueError("cnn trainer has fewer than two usable training samples after skipping invalid source audio")
+            raise ValueError(
+                "cnn trainer has fewer than two usable training samples after skipping invalid source audio"
+            )
         observed_train_labels = {class_names[index] for index in np.unique(train_ds.y)}
         if observed_train_labels != set(class_names):
             missing = sorted(set(class_names) - observed_train_labels)
@@ -152,7 +184,9 @@ class CnnTrainer:
             cancel_event=cancel_event,
         )
         if eval_samples and len(eval_ds.y) == 0:
-            raise ValueError("cnn trainer has no usable evaluation samples after skipping invalid source audio")
+            raise ValueError(
+                "cnn trainer has no usable evaluation samples after skipping invalid source audio"
+            )
         synthetic_eval_ds = self._build_dataset(
             synthetic_eval_samples,
             sample_rate=sample_rate,
@@ -171,7 +205,9 @@ class CnnTrainer:
         ensure_finite_array("cnn/synth_eval_x", synthetic_eval_ds.x, context="dataset_build")
 
         model = _SimpleCnn(num_classes=len(class_names))
-        optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+        optimizer = torch.optim.AdamW(
+            model.parameters(), lr=learning_rate, weight_decay=weight_decay
+        )
         criterion = torch.nn.CrossEntropyLoss()
 
         checkpoint_metrics: list[dict[str, float | int | None]] = []
@@ -188,21 +224,33 @@ class CnnTrainer:
             permutation = rng.permutation(len(train_ds.y))
             total_loss = 0.0
             sample_count = 0
-            for batch_index, start in enumerate(range(0, len(permutation), max(1, batch_size)), start=1):
+            for batch_index, start in enumerate(
+                range(0, len(permutation), max(1, batch_size)), start=1
+            ):
                 idx = permutation[start : start + max(1, batch_size)]
                 xb = torch.from_numpy(train_ds.x[idx])
                 yb = torch.from_numpy(train_ds.y[idx])
-                ensure_finite_tensor("cnn/train_batch", xb, context=f"epoch={epoch},batch={batch_index}")
+                ensure_finite_tensor(
+                    "cnn/train_batch", xb, context=f"epoch={epoch},batch={batch_index}"
+                )
                 optimizer.zero_grad(set_to_none=True)
                 logits = model(xb)
-                ensure_finite_tensor("cnn/logits", logits, context=f"epoch={epoch},batch={batch_index}")
+                ensure_finite_tensor(
+                    "cnn/logits", logits, context=f"epoch={epoch},batch={batch_index}"
+                )
                 loss = criterion(logits, yb)
-                ensure_finite_tensor("cnn/loss", loss, context=f"epoch={epoch},batch={batch_index}")
+                ensure_finite_tensor(
+                    "cnn/loss", loss, context=f"epoch={epoch},batch={batch_index}"
+                )
                 loss.backward()
                 self._ensure_gradients_finite(model, epoch=epoch, batch_index=batch_index)
                 if gradient_clip_norm > 0:
-                    grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip_norm)
-                    ensure_finite_tensor("cnn/grad_norm", grad_norm, context=f"epoch={epoch},batch={batch_index}")
+                    grad_norm = torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), gradient_clip_norm
+                    )
+                    ensure_finite_tensor(
+                        "cnn/grad_norm", grad_norm, context=f"epoch={epoch},batch={batch_index}"
+                    )
                 optimizer.step()
                 self._ensure_parameters_finite(model, epoch=epoch, batch_index=batch_index)
                 total_loss += float(loss.item()) * len(idx)
@@ -215,7 +263,11 @@ class CnnTrainer:
             elapsed = max(1e-6, time.perf_counter() - started)
             checkpoint = {
                 "epoch": epoch,
-                "train_loss": total_loss / max(1, sample_count) if sample_count else train_metrics.get("loss"),
+                "train_loss": (
+                    total_loss / max(1, sample_count)
+                    if sample_count
+                    else train_metrics.get("loss")
+                ),
                 "train_accuracy": train_metrics.get("accuracy"),
                 "train_macro_f1": train_metrics.get("macro_f1"),
                 "val_loss": val_metrics.get("loss"),
@@ -237,7 +289,9 @@ class CnnTrainer:
                 epochs_without_improvement += 1
 
             if progress_callback is not None:
-                progress_callback({"epoch": epoch, "total_epochs": epochs, "checkpoint": checkpoint})
+                progress_callback(
+                    {"epoch": epoch, "total_epochs": epochs, "checkpoint": checkpoint}
+                )
 
             if (
                 early_stopping_patience is not None
@@ -307,7 +361,9 @@ class CnnTrainer:
             "trainerOptions": {
                 "trainerProfile": "cnn_v1",
                 "optimizer": "adamw",
-                "earlyStoppingPatience": None if early_stopping_patience is None else int(early_stopping_patience),
+                "earlyStoppingPatience": (
+                    None if early_stopping_patience is None else int(early_stopping_patience)
+                ),
                 "minEpochs": max(1, min_epochs),
                 "syntheticMix": synthetic_mix,
                 "gradientClipNorm": gradient_clip_norm,
@@ -323,7 +379,9 @@ class CnnTrainer:
 
         metrics_path = run.exports_dir(self._root) / "metrics.json"
         self._ensure_not_canceled(cancel_event)
-        metrics_path.write_text(json.dumps(metrics_payload, indent=2, sort_keys=True), encoding="utf-8")
+        metrics_path.write_text(
+            json.dumps(metrics_payload, indent=2, sort_keys=True), encoding="utf-8"
+        )
 
         run_summary_payload = {
             "runId": run.id,
@@ -354,7 +412,9 @@ class CnnTrainer:
 
         run_summary_path = run.exports_dir(self._root) / "run_summary.json"
         self._ensure_not_canceled(cancel_event)
-        run_summary_path.write_text(json.dumps(run_summary_payload, indent=2, sort_keys=True), encoding="utf-8")
+        run_summary_path.write_text(
+            json.dumps(run_summary_payload, indent=2, sort_keys=True), encoding="utf-8"
+        )
 
         return BaselineTrainingResult(
             checkpoint_metrics=checkpoint_metrics,
@@ -466,7 +526,9 @@ class CnnTrainer:
         for sample in samples:
             self._ensure_not_canceled(cancel_event)
             try:
-                audio = BaselineTrainer._load_audio(Path(sample.audio_ref), sample_rate=sample_rate, max_length=max_length)
+                audio = BaselineTrainer._load_audio(
+                    Path(sample.audio_ref), sample_rate=sample_rate, max_length=max_length
+                )
             except InvalidAudioSourceError as exc:
                 warnings.warn(
                     f"Skipping invalid dataset sample {sample.sample_id} ({sample.audio_ref}): {exc}",
@@ -518,7 +580,9 @@ class CnnTrainer:
             raise RunCanceledError("run canceled")
 
     @staticmethod
-    def _evaluate_split(model: _SimpleCnn, dataset: _TensorDataset, class_names: list[str]) -> dict[str, object]:
+    def _evaluate_split(
+        model: _SimpleCnn, dataset: _TensorDataset, class_names: list[str]
+    ) -> dict[str, object]:
         if len(dataset.y) == 0:
             return {}
 

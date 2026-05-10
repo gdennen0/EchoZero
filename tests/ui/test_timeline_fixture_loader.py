@@ -10,7 +10,9 @@ def test_realistic_fixture_contains_core_layers_and_takes():
     presentation = load_realistic_timeline_fixture()
     by_title = {layer.title: layer for layer in presentation.layers}
 
-    assert {"Song", "Drums", "Bass", "Vocals", "Other", "Kick", "Snare", "HiHat", "Clap"} <= set(by_title)
+    assert {"Song", "Drums", "Bass", "Vocals", "Other", "Kick", "Snare", "HiHat", "Clap"} <= set(
+        by_title
+    )
     assert by_title["Drums"].kind.name == "AUDIO"
     assert len(by_title["Drums"].takes) >= 2
     assert by_title["Kick"].kind.name == "EVENT"
@@ -20,13 +22,17 @@ def test_realistic_fixture_contains_core_layers_and_takes():
 def test_realistic_fixture_take_actions_include_overwrite_merge_and_delete():
     presentation = load_realistic_timeline_fixture()
 
-    takes_with_actions = [take for layer in presentation.layers for take in layer.takes if take.actions]
+    takes_with_actions = [
+        take for layer in presentation.layers for take in layer.takes if take.actions
+    ]
     assert takes_with_actions
 
     for take in takes_with_actions:
         action_ids = {action.action_id for action in take.actions}
         assert {"overwrite_main", "merge_main", "delete_take"} <= action_ids
-        assert {action.label for action in take.actions} <= set(TIMELINE_STYLE.fixture.take_action_labels.values())
+        assert {action.label for action in take.actions} <= set(
+            TIMELINE_STYLE.fixture.take_action_labels.values()
+        )
 
 
 def test_realistic_fixture_event_ids_are_unique():
@@ -48,7 +54,9 @@ def test_realistic_fixture_has_stale_manual_and_sync_signals():
 
     assert any(layer.status.stale for layer in presentation.layers)
     assert any(layer.status.manually_modified for layer in presentation.layers)
-    assert any("sync" in layer.title.lower() or layer.status.sync_label for layer in presentation.layers)
+    assert any(
+        "sync" in layer.title.lower() or layer.status.sync_label for layer in presentation.layers
+    )
 
 
 def test_realistic_fixture_resolves_layer_and_event_colors_from_style_tokens():

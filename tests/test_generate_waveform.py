@@ -13,7 +13,14 @@ import pytest
 
 from echozero.domain.enums import BlockCategory, Direction, PortType
 from echozero.domain.graph import Graph
-from echozero.domain.types import AudioData, Block, BlockSettings, Port, WaveformData, WaveformPeaks
+from echozero.domain.types import (
+    AudioData,
+    Block,
+    BlockSettings,
+    Port,
+    WaveformData,
+    WaveformPeaks,
+)
 from echozero.execution import ExecutionContext
 from echozero.processors.generate_waveform import (
     DEFAULT_WINDOW_SIZES,
@@ -22,7 +29,6 @@ from echozero.processors.generate_waveform import (
 )
 from echozero.progress import ProgressReport, RuntimeBus
 from echozero.result import Err, Ok
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -50,9 +56,7 @@ def _make_waveform_block(block_id: str = "waveform1") -> Block:
         name="Generate Waveform",
         block_type="GenerateWaveform",
         category=BlockCategory.PROCESSOR,
-        input_ports=(
-            Port(name="audio_in", port_type=PortType.AUDIO, direction=Direction.INPUT),
-        ),
+        input_ports=(Port(name="audio_in", port_type=PortType.AUDIO, direction=Direction.INPUT),),
         output_ports=(
             Port(name="waveform_out", port_type=PortType.WAVEFORM, direction=Direction.OUTPUT),
         ),
@@ -263,9 +267,7 @@ class TestGenerateWaveformSuccess:
 
     def test_preserves_channel_count_from_audio(self) -> None:
         graph = _make_connected_graph()
-        audio = AudioData(
-            sample_rate=44100, duration=1.0, file_path="/fake.wav", channel_count=2
-        )
+        audio = AudioData(sample_rate=44100, duration=1.0, file_path="/fake.wav", channel_count=2)
         ctx = _make_context(graph, upstream_audio=audio)
 
         processor = GenerateWaveformProcessor(
@@ -308,9 +310,7 @@ class TestGenerateWaveformErrors:
     def test_no_audio_input_returns_err(self) -> None:
         graph = Graph()
         graph.add_block(_make_waveform_block())
-        ctx = ExecutionContext(
-            execution_id="test", graph=graph, progress_bus=RuntimeBus()
-        )
+        ctx = ExecutionContext(execution_id="test", graph=graph, progress_bus=RuntimeBus())
 
         processor = GenerateWaveformProcessor(
             load_samples_fn=lambda path, sr: _fake_samples(100),

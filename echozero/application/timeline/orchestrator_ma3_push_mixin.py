@@ -78,7 +78,9 @@ class _MA3PushHost(Protocol):
         range_mode: MA3SequenceRefreshRangeMode,
     ): ...
 
-    def _normalize_manual_push_timecode_option(self, raw_timecode: Any) -> ManualPushTimecodeOption: ...
+    def _normalize_manual_push_timecode_option(
+        self, raw_timecode: Any
+    ) -> ManualPushTimecodeOption: ...
 
     def _normalize_manual_push_track_group_option(
         self, raw_group: Any
@@ -86,7 +88,9 @@ class _MA3PushHost(Protocol):
 
     def _normalize_manual_push_track_option(self, raw_track: Any) -> ManualPushTrackOption: ...
 
-    def _normalize_manual_push_sequence_option(self, raw_sequence: Any) -> ManualPushSequenceOption: ...
+    def _normalize_manual_push_sequence_option(
+        self, raw_sequence: Any
+    ) -> ManualPushSequenceOption: ...
 
 
 class TimelineOrchestratorMA3PushMixin:
@@ -302,9 +306,7 @@ class TimelineOrchestratorMA3PushMixin:
         available_timecode_numbers = {timecode.number for timecode in flow.available_timecodes}
         if resolved_timecode_no not in available_timecode_numbers:
             resolved_timecode_no = (
-                None
-                if not flow.available_timecodes
-                else flow.available_timecodes[0].number
+                None if not flow.available_timecodes else flow.available_timecodes[0].number
             )
         flow.selected_timecode_no = resolved_timecode_no
 
@@ -404,9 +406,7 @@ class TimelineOrchestratorMA3PushMixin:
         self._refresh_manual_push_tracks(timecode_no=created_timecode.number)
         return created_timecode
 
-    def _create_ma3_track_group(
-        self, intent: CreateMA3TrackGroup
-    ) -> ManualPushTrackGroupOption:
+    def _create_ma3_track_group(self, intent: CreateMA3TrackGroup) -> ManualPushTrackGroupOption:
         raw_track_group = self._call_sync_capability(
             "create_track_group_next_available",
             error_message="Sync service does not support MA3 track-group creation",
@@ -584,7 +584,9 @@ class TimelineOrchestratorMA3PushMixin:
         )
         if raw_sequence is None:
             return None
-        created_sequence = cast(_MA3PushHost, self)._normalize_manual_push_sequence_option(raw_sequence)
+        created_sequence = cast(_MA3PushHost, self)._normalize_manual_push_sequence_option(
+            raw_sequence
+        )
         session = cast(_MA3PushHost, self).session_service.get_session()
         for index, existing in enumerate(session.manual_push_flow.available_sequences):
             if existing.number == created_sequence.number:
@@ -762,7 +764,9 @@ class TimelineOrchestratorMA3PushMixin:
             raise ValueError("PushLayerToMA3 requires at least one main event on the layer")
         promoted_main_events = [event for event in main_take.events if event.is_promoted]
         if not promoted_main_events:
-            raise ValueError("PushLayerToMA3 requires at least one promoted main event on the layer")
+            raise ValueError(
+                "PushLayerToMA3 requires at least one promoted main event on the layer"
+            )
 
         if intent.scope is MA3PushScope.LAYER_MAIN:
             return promoted_main_events

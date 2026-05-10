@@ -80,10 +80,7 @@ class _TimelineCanvasInteractionMixin:
             self.update()
             return
 
-        if (
-            self._layer_drag_candidate is not None
-            and event.buttons() & Qt.MouseButton.LeftButton
-        ):
+        if self._layer_drag_candidate is not None and event.buttons() & Qt.MouseButton.LeftButton:
             self._update_layer_drag(event.position())
             event.accept()
             return
@@ -329,9 +326,7 @@ class _TimelineCanvasInteractionMixin:
                             event_take_id,
                             event_id,
                         ),
-                        copy_on_drag=bool(
-                            event.modifiers() & Qt.KeyboardModifier.AltModifier
-                        ),
+                        copy_on_drag=bool(event.modifiers() & Qt.KeyboardModifier.AltModifier),
                     )
                     self._dragging_events = False
                     self._move_drag_preview_time = None
@@ -347,9 +342,13 @@ class _TimelineCanvasInteractionMixin:
                 )
                 return
         if self._edit_mode == "draw" and event.button() == Qt.MouseButton.LeftButton:
-            if self._section_label_hit(pos) is not None or self._section_boundary_hit(
-                pos,
-            ) is not None:
+            if (
+                self._section_label_hit(pos) is not None
+                or self._section_boundary_hit(
+                    pos,
+                )
+                is not None
+            ):
                 return
         lane_hit = self._event_lane_hit(pos)
         if lane_hit is not None and event.button() == Qt.MouseButton.LeftButton:
@@ -409,9 +408,8 @@ class _TimelineCanvasInteractionMixin:
                 return
         for rect, layer_id in self._header_select_rects:
             if rect.contains(pos):
-                if (
-                    event.button() == Qt.MouseButton.LeftButton
-                    and not _is_imported_song_layer_id(self.presentation, layer_id)
+                if event.button() == Qt.MouseButton.LeftButton and not _is_imported_song_layer_id(
+                    self.presentation, layer_id
                 ):
                     self._layer_drag_candidate = LayerDragCandidate(
                         source_layer_id=layer_id,
@@ -742,7 +740,12 @@ class _TimelineCanvasInteractionMixin:
             self.edit_mode_requested.emit("fix")
             event.accept()
             return
-        if not has_primary and not has_shift and self._edit_mode == "draw" and event.key() == Qt.Key.Key_A:
+        if (
+            not has_primary
+            and not has_shift
+            and self._edit_mode == "draw"
+            and event.key() == Qt.Key.Key_A
+        ):
             self.add_event_at_playhead_requested.emit()
             event.accept()
             return
@@ -1095,9 +1098,15 @@ class _TimelineCanvasInteractionMixin:
         self: Any,
         fix_rect: tuple[QRectF, LayerId, TakeId | None, str, float, float, bool],
     ) -> EventRef | None:
-        _rect, target_layer_id, target_take_id, source_event_id, source_start, source_end, _matched = (
-            fix_rect
-        )
+        (
+            _rect,
+            target_layer_id,
+            target_take_id,
+            source_event_id,
+            source_start,
+            source_end,
+            _matched,
+        ) = fix_rect
         target_layer = self._find_layer_presentation(target_layer_id)
         if target_layer is None:
             return None
@@ -1188,9 +1197,7 @@ class _TimelineCanvasInteractionMixin:
         source_end: float,
     ) -> EventPresentation | None:
         exact_id_matches = [
-            event
-            for event in events
-            if str(event.event_id) == str(source_event_id)
+            event for event in events if str(event.event_id) == str(source_event_id)
         ]
         if len(exact_id_matches) == 1:
             return exact_id_matches[0]
@@ -1646,7 +1653,9 @@ class _TimelineCanvasInteractionMixin:
         for event_rect, layer_id, take_id, event_id in self._event_rects:
             if not rect.intersects(event_rect) or take_id is None:
                 continue
-            intersected_refs.append(EventRef(layer_id=layer_id, take_id=take_id, event_id=event_id))
+            intersected_refs.append(
+                EventRef(layer_id=layer_id, take_id=take_id, event_id=event_id)
+            )
         return intersected_refs
 
     def _fix_rects_intersecting_rect(

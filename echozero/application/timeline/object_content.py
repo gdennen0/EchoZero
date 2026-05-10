@@ -89,9 +89,7 @@ class SourceRef:
             revision_id=ObjectRevisionId(str(payload.get("revision_id") or "")),
             role=str(payload.get("role") or "source"),
             locator=(
-                None
-                if payload.get("locator") in (None, "")
-                else str(payload.get("locator"))
+                None if payload.get("locator") in (None, "") else str(payload.get("locator"))
             ),
         )
 

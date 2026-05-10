@@ -120,7 +120,14 @@ def runtime_model_release_date(*, path: Path) -> str | None:
     manifest = _load_manifest_payload(path)
     if manifest is None:
         return None
-    for key in ("releasedAt", "released_at", "releaseDate", "release_date", "createdAt", "created_at"):
+    for key in (
+        "releasedAt",
+        "released_at",
+        "releaseDate",
+        "release_date",
+        "createdAt",
+        "created_at",
+    ):
         normalized = _normalize_manifest_date(manifest.get(key))
         if normalized is not None:
             return normalized

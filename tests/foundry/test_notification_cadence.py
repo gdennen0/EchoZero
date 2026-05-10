@@ -13,7 +13,9 @@ def _prepared_version(root: Path):
     app = FoundryApp(root)
     dataset = app.datasets.create_dataset("Notification Drums")
     version = app.datasets.ingest_from_folder(dataset.id, samples)
-    app.plan_version(version.id, validation_split=0.2, test_split=0.2, seed=9, balance_strategy="none")
+    app.plan_version(
+        version.id, validation_split=0.2, test_split=0.2, seed=9, balance_strategy="none"
+    )
     return app, version
 
 

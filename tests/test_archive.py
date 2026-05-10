@@ -27,10 +27,13 @@ from echozero.persistence.entities import (
     SongRecord,
     SongVersionRecord,
 )
-from echozero.persistence.repositories import ProjectRepository, SongRepository, SongVersionRepository
+from echozero.persistence.repositories import (
+    ProjectRepository,
+    SongRepository,
+    SongVersionRepository,
+)
 from echozero.persistence.schema import init_db
 from echozero.persistence.session import ProjectStorage
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -60,8 +63,11 @@ def _setup_working_dir(working_dir: Path) -> sqlite3.Connection:
 def _add_project(conn: sqlite3.Connection, name: str = "Test") -> ProjectRecord:
     """Add a project to the DB and return it."""
     project = ProjectRecord(
-        id=_uid(), name=name, settings=ProjectSettingsRecord(),
-        created_at=_now(), updated_at=_now(),
+        id=_uid(),
+        name=name,
+        settings=ProjectSettingsRecord(),
+        created_at=_now(),
+        updated_at=_now(),
     )
     ProjectRepository(conn).create(project)
     conn.commit()
@@ -449,15 +455,24 @@ class TestFullSessionRoundTrip:
 
         # Create a song + version manually (no audio file needed for DB round-trip)
         song = SongRecord(
-            id=_uid(), project_id=pid, title="Opening Act",
-            artist="The Band", order=0, active_version_id=None,
+            id=_uid(),
+            project_id=pid,
+            title="Opening Act",
+            artist="The Band",
+            order=0,
+            active_version_id=None,
         )
         session.songs.create(song)
 
         version = SongVersionRecord(
-            id=_uid(), song_id=song.id, label="Final Mix",
-            audio_file="audio/test.wav", duration_seconds=180.0,
-            original_sample_rate=44100, audio_hash="abc123", created_at=_now(),
+            id=_uid(),
+            song_id=song.id,
+            label="Final Mix",
+            audio_file="audio/test.wav",
+            duration_seconds=180.0,
+            original_sample_rate=44100,
+            audio_hash="abc123",
+            created_at=_now(),
         )
         session.song_versions.create(version)
 
@@ -490,7 +505,9 @@ class TestFullSessionRoundTrip:
 
             # Audio file should be present in the new working dir
             assert (session2.working_dir / "audio" / "test.wav").exists()
-            assert (session2.working_dir / "audio" / "test.wav").read_bytes() == b"fake audio for round trip"
+            assert (
+                session2.working_dir / "audio" / "test.wav"
+            ).read_bytes() == b"fake audio for round trip"
         finally:
             session2.close()
 
@@ -515,7 +532,9 @@ class TestFullSessionRoundTrip:
             artist="DJ Test",
             label="Studio Mix",
             default_templates=[],
-            scan_fn=lambda p: AudioMetadata(duration_seconds=60.0, sample_rate=44100, channel_count=2),
+            scan_fn=lambda p: AudioMetadata(
+                duration_seconds=60.0, sample_rate=44100, channel_count=2
+            ),
         )
 
         session.save_as(ez_path)

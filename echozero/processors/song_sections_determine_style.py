@@ -58,11 +58,19 @@ def determine_sections_style_segments(
 
     audio, effective_sample_rate = librosa.load(file_path, sr=sample_rate, mono=True)
     if audio.size == 0:
-        return (DetermineSectionsStyleSegment(start_seconds=0.0, cue_ref="intro_01", label="Intro", confidence=1.0),)
+        return (
+            DetermineSectionsStyleSegment(
+                start_seconds=0.0, cue_ref="intro_01", label="Intro", confidence=1.0
+            ),
+        )
 
     duration_seconds = float(audio.shape[0]) / float(effective_sample_rate)
     if duration_seconds <= 0.0:
-        return (DetermineSectionsStyleSegment(start_seconds=0.0, cue_ref="intro_01", label="Intro", confidence=1.0),)
+        return (
+            DetermineSectionsStyleSegment(
+                start_seconds=0.0, cue_ref="intro_01", label="Intro", confidence=1.0
+            ),
+        )
 
     resolved_hop = max(64, int(hop_length))
     resolved_fft = max(512, int(n_fft))
@@ -87,7 +95,9 @@ def determine_sections_style_segments(
         hop_length=resolved_hop,
     )
     rms = librosa.feature.rms(y=audio, frame_length=resolved_fft, hop_length=resolved_hop)
-    onset_envelope = librosa.onset.onset_strength(y=audio, sr=effective_sample_rate, hop_length=resolved_hop)
+    onset_envelope = librosa.onset.onset_strength(
+        y=audio, sr=effective_sample_rate, hop_length=resolved_hop
+    )
 
     min_frames = min(
         int(mfcc.shape[1]),
@@ -98,7 +108,9 @@ def determine_sections_style_segments(
     )
     if min_frames <= 2:
         return (
-            DetermineSectionsStyleSegment(start_seconds=0.0, cue_ref="intro_01", label="Intro", confidence=1.0),
+            DetermineSectionsStyleSegment(
+                start_seconds=0.0, cue_ref="intro_01", label="Intro", confidence=1.0
+            ),
             DetermineSectionsStyleSegment(
                 start_seconds=max(0.0, duration_seconds - 0.01),
                 cue_ref="outro_02",
@@ -154,10 +166,19 @@ def determine_sections_style_segments(
 
     segments: list[DetermineSectionsStyleSegment] = []
     for start_seconds, label in zip(boundaries_seconds, labels, strict=True):
-        frame_index = max(0, min(int(round(start_seconds / max(seconds_per_frame, 1e-5))), change_curve.shape[0] - 1))
+        frame_index = max(
+            0,
+            min(
+                int(round(start_seconds / max(seconds_per_frame, 1e-5))), change_curve.shape[0] - 1
+            ),
+        )
         local = change_curve[max(0, frame_index - 2) : frame_index + 3]
-        confidence = 0.55 if local.size == 0 else 0.45 + 0.55 * float(np.clip(np.mean(local), 0.0, 1.0))
-        label_slug = "".join(ch if ch.isalnum() else "_" for ch in label.lower()).strip("_") or "section"
+        confidence = (
+            0.55 if local.size == 0 else 0.45 + 0.55 * float(np.clip(np.mean(local), 0.0, 1.0))
+        )
+        label_slug = (
+            "".join(ch if ch.isalnum() else "_" for ch in label.lower()).strip("_") or "section"
+        )
         segments.append(
             DetermineSectionsStyleSegment(
                 start_seconds=float(start_seconds),
@@ -218,7 +239,9 @@ def _moving_average(values: Any, *, width: int):
     return smoothed[pad:-pad]
 
 
-def _pick_change_peaks(change_curve: Any, *, sensitivity: float, min_gap_frames: int, max_sections: int) -> list[int]:
+def _pick_change_peaks(
+    change_curve: Any, *, sensitivity: float, min_gap_frames: int, max_sections: int
+) -> list[int]:
     import numpy as np
 
     frame_count = int(change_curve.shape[0])
@@ -247,7 +270,9 @@ def _pick_change_peaks(change_curve: Any, *, sensitivity: float, min_gap_frames:
     selected = sorted(set(selected))
     if max_sections > 0 and len(selected) > max_sections:
         nonzero = [frame for frame in selected if frame != 0]
-        keep = sorted(nonzero, key=lambda index: float(change_curve[index]), reverse=True)[: max(0, max_sections - 1)]
+        keep = sorted(nonzero, key=lambda index: float(change_curve[index]), reverse=True)[
+            : max(0, max_sections - 1)
+        ]
         selected = sorted({0, *keep})
     return selected
 
@@ -275,19 +300,34 @@ def _label_boundaries(
     boundary_seconds_with_end = [*boundaries_seconds, duration_seconds]
     embeddings: list[Any] = []
     energies: list[float] = []
-    for start_seconds, end_seconds in zip(boundary_seconds_with_end, boundary_seconds_with_end[1:], strict=False):
-        start_frame = max(0, min(normalized_features.shape[0] - 1, int(round(start_seconds * sample_rate / hop_length))))
-        end_frame = max(start_frame + 1, min(normalized_features.shape[0], int(round(end_seconds * sample_rate / hop_length))))
+    for start_seconds, end_seconds in zip(
+        boundary_seconds_with_end, boundary_seconds_with_end[1:], strict=False
+    ):
+        start_frame = max(
+            0,
+            min(
+                normalized_features.shape[0] - 1,
+                int(round(start_seconds * sample_rate / hop_length)),
+            ),
+        )
+        end_frame = max(
+            start_frame + 1,
+            min(normalized_features.shape[0], int(round(end_seconds * sample_rate / hop_length))),
+        )
         frame_slice = normalized_features[start_frame:end_frame]
         embeddings.append(np.mean(frame_slice, axis=0))
 
         start_sample = max(0, int(round(start_seconds * sample_rate)))
-        end_sample = min(audio.shape[0], max(start_sample + 1, int(round(end_seconds * sample_rate))))
+        end_sample = min(
+            audio.shape[0], max(start_sample + 1, int(round(end_seconds * sample_rate)))
+        )
         audio_slice = audio[start_sample:end_sample]
         energy = float(np.sqrt(np.mean(np.square(audio_slice)))) if audio_slice.size else 0.0
         energies.append(energy)
 
-    similarity = np.matmul(np.asarray(embeddings, dtype=np.float32), np.asarray(embeddings, dtype=np.float32).T)
+    similarity = np.matmul(
+        np.asarray(embeddings, dtype=np.float32), np.asarray(embeddings, dtype=np.float32).T
+    )
     repeat_threshold = max(0.0, min(0.99, similarity_threshold))
     repeat_score = [0.0 for _ in range(boundary_count)]
     for index in range(boundary_count):
@@ -312,7 +352,10 @@ def _label_boundaries(
             labels[index] = "Buildup"
 
     tail_start = boundaries_seconds[-1]
-    if duration_seconds - tail_start <= max(4.0, end_tail_seconds) or tail_start >= duration_seconds - end_tail_seconds:
+    if (
+        duration_seconds - tail_start <= max(4.0, end_tail_seconds)
+        or tail_start >= duration_seconds - end_tail_seconds
+    ):
         labels[-1] = "Outro"
 
     if boundaries_seconds[0] > max(0.05, intro_tail_seconds):
@@ -363,7 +406,10 @@ def label_segments_from_embeddings(
         chorus_index = max(range(1, segment_count - 1), key=lambda index: repeat_scores[index])
         if repeat_scores[chorus_index] > 0.0:
             for segment_index in range(1, segment_count - 1):
-                if float(similarity[segment_index, chorus_index]) >= normalized_similarity_threshold:
+                if (
+                    float(similarity[segment_index, chorus_index])
+                    >= normalized_similarity_threshold
+                ):
                     labels[segment_index] = "Chorus"
 
     median_rms = float(np.median(rms_values)) if rms_values else 0.0
@@ -390,7 +436,10 @@ def label_segments_from_embeddings(
 
     tail_start = boundaries_seconds[-1]
     tail_duration = max(0.0, duration_seconds - tail_start)
-    if tail_duration <= max(4.0, end_tail_seconds) or tail_start >= duration_seconds - end_tail_seconds:
+    if (
+        tail_duration <= max(4.0, end_tail_seconds)
+        or tail_start >= duration_seconds - end_tail_seconds
+    ):
         labels[-1] = "End"
 
     if duration_seconds > 0.0 and labels[0] != "Intro":

@@ -60,19 +60,20 @@ class ExecutionContext:
         """
         # Find the connection(s) that feed this input port
         matching = [
-            c for c in self.graph.connections
+            c
+            for c in self.graph.connections
             if c.target_block_id == block_id and c.target_input_name == input_port_name
         ]
         if len(matching) > 1:
             logger.debug(
                 "Block '%s' port '%s' has %d incoming connections — using first",
-                block_id, input_port_name, len(matching),
+                block_id,
+                input_port_name,
+                len(matching),
             )
         for conn in self.graph.connections:
             if conn.target_block_id == block_id and conn.target_input_name == input_port_name:
-                value = self._outputs.get(
-                    (conn.source_block_id, conn.source_output_name)
-                )
+                value = self._outputs.get((conn.source_block_id, conn.source_output_name))
                 if value is None:
                     return None
                 if expected_type is not object and not isinstance(value, expected_type):
@@ -90,6 +91,7 @@ class ExecutionContext:
         Audio data must be stored as file paths (AudioData), not numpy arrays.
         """
         import numpy as np
+
         if isinstance(value, np.ndarray):
             raise TypeError(
                 f"Audio data must be stored as file paths (AudioData), "
@@ -116,13 +118,13 @@ class GraphPlanner:
         PLAYBACK blocks are skipped — they don't participate in the data pipeline.
         """
         from echozero.domain.enums import BlockCategory
+
         execution_id = uuid.uuid4().hex
         topo_order = graph.topological_sort()
 
         # Only include PROCESSOR blocks in execution plans
         processor_order = [
-            bid for bid in topo_order
-            if graph.blocks[bid].category == BlockCategory.PROCESSOR
+            bid for bid in topo_order if graph.blocks[bid].category == BlockCategory.PROCESSOR
         ]
 
         if target_block_id is None:
@@ -204,9 +206,7 @@ class ExecutionEngine:
             executor = self._executors.get(block.block_type)
             if executor is None:
                 return err(
-                    ExecutionError(
-                        f"No executor registered for block type: {block.block_type}"
-                    )
+                    ExecutionError(f"No executor registered for block type: {block.block_type}")
                 )
 
             # Signal start via RuntimeBus
@@ -274,10 +274,7 @@ class ExecutionEngine:
                 if isinstance(result_value, dict)
                 else {}
             )
-            is_multi_port = (
-                bool(matching_port_values)
-                and len(output_port_names) > 1
-            )
+            is_multi_port = bool(matching_port_values) and len(output_port_names) > 1
 
             if is_multi_port:
                 for pname, pvalue in matching_port_values.items():

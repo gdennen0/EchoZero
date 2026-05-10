@@ -204,7 +204,9 @@ def _compact_peak_span_numpy(
         return empty_i, empty_f, empty_f
 
     idx = np.arange(start, end + 1, dtype=np.float64)
-    x = (content_start_x + (idx * seconds_per_peak * pixels_per_second) - scroll_x).astype(np.int32)
+    x = (content_start_x + (idx * seconds_per_peak * pixels_per_second) - scroll_x).astype(
+        np.int32
+    )
     if pixel_step_px > 1:
         x = (x // pixel_step_px) * pixel_step_px
 

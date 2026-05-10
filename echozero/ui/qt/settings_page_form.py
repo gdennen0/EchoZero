@@ -58,7 +58,9 @@ class SettingsPageForm(QWidget):
         self._page: SettingsPage | None = None
         self._suspend_field_events = False
 
-    def set_page(self, page: SettingsPage, *, empty_message: str = "No settings available.") -> None:
+    def set_page(
+        self, page: SettingsPage, *, empty_message: str = "No settings available."
+    ) -> None:
         """Render one reusable settings page into the form."""
 
         self._suspend_field_events = True
@@ -187,7 +189,9 @@ class SettingsPageForm(QWidget):
             if index >= 0:
                 combo.setCurrentIndex(index)
             combo.currentIndexChanged.connect(
-                lambda _index, key=field.key, widget=combo: self._emit_field_value_changed(key, widget)
+                lambda _index, key=field.key, widget=combo: self._emit_field_value_changed(
+                    key, widget
+                )
             )
             return combo
 
@@ -195,7 +199,9 @@ class SettingsPageForm(QWidget):
             checkbox = QCheckBox(self._content)
             checkbox.setChecked(bool(field.value))
             checkbox.toggled.connect(
-                lambda _checked, key=field.key, widget=checkbox: self._emit_field_value_changed(key, widget)
+                lambda _checked, key=field.key, widget=checkbox: self._emit_field_value_changed(
+                    key, widget
+                )
             )
             return checkbox
 
@@ -210,7 +216,9 @@ class SettingsPageForm(QWidget):
                     spin.setSuffix(f" {field.units}")
                 spin.setKeyboardTracking(False)
                 spin.valueChanged.connect(
-                    lambda _value, key=field.key, widget=spin: self._emit_field_value_changed(key, widget)
+                    lambda _value, key=field.key, widget=spin: self._emit_field_value_changed(
+                        key, widget
+                    )
                 )
                 return spin
 
@@ -226,7 +234,9 @@ class SettingsPageForm(QWidget):
                 spin.setSuffix(f" {field.units}")
             spin.setKeyboardTracking(False)
             spin.valueChanged.connect(
-                lambda _value, key=field.key, widget=spin: self._emit_field_value_changed(key, widget)
+                lambda _value, key=field.key, widget=spin: self._emit_field_value_changed(
+                    key, widget
+                )
             )
             return spin
 
@@ -235,7 +245,9 @@ class SettingsPageForm(QWidget):
         if field.placeholder:
             line_edit.setPlaceholderText(field.placeholder)
         line_edit.textChanged.connect(
-            lambda _text, key=field.key, widget=line_edit: self._emit_field_value_changed(key, widget)
+            lambda _text, key=field.key, widget=line_edit: self._emit_field_value_changed(
+                key, widget
+            )
         )
         return line_edit
 
@@ -306,7 +318,9 @@ class SettingsPageForm(QWidget):
     def _field_default_line(field: SettingsField) -> str:
         if field.default_value is None:
             return ""
-        formatted = SettingsPageForm._format_tooltip_value(field.default_value, options=field.options)
+        formatted = SettingsPageForm._format_tooltip_value(
+            field.default_value, options=field.options
+        )
         if not formatted:
             return ""
         return f"Default: {formatted}"

@@ -78,7 +78,9 @@ def test_song_sections_processor_uses_default_detector_and_marks_generator() -> 
 
     def _default_segment(*args):
         calls.append({"sample_rate": args[1], "n_mfcc": args[2]})
-        return (_StubSection(start_seconds=0.0, cue_ref="intro_01", label="Intro", confidence=0.9),)
+        return (
+            _StubSection(start_seconds=0.0, cue_ref="intro_01", label="Intro", confidence=0.9),
+        )
 
     def _determine_segment(*_args):
         raise AssertionError("determine-sections segmenter should not run for default mode")
@@ -108,7 +110,9 @@ def test_song_sections_processor_uses_determine_sections_mode_and_marks_generato
         raise AssertionError("default segmenter should not run for determine-sections mode")
 
     def _determine_segment(*_args):
-        return (_StubSection(start_seconds=0.0, cue_ref="intro_01", label="Intro", confidence=0.8),)
+        return (
+            _StubSection(start_seconds=0.0, cue_ref="intro_01", label="Intro", confidence=0.8),
+        )
 
     graph = _make_graph("determine_sections_style")
     context = _make_context(graph)

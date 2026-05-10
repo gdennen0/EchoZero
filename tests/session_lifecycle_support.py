@@ -5,6 +5,7 @@ Connects the compatibility wrapper to the bounded lifecycle slice.
 
 from tests.session_shared_support import *  # noqa: F401,F403
 
+
 class TestSessionAutosave:
     def test_autosave_commits_dirty(self, tmp_root):
         session = ProjectStorage.create_new("Autosave", working_dir_root=tmp_root)
@@ -126,18 +127,26 @@ class TestCrashRecovery:
 
         # Simulate: create the working dir with a DB
         import hashlib
+
         digest = hashlib.sha256(str(ez_path.resolve()).encode()).hexdigest()[:16]
         wd = tmp_root / digest
         wd.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(wd / "project.db"))
         conn.row_factory = sqlite3.Row
         from echozero.persistence.schema import init_db
+
         init_db(conn)
         from echozero.persistence.repositories import ProjectRepository
-        ProjectRepository(conn).create(ProjectRecord(
-            id=_uid(), name="Recovered",
-            settings=ProjectSettingsRecord(), created_at=_now(), updated_at=_now(),
-        ))
+
+        ProjectRepository(conn).create(
+            ProjectRecord(
+                id=_uid(),
+                name="Recovered",
+                settings=ProjectSettingsRecord(),
+                created_at=_now(),
+                updated_at=_now(),
+            )
+        )
         conn.commit()
         conn.close()
 
@@ -149,18 +158,26 @@ class TestCrashRecovery:
         ez_path.touch()
 
         import hashlib
+
         digest = hashlib.sha256(str(ez_path.resolve()).encode()).hexdigest()[:16]
         wd = tmp_root / digest
         wd.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(wd / "project.db"))
         conn.row_factory = sqlite3.Row
         from echozero.persistence.schema import init_db
+
         init_db(conn)
         from echozero.persistence.repositories import ProjectRepository
-        ProjectRepository(conn).create(ProjectRecord(
-            id="recover_id", name="Recovered",
-            settings=ProjectSettingsRecord(), created_at=_now(), updated_at=_now(),
-        ))
+
+        ProjectRepository(conn).create(
+            ProjectRecord(
+                id="recover_id",
+                name="Recovered",
+                settings=ProjectSettingsRecord(),
+                created_at=_now(),
+                updated_at=_now(),
+            )
+        )
         conn.commit()
         conn.close()
 
@@ -223,6 +240,7 @@ class TestCrashRecovery:
         ez_path.touch()
 
         import hashlib
+
         digest = hashlib.sha256(str(ez_path.resolve()).encode()).hexdigest()[:16]
         wd = tmp_root / digest
         wd.mkdir(parents=True, exist_ok=True)
@@ -282,7 +300,6 @@ class TestMultipleProjects:
 # ---------------------------------------------------------------------------
 # Edge cases
 # ---------------------------------------------------------------------------
-
 
 
 __all__ = [name for name in globals() if name.startswith("Test")]

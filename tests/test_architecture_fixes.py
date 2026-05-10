@@ -15,7 +15,16 @@ import pytest
 
 from echozero.domain.enums import BlockCategory, BlockState, Direction, PortType
 from echozero.domain.graph import Graph, GraphSnapshot
-from echozero.domain.types import AudioData, Block, BlockSettings, Connection, EventData, Layer, Event, Port
+from echozero.domain.types import (
+    AudioData,
+    Block,
+    BlockSettings,
+    Connection,
+    EventData,
+    Layer,
+    Event,
+    Port,
+)
 from echozero.editor.cache import ExecutionCache
 from echozero.editor.coordinator import Coordinator, ExecutionHandle
 from echozero.editor.pipeline import CommandEnvelope, Pipeline
@@ -24,7 +33,6 @@ from echozero.event_bus import EventBus
 from echozero.execution import ExecutionContext, ExecutionEngine, ExecutionPlan, GraphPlanner
 from echozero.progress import RuntimeBus
 from echozero.result import Ok, err, is_ok, ok, unwrap
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -57,7 +65,9 @@ def _audio_in(name: str = "in") -> Port:
     return Port(name=name, port_type=PortType.AUDIO, direction=Direction.INPUT)
 
 
-def _add_block_cmd(block_id: str, category: BlockCategory = BlockCategory.PROCESSOR) -> AddBlockCommand:
+def _add_block_cmd(
+    block_id: str, category: BlockCategory = BlockCategory.PROCESSOR
+) -> AddBlockCommand:
     return AddBlockCommand(
         block_id=block_id,
         name=f"Block {block_id}",
@@ -80,11 +90,14 @@ class StubExecutor:
         self.called_with.append(block_id)
         if self._should_fail:
             from echozero.errors import ExecutionError
+
             return err(ExecutionError(f"Block {block_id} failed"))
         return ok(self._output)
 
 
-def _make_coordinator(graph: Graph | None = None) -> tuple[Graph, Pipeline, ExecutionEngine, ExecutionCache, Coordinator]:
+def _make_coordinator(
+    graph: Graph | None = None,
+) -> tuple[Graph, Pipeline, ExecutionEngine, ExecutionCache, Coordinator]:
     graph = graph or Graph()
     event_bus = EventBus()
     pipeline = Pipeline(event_bus, graph=graph)
@@ -154,12 +167,14 @@ class TestS5OutputFreeze:
 
     def test_set_output_rejects_numpy_array(self) -> None:
         import numpy as np
+
         ctx = self._make_context()
         with pytest.raises(TypeError, match="numpy arrays"):
             ctx.set_output("b1", "out", np.array([1.0, 2.0]))
 
     def test_set_output_rejects_numpy_array_message_contains_block_and_port(self) -> None:
         import numpy as np
+
         ctx = self._make_context()
         with pytest.raises(TypeError) as exc_info:
             ctx.set_output("my_block", "audio_out", np.zeros(100))
@@ -234,8 +249,12 @@ class TestS4CategoryFiltering:
 
     def test_plan_with_target_still_excludes_non_processor(self) -> None:
         graph = Graph()
-        graph.add_block(_block("proc1", category=BlockCategory.PROCESSOR, output_ports=(_audio_out(),)))
-        graph.add_block(_block("proc2", category=BlockCategory.PROCESSOR, input_ports=(_audio_in(),)))
+        graph.add_block(
+            _block("proc1", category=BlockCategory.PROCESSOR, output_ports=(_audio_out(),))
+        )
+        graph.add_block(
+            _block("proc2", category=BlockCategory.PROCESSOR, input_ports=(_audio_in(),))
+        )
         graph.add_block(_block("ws1", category=BlockCategory.WORKSPACE))
         graph.add_connection(Connection("proc1", "out", "proc2", "in"))
         plan = GraphPlanner().plan(graph, target_block_id="proc2")
@@ -336,7 +355,9 @@ class TestM3GraphSnapshot:
 class TestM4AsyncExecution:
     """Coordinator.request_run_async must return immediately with an ExecutionHandle."""
 
-    def _make_stack_with_stub(self) -> tuple[Graph, Pipeline, ExecutionEngine, ExecutionCache, Coordinator, StubExecutor]:
+    def _make_stack_with_stub(
+        self,
+    ) -> tuple[Graph, Pipeline, ExecutionEngine, ExecutionCache, Coordinator, StubExecutor]:
         graph = Graph()
         graph.add_block(_block("b1", output_ports=(_audio_out(),)))
         event_bus = EventBus()
@@ -391,6 +412,7 @@ class TestM4AsyncExecution:
 
         result = coord.request_run_async()
         from echozero.result import Err
+
         assert isinstance(result, Err)
 
         coord._executing = False
@@ -450,6 +472,7 @@ class TestCommandEnvelope:
             raise RuntimeError("intentional failure")
 
         from echozero.editor.commands import AddBlockCommand
+
         pipeline.register(AddBlockCommand, bad_handler)
         return pipeline
 
@@ -466,6 +489,7 @@ class TestCommandEnvelope:
         result = pipeline.dispatch(_add_block_cmd("new_block"))
 
         from echozero.result import Err
+
         assert isinstance(result, Err)
         # "existing" should still be there, "new_block" must not be
         assert "existing" in graph.blocks
@@ -476,11 +500,14 @@ class TestCommandEnvelope:
         event_bus = EventBus()
 
         from echozero.domain.events import DomainEvent
+
         # Subscribe to all events
         from echozero.domain.events import BlockAddedEvent
+
         event_bus.subscribe(BlockAddedEvent, published.append)
 
         pipeline = Pipeline(event_bus)
+
         # Replace handler with one that raises
         def bad_handler(cmd: Any, ctx: Any) -> Any:
             raise RuntimeError("fail before emit")

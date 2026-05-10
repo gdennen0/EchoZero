@@ -13,7 +13,6 @@ from typing import Any
 
 from echozero.domain.enums import BlockCategory, Direction, PortType
 
-
 # ---------------------------------------------------------------------------
 # PortSpec / BlockSpec
 # ---------------------------------------------------------------------------
@@ -54,9 +53,7 @@ def LoadAudio(**settings: Any) -> BlockSpec:
         block_type="LoadAudio",
         name="Load Audio",
         input_ports=(),
-        output_ports=(
-            PortSpec("audio_out", PortType.AUDIO, Direction.OUTPUT),
-        ),
+        output_ports=(PortSpec("audio_out", PortType.AUDIO, Direction.OUTPUT),),
         settings=settings,
     )
 
@@ -66,9 +63,7 @@ def Separator(**settings: Any) -> BlockSpec:
     return BlockSpec(
         block_type="SeparateAudio",
         name="Separate Audio",
-        input_ports=(
-            PortSpec("audio_in", PortType.AUDIO, Direction.INPUT),
-        ),
+        input_ports=(PortSpec("audio_in", PortType.AUDIO, Direction.INPUT),),
         output_ports=(
             PortSpec("drums_out", PortType.AUDIO, Direction.OUTPUT),
             PortSpec("bass_out", PortType.AUDIO, Direction.OUTPUT),
@@ -84,12 +79,8 @@ def DetectOnsets(**settings: Any) -> BlockSpec:
     return BlockSpec(
         block_type="DetectOnsets",
         name="Detect Onsets",
-        input_ports=(
-            PortSpec("audio_in", PortType.AUDIO, Direction.INPUT),
-        ),
-        output_ports=(
-            PortSpec("events_out", PortType.EVENT, Direction.OUTPUT),
-        ),
+        input_ports=(PortSpec("audio_in", PortType.AUDIO, Direction.INPUT),),
+        output_ports=(PortSpec("events_out", PortType.EVENT, Direction.OUTPUT),),
         settings=settings,
     )
 
@@ -99,12 +90,8 @@ def DetectSongSections(**settings: Any) -> BlockSpec:
     return BlockSpec(
         block_type="DetectSongSections",
         name="Detect Song Sections",
-        input_ports=(
-            PortSpec("audio_in", PortType.AUDIO, Direction.INPUT),
-        ),
-        output_ports=(
-            PortSpec("events_out", PortType.EVENT, Direction.OUTPUT),
-        ),
+        input_ports=(PortSpec("audio_in", PortType.AUDIO, Direction.INPUT),),
+        output_ports=(PortSpec("events_out", PortType.EVENT, Direction.OUTPUT),),
         settings=settings,
     )
 
@@ -114,12 +101,8 @@ def AudioFilter(**settings: Any) -> BlockSpec:
     return BlockSpec(
         block_type="AudioFilter",
         name="Audio Filter",
-        input_ports=(
-            PortSpec("audio_in", PortType.AUDIO, Direction.INPUT),
-        ),
-        output_ports=(
-            PortSpec("audio_out", PortType.AUDIO, Direction.OUTPUT),
-        ),
+        input_ports=(PortSpec("audio_in", PortType.AUDIO, Direction.INPUT),),
+        output_ports=(PortSpec("audio_out", PortType.AUDIO, Direction.OUTPUT),),
         settings=settings,
     )
 
@@ -133,9 +116,7 @@ def Classify(**settings: Any) -> BlockSpec:
             PortSpec("events_in", PortType.EVENT, Direction.INPUT),
             PortSpec("audio_in", PortType.AUDIO, Direction.INPUT),
         ),
-        output_ports=(
-            PortSpec("events_out", PortType.EVENT, Direction.OUTPUT),
-        ),
+        output_ports=(PortSpec("events_out", PortType.EVENT, Direction.OUTPUT),),
         settings=settings,
     )
 
@@ -153,9 +134,7 @@ def BinaryDrumClassify(**settings: Any) -> BlockSpec:
             PortSpec("kick_events_in", PortType.EVENT, Direction.INPUT),
             PortSpec("snare_events_in", PortType.EVENT, Direction.INPUT),
         ),
-        output_ports=(
-            PortSpec("events_out", PortType.EVENT, Direction.OUTPUT),
-        ),
+        output_ports=(PortSpec("events_out", PortType.EVENT, Direction.OUTPUT),),
         settings=settings,
     )
 
@@ -165,12 +144,8 @@ def TranscribeNotes(**settings: Any) -> BlockSpec:
     return BlockSpec(
         block_type="TranscribeNotes",
         name="Transcribe Notes",
-        input_ports=(
-            PortSpec("audio_in", PortType.AUDIO, Direction.INPUT),
-        ),
-        output_ports=(
-            PortSpec("events_out", PortType.EVENT, Direction.OUTPUT),
-        ),
+        input_ports=(PortSpec("audio_in", PortType.AUDIO, Direction.INPUT),),
+        output_ports=(PortSpec("events_out", PortType.EVENT, Direction.OUTPUT),),
         settings=settings,
     )
 
@@ -181,9 +156,7 @@ def ExportMA2(**settings: Any) -> BlockSpec:
         block_type="ExportMA2",
         name="Export MA2",
         category=BlockCategory.PROCESSOR,
-        input_ports=(
-            PortSpec("events_in", PortType.EVENT, Direction.INPUT),
-        ),
+        input_ports=(PortSpec("events_in", PortType.EVENT, Direction.INPUT),),
         output_ports=(),
         settings=settings,
     )
@@ -195,9 +168,7 @@ def ExportAudio(**settings: Any) -> BlockSpec:
         block_type="ExportAudio",
         name="Export Audio",
         category=BlockCategory.PROCESSOR,
-        input_ports=(
-            PortSpec("audio_in", PortType.AUDIO, Direction.INPUT),
-        ),
+        input_ports=(PortSpec("audio_in", PortType.AUDIO, Direction.INPUT),),
         output_ports=(),
         settings=settings,
     )
@@ -208,12 +179,8 @@ def EQBands(**settings: Any) -> BlockSpec:
     return BlockSpec(
         block_type="EQBands",
         name="EQ Bands",
-        input_ports=(
-            PortSpec("audio_in", PortType.AUDIO, Direction.INPUT),
-        ),
-        output_ports=(
-            PortSpec("audio_out", PortType.AUDIO, Direction.OUTPUT),
-        ),
+        input_ports=(PortSpec("audio_in", PortType.AUDIO, Direction.INPUT),),
+        output_ports=(PortSpec("audio_out", PortType.AUDIO, Direction.OUTPUT),),
         settings=settings,
     )
 
@@ -227,9 +194,7 @@ def AudioNegate(**settings: Any) -> BlockSpec:
             PortSpec("audio_in", PortType.AUDIO, Direction.INPUT),
             PortSpec("events_in", PortType.EVENT, Direction.INPUT),
         ),
-        output_ports=(
-            PortSpec("audio_out", PortType.AUDIO, Direction.OUTPUT),
-        ),
+        output_ports=(PortSpec("audio_out", PortType.AUDIO, Direction.OUTPUT),),
         settings=settings,
     )
 

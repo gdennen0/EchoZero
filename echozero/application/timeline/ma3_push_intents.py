@@ -53,7 +53,9 @@ def _coerce_ma3_push_scope(raw_scope: MA3PushScope | str) -> MA3PushScope:
     try:
         return MA3PushScope(str(raw_scope).strip().lower())
     except ValueError as exc:
-        raise ValueError("PushLayerToMA3 requires scope 'layer_main' or 'selected_events'") from exc
+        raise ValueError(
+            "PushLayerToMA3 requires scope 'layer_main' or 'selected_events'"
+        ) from exc
 
 
 def _coerce_ma3_push_target_mode(raw_mode: MA3PushTargetMode | str) -> MA3PushTargetMode:
@@ -84,7 +86,9 @@ def _coerce_ma3_sequence_refresh_range_mode(
     try:
         return MA3SequenceRefreshRangeMode(str(raw_mode).strip().lower())
     except ValueError as exc:
-        raise ValueError("RefreshMA3Sequences requires range_mode 'all' or 'current_song'") from exc
+        raise ValueError(
+            "RefreshMA3Sequences requires range_mode 'all' or 'current_song'"
+        ) from exc
 
 
 def _coerce_ma3_sequence_creation_mode(
@@ -153,9 +157,7 @@ class RefreshMA3PushTracks(TimelineIntent):
 
     def __post_init__(self) -> None:
         target_track_coord = (
-            None
-            if self.target_track_coord is None
-            else str(self.target_track_coord).strip()
+            None if self.target_track_coord is None else str(self.target_track_coord).strip()
         )
         self.target_track_coord = target_track_coord or None
         self.timecode_no = _coerce_optional_positive_int(
@@ -341,7 +343,9 @@ class PushLayerToMA3(TimelineIntent):
         self.sequence_action = _coerce_sequence_action(self.sequence_action)
 
         if self.scope is MA3PushScope.SELECTED_EVENTS and not self.selected_event_ids:
-            raise ValueError("PushLayerToMA3 requires selected_event_ids for scope 'selected_events'")
+            raise ValueError(
+                "PushLayerToMA3 requires selected_event_ids for scope 'selected_events'"
+            )
         if (
             self.target_mode is MA3PushTargetMode.DIFFERENT_TRACK_ONCE
             and self.target_track_coord is None

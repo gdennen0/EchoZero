@@ -20,7 +20,6 @@ from echozero.processors.load_audio import AudioFileInfo, LoadAudioProcessor
 from echozero.progress import RuntimeBus
 from echozero.result import Err, Ok
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -38,7 +37,9 @@ def _make_graph_with_load_block(
         block_type="LoadAudio",
         category=BlockCategory.PROCESSOR,
         input_ports=(),
-        output_ports=(Port(name="audio_out", port_type=PortType.AUDIO, direction=Direction.OUTPUT),),
+        output_ports=(
+            Port(name="audio_out", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
+        ),
         settings=BlockSettings(settings or {}),
     )
     graph.add_block(block)
@@ -100,9 +101,7 @@ class TestLoadAudioSuccess:
         graph = _make_graph_with_load_block(settings={"file_path": str(audio_file)})
         context = _make_context(graph)
 
-        processor = LoadAudioProcessor(
-            audio_info_fn=lambda path: _mock_audio_info(channels=2)
-        )
+        processor = LoadAudioProcessor(audio_info_fn=lambda path: _mock_audio_info(channels=2))
         result = processor.execute("load1", context)
 
         assert isinstance(result, Ok)
@@ -146,9 +145,7 @@ class TestLoadAudioErrors:
         assert "file_path" in str(result.error)
 
     def test_file_not_found_returns_err(self) -> None:
-        graph = _make_graph_with_load_block(
-            settings={"file_path": "/nonexistent/audio.wav"}
-        )
+        graph = _make_graph_with_load_block(settings={"file_path": "/nonexistent/audio.wav"})
         context = _make_context(graph)
 
         processor = LoadAudioProcessor(audio_info_fn=lambda p: _mock_audio_info())
@@ -198,9 +195,7 @@ class TestLoadAudioErrors:
     def test_err_type_is_execution_error_for_missing_file(self) -> None:
         from echozero.errors import ExecutionError
 
-        graph = _make_graph_with_load_block(
-            settings={"file_path": "/no/such/file.wav"}
-        )
+        graph = _make_graph_with_load_block(settings={"file_path": "/no/such/file.wav"})
         context = _make_context(graph)
 
         processor = LoadAudioProcessor(audio_info_fn=lambda p: _mock_audio_info())
@@ -208,4 +203,3 @@ class TestLoadAudioErrors:
 
         assert isinstance(result, Err)
         assert isinstance(result.error, ExecutionError)
-

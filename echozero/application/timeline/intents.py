@@ -23,9 +23,7 @@ class TimelineIntent:
 def _coerce_pull_import_mode(raw_mode: str, *, action_name: str) -> str:
     import_mode = (raw_mode or "").strip().lower()
     if import_mode not in {"new_take", "main"}:
-        raise ValueError(
-            f"{action_name} requires import_mode 'new_take' or 'main'"
-        )
+        raise ValueError(f"{action_name} requires import_mode 'new_take' or 'main'")
     return import_mode
 
 
@@ -456,7 +454,9 @@ def _normalized_review_event_refs(
         take_id = (
             None
             if event_ref.take_id is None
-            else (TakeId(str(event_ref.take_id).strip()) if str(event_ref.take_id).strip() else None)
+            else (
+                TakeId(str(event_ref.take_id).strip()) if str(event_ref.take_id).strip() else None
+            )
         )
         key = (layer_id, str(take_id or ""), event_id)
         if key in seen:
@@ -553,9 +553,7 @@ class EventCueMappingEdit:
             label = str(self.label).strip()
             self.label = label or None
         if self.cue_number is None and self.cue_ref is None and self.label is None:
-            raise ValueError(
-                "EventCueMappingEdit requires cue_number, cue_ref, or label"
-            )
+            raise ValueError("EventCueMappingEdit requires cue_number, cue_ref, or label")
 
 
 @dataclass(slots=True)
@@ -569,7 +567,9 @@ class UpdateEventCueMappings(TimelineIntent):
         seen_ids: set[str] = set()
         for edit in list(self.edits or []):
             if not isinstance(edit, EventCueMappingEdit):
-                raise ValueError("UpdateEventCueMappings edits must be EventCueMappingEdit entries")
+                raise ValueError(
+                    "UpdateEventCueMappings edits must be EventCueMappingEdit entries"
+                )
             event_key = str(edit.event_id).strip()
             if not event_key or event_key in seen_ids:
                 continue
@@ -847,7 +847,9 @@ class SelectPullSourceTrackGroup(TimelineIntent):
         try:
             track_group_no = int(self.track_group_no)
         except (TypeError, ValueError) as exc:
-            raise ValueError("SelectPullSourceTrackGroup requires an integer track_group_no") from exc
+            raise ValueError(
+                "SelectPullSourceTrackGroup requires an integer track_group_no"
+            ) from exc
         if track_group_no < 1:
             raise ValueError("SelectPullSourceTrackGroup requires track_group_no >= 1")
         self.track_group_no = track_group_no

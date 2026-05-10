@@ -61,15 +61,15 @@ def _assert_close(expected: Any, actual: Any, tolerance: float, path: str) -> No
             f"(difference {abs(expected - actual)}, tolerance {tolerance})"
         )
     elif isinstance(expected, list) and isinstance(actual, list):
-        assert len(expected) == len(actual), (
-            f"List length mismatch at {path}: expected {len(expected)}, got {len(actual)}"
-        )
+        assert len(expected) == len(
+            actual
+        ), f"List length mismatch at {path}: expected {len(expected)}, got {len(actual)}"
         for i, (e, a) in enumerate(zip(expected, actual)):
             _assert_close(e, a, tolerance, f"{path}[{i}]")
     elif isinstance(expected, dict) and isinstance(actual, dict):
-        assert set(expected.keys()) == set(actual.keys()), (
-            f"Key mismatch at {path}: expected {set(expected.keys())}, got {set(actual.keys())}"
-        )
+        assert set(expected.keys()) == set(
+            actual.keys()
+        ), f"Key mismatch at {path}: expected {set(expected.keys())}, got {set(actual.keys())}"
         for key in expected:
             _assert_close(expected[key], actual[key], tolerance, f"{path}.{key}")
     else:
@@ -87,9 +87,9 @@ def assert_faster_than(seconds: float) -> Generator[None, None, None]:
     start = time.perf_counter()
     yield
     elapsed = time.perf_counter() - start
-    assert elapsed <= seconds, (
-        f"Performance assertion failed: took {elapsed:.2f}s, limit was {seconds:.2f}s"
-    )
+    assert (
+        elapsed <= seconds
+    ), f"Performance assertion failed: took {elapsed:.2f}s, limit was {seconds:.2f}s"
 
 
 def make_event(

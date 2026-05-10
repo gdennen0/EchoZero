@@ -16,7 +16,6 @@ from echozero.progress import (
     RuntimeReport,
 )
 
-
 # ---------------------------------------------------------------------------
 # ProgressReport value object
 # ---------------------------------------------------------------------------
@@ -79,9 +78,7 @@ class TestExecutionStartedReport:
     """Verify frozen dataclass construction for execution started reports."""
 
     def test_creates_with_all_fields(self) -> None:
-        report = ExecutionStartedReport(
-            block_id="b1", execution_id="run-1", timestamp=1000.0
-        )
+        report = ExecutionStartedReport(block_id="b1", execution_id="run-1", timestamp=1000.0)
         assert report.block_id == "b1"
         assert report.execution_id == "run-1"
         assert report.timestamp == 1000.0
@@ -131,16 +128,12 @@ class TestExecutionCompletedReport:
 
     def test_timestamp_defaults_to_current_time(self) -> None:
         before = time.time()
-        report = ExecutionCompletedReport(
-            block_id="b1", execution_id="run-1", success=True
-        )
+        report = ExecutionCompletedReport(block_id="b1", execution_id="run-1", success=True)
         after = time.time()
         assert before <= report.timestamp <= after
 
     def test_is_frozen(self) -> None:
-        report = ExecutionCompletedReport(
-            block_id="b1", execution_id="run-1", success=True
-        )
+        report = ExecutionCompletedReport(block_id="b1", execution_id="run-1", success=True)
         try:
             report.success = False  # type: ignore[misc]
             assert False, "Should have raised FrozenInstanceError"
@@ -224,9 +217,7 @@ class TestRuntimeBus:
 
         for i in range(5):
             bus.publish(
-                ProgressReport(
-                    block_id="b1", phase="step", percent=i / 4.0, message=f"step {i}"
-                )
+                ProgressReport(block_id="b1", phase="step", percent=i / 4.0, message=f"step {i}")
             )
 
         assert len(received) == 5
@@ -268,9 +259,7 @@ class TestRuntimeBus:
         received: list[RuntimeReport] = []
         bus.subscribe(received.append)
 
-        report = ExecutionCompletedReport(
-            block_id="b1", execution_id="run-1", success=True
-        )
+        report = ExecutionCompletedReport(block_id="b1", execution_id="run-1", success=True)
         bus.publish(report)
 
         assert len(received) == 1
@@ -294,4 +283,3 @@ class TestRuntimeBus:
 
 # ---------------------------------------------------------------------------
 # Backward compatibility alias
-

@@ -13,7 +13,6 @@ from dataclasses import asdict, dataclass
 
 import obsws_python as obs
 
-
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 4455
 DEFAULT_PASSWORD = "ez_obs_local_2026"
@@ -47,15 +46,29 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = parser.add_subparsers(dest="command", required=True)
 
-    list_windows = sub.add_parser("list-windows", help="List OBS-visible window capture candidates.")
-    list_windows.add_argument("--filter", default="", help="Case-insensitive substring filter for window names.")
+    list_windows = sub.add_parser(
+        "list-windows", help="List OBS-visible window capture candidates."
+    )
+    list_windows.add_argument(
+        "--filter", default="", help="Case-insensitive substring filter for window names."
+    )
 
     bind = sub.add_parser("bind-window", help="Bind the OBS window source to a live app window.")
-    bind.add_argument("--match", required=True, help="Case-insensitive substring to match against OBS window names.")
-    bind.add_argument("--show-cursor", action="store_true", help="Show the mouse cursor in the capture.")
+    bind.add_argument(
+        "--match",
+        required=True,
+        help="Case-insensitive substring to match against OBS window names.",
+    )
+    bind.add_argument(
+        "--show-cursor", action="store_true", help="Show the mouse cursor in the capture."
+    )
 
-    bind_display = sub.add_parser("bind-display", help="Use full-display capture for modal dialogs and sheets.")
-    bind_display.add_argument("--show-cursor", action="store_true", help="Show the mouse cursor in the capture.")
+    bind_display = sub.add_parser(
+        "bind-display", help="Use full-display capture for modal dialogs and sheets."
+    )
+    bind_display.add_argument(
+        "--show-cursor", action="store_true", help="Show the mouse cursor in the capture."
+    )
 
     sub.add_parser("start", help="Start OBS recording.")
     sub.add_parser("stop", help="Stop OBS recording.")
@@ -91,12 +104,20 @@ def ensure_scene_and_inputs(
     inputs = client.get_input_list().inputs
     input_names = {item["inputName"] for item in inputs}
     if window_source_name not in input_names:
-        client.create_input(scene_name, window_source_name, "window_capture", {"show_cursor": True}, True)
+        client.create_input(
+            scene_name, window_source_name, "window_capture", {"show_cursor": True}, True
+        )
     if display_source_name not in input_names:
-        client.create_input(scene_name, display_source_name, "display_capture", {"show_cursor": True}, True)
+        client.create_input(
+            scene_name, display_source_name, "display_capture", {"show_cursor": True}, True
+        )
     if audio_source_name not in input_names:
         input_kinds = set(client.get_input_kind_list(unversioned=False).input_kinds)
-        audio_kind = "sck_audio_capture" if "sck_audio_capture" in input_kinds else "coreaudio_output_capture"
+        audio_kind = (
+            "sck_audio_capture"
+            if "sck_audio_capture" in input_kinds
+            else "coreaudio_output_capture"
+        )
         client.create_input(scene_name, audio_source_name, audio_kind, {}, True)
 
 
@@ -198,7 +219,11 @@ def choose_window(candidates: Iterable[WindowCandidate], *, match: str) -> Windo
     if not normalized_match:
         raise ValueError("bind-window requires a non-empty --match value.")
 
-    matches = [candidate for candidate in candidates if normalized_match in candidate.name.lower() and candidate.enabled]
+    matches = [
+        candidate
+        for candidate in candidates
+        if normalized_match in candidate.name.lower() and candidate.enabled
+    ]
     if not matches:
         raise RuntimeError(f"No OBS window candidate matched '{match}'.")
     if len(matches) > 1:
@@ -248,7 +273,9 @@ def bind_display(
     client.set_input_settings(source_name, {"show_cursor": show_cursor}, True)
     fit = fit_source_to_canvas(client, scene_name=scene_name, source_name=source_name)
     set_scene_item_enabled(client, scene_name=scene_name, source_name=source_name, enabled=True)
-    set_scene_item_enabled(client, scene_name=scene_name, source_name=window_source_name, enabled=False)
+    set_scene_item_enabled(
+        client, scene_name=scene_name, source_name=window_source_name, enabled=False
+    )
     mic_muted = mute_input_if_present(client, input_name=mic_source_name)
     return {
         "source": source_name,
@@ -315,7 +342,9 @@ def main(argv: list[str] | None = None) -> int:
             show_cursor=bool(args.show_cursor),
             mic_source_name=args.mic_source,
         )
-        set_scene_item_enabled(client, scene_name=args.scene, source_name=args.display_source, enabled=False)
+        set_scene_item_enabled(
+            client, scene_name=args.scene, source_name=args.display_source, enabled=False
+        )
         print(json.dumps(result, indent=2))
         return 0
 

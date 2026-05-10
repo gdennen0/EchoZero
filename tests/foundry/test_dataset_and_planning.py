@@ -38,7 +38,13 @@ def test_dataset_ingest_plan_and_curation(tmp_path: Path):
     assert version.label_policy["allowed_labels"] == ["kick", "snare"]
     assert version.manifest["content_hash_algorithm"] == "sha256"
 
-    plan = app.plan_version(version.id, validation_split=0.2, test_split=0.2, seed=7, balance_strategy="undersample_min")
+    plan = app.plan_version(
+        version.id,
+        validation_split=0.2,
+        test_split=0.2,
+        seed=7,
+        balance_strategy="undersample_min",
+    )
     assert plan["split_plan"]["seed"] == 7
     assert plan["split_plan"]["planner"] == "content_hash_grouped_v1"
     assert plan["split_plan"]["policy"] == "grouped_anti_leakage_v2"
@@ -66,10 +72,16 @@ def test_split_planning_keeps_duplicate_content_hashes_in_one_split(tmp_path: Pa
     app = FoundryApp(tmp_path)
     dataset = app.datasets.create_dataset("Duplicates", source_kind="folder_import")
     version = app.datasets.ingest_from_folder(dataset.id, dataset_dir)
-    plan = app.plan_version(version.id, validation_split=0.25, test_split=0.25, seed=11, balance_strategy="none")
+    plan = app.plan_version(
+        version.id, validation_split=0.25, test_split=0.25, seed=11, balance_strategy="none"
+    )
 
     sample_by_id = {sample.sample_id: sample for sample in version.samples}
-    duplicate_ids = [sample.sample_id for sample in version.samples if sample.content_hash == version.samples[0].content_hash]
+    duplicate_ids = [
+        sample.sample_id
+        for sample in version.samples
+        if sample.content_hash == version.samples[0].content_hash
+    ]
 
     assert len(duplicate_ids) == 2
     assert len({plan["split_plan"]["assignments"][sample_id] for sample_id in duplicate_ids}) == 1
@@ -78,7 +90,9 @@ def test_split_planning_keeps_duplicate_content_hashes_in_one_split(tmp_path: Pa
     assert {sample_by_id[sample_id].label for sample_id in duplicate_ids} == {"kick", "snare"}
 
 
-def test_split_planning_keeps_explicit_groups_in_one_split_even_without_duplicate_audio(tmp_path: Path):
+def test_split_planning_keeps_explicit_groups_in_one_split_even_without_duplicate_audio(
+    tmp_path: Path,
+):
     dataset_dir = tmp_path / "dataset"
     write_percussion_dataset(dataset_dir, sample_count=2)
 
@@ -95,12 +109,13 @@ def test_split_planning_keeps_explicit_groups_in_one_split_even_without_duplicat
     version.samples[1].source_provenance["group_id"] = "session:alpha"
     repo.save(version)
 
-    plan = app.plan_version(version.id, validation_split=0.25, test_split=0.25, seed=19, balance_strategy="none")
+    plan = app.plan_version(
+        version.id, validation_split=0.25, test_split=0.25, seed=19, balance_strategy="none"
+    )
     grouped_ids = [version.samples[0].sample_id, version.samples[1].sample_id]
 
     assert len({plan["split_plan"]["assignments"][sample_id] for sample_id in grouped_ids}) == 1
     assert plan["split_plan"]["leakage"]["duplicate_groups_across_splits"] == []
-
 
 
 def test_split_planning_is_reproducible_for_same_seed(tmp_path: Path):
@@ -115,9 +130,14 @@ def test_split_planning_is_reproducible_for_same_seed(tmp_path: Path):
     second = app.split_balance.plan_splits(version, validation_split=0.2, test_split=0.2, seed=17)
 
     assert first["assignments"] == second["assignments"]
-    assert first["reproducibility"]["assignment_fingerprint"] == second["reproducibility"]["assignment_fingerprint"]
-    assert first["reproducibility"]["group_fingerprint"] == second["reproducibility"]["group_fingerprint"]
-
+    assert (
+        first["reproducibility"]["assignment_fingerprint"]
+        == second["reproducibility"]["assignment_fingerprint"]
+    )
+    assert (
+        first["reproducibility"]["group_fingerprint"]
+        == second["reproducibility"]["group_fingerprint"]
+    )
 
 
 def test_balance_plan_warns_on_skew_and_recommends_defaults(tmp_path: Path):
@@ -139,7 +159,6 @@ def test_balance_plan_warns_on_skew_and_recommends_defaults(tmp_path: Path):
         "classWeighting": "balanced",
         "rebalanceStrategy": "oversample",
     }
-
 
 
 def test_dataset_version_integrity_detects_manifest_drift(tmp_path: Path):
@@ -297,7 +316,10 @@ def test_dataset_service_derives_binary_version_using_review_polarity(tmp_path: 
             audio_ref="kick_negative.wav",
             label="kick",
             content_hash="hash-kick-negative",
-            source_provenance={"review_item_id": "ri-kick-negative", "review_polarity": "negative"},
+            source_provenance={
+                "review_item_id": "ri-kick-negative",
+                "review_polarity": "negative",
+            },
             group_id="content:hash-kick-negative",
             curation_state=CurationState.ACCEPTED,
         ),
@@ -306,7 +328,10 @@ def test_dataset_service_derives_binary_version_using_review_polarity(tmp_path: 
             audio_ref="kick_positive.wav",
             label="kick",
             content_hash="hash-kick-positive",
-            source_provenance={"review_item_id": "ri-kick-positive", "review_polarity": "positive"},
+            source_provenance={
+                "review_item_id": "ri-kick-positive",
+                "review_polarity": "positive",
+            },
             group_id="content:hash-kick-positive",
             curation_state=CurationState.ACCEPTED,
         ),
@@ -315,7 +340,10 @@ def test_dataset_service_derives_binary_version_using_review_polarity(tmp_path: 
             audio_ref="snare_positive.wav",
             label="snare",
             content_hash="hash-snare-positive",
-            source_provenance={"review_item_id": "ri-snare-positive", "review_polarity": "positive"},
+            source_provenance={
+                "review_item_id": "ri-snare-positive",
+                "review_polarity": "positive",
+            },
             group_id="content:hash-snare-positive",
             curation_state=CurationState.ACCEPTED,
         ),
@@ -345,7 +373,9 @@ def test_dataset_service_derives_binary_version_using_review_polarity(tmp_path: 
     }
 
 
-def test_dataset_service_exports_project_review_dataset_from_canonical_project_truth(tmp_path: Path):
+def test_dataset_service_exports_project_review_dataset_from_canonical_project_truth(
+    tmp_path: Path,
+):
     _ez_path, working_dir, refs = _build_project_review_fixture(tmp_path)
     app = FoundryApp(tmp_path)
 

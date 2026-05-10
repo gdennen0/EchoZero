@@ -1,4 +1,5 @@
 """Audit batch 3 — security + reliability fixes."""
+
 import json
 import threading
 import time
@@ -7,10 +8,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # PR4: MP3 extension fix
 # ---------------------------------------------------------------------------
+
 
 def test_separator_always_writes_wav_extension():
     """The ext variable should always be 'wav' in V1."""
@@ -22,8 +23,10 @@ def test_separator_always_writes_wav_extension():
 # S4: BlockSettings hash with non-hashable values
 # ---------------------------------------------------------------------------
 
+
 def test_block_settings_hash_with_list_values():
     from echozero.domain.types import BlockSettings
+
     s = BlockSettings({"bands": [100, 200, 300], "name": "test"})
     # Should not crash
     h = hash(s)
@@ -32,6 +35,7 @@ def test_block_settings_hash_with_list_values():
 
 def test_block_settings_hash_with_dict_values():
     from echozero.domain.types import BlockSettings
+
     s = BlockSettings({"config": {"nested": True}, "value": 42})
     h = hash(s)
     assert isinstance(h, int)
@@ -39,6 +43,7 @@ def test_block_settings_hash_with_dict_values():
 
 def test_block_settings_hash_consistency():
     from echozero.domain.types import BlockSettings
+
     s1 = BlockSettings({"a": 1, "b": 2})
     s2 = BlockSettings({"a": 1, "b": 2})
     assert hash(s1) == hash(s2)
@@ -48,8 +53,10 @@ def test_block_settings_hash_consistency():
 # P4: Autosave doesn't commit during transaction
 # ---------------------------------------------------------------------------
 
+
 def test_autosave_skips_during_transaction(tmp_path):
     from echozero.persistence.session import ProjectStorage
+
     session = ProjectStorage.create_new("test", working_dir_root=tmp_path)
     try:
         session._in_transaction = True
@@ -66,8 +73,10 @@ def test_autosave_skips_during_transaction(tmp_path):
 # MISC2: Double unsubscribe should not raise
 # ---------------------------------------------------------------------------
 
+
 def test_runtime_bus_double_unsubscribe():
     from echozero.progress import RuntimeBus
+
     bus = RuntimeBus()
     cb = lambda r: None
     bus.subscribe(cb)
@@ -79,15 +88,17 @@ def test_runtime_bus_double_unsubscribe():
 # P8: Corrupt take skipped in list_by_layer
 # ---------------------------------------------------------------------------
 
+
 def test_list_by_layer_skips_corrupt_takes(tmp_path):
     """A take with NULL data_json should be skipped, not crash the listing."""
     from echozero.persistence.session import ProjectStorage
+
     session = ProjectStorage.create_new("test", working_dir_root=tmp_path)
     try:
         # Disable FK checks so we can insert a layer without a real song_version row.
         session.db.execute("PRAGMA foreign_keys = OFF")
         session.db.execute(
-            "INSERT INTO layers (id, song_version_id, name, layer_type, \"order\", visible, locked, created_at) "
+            'INSERT INTO layers (id, song_version_id, name, layer_type, "order", visible, locked, created_at) '
             "VALUES ('layer1', 'fake_version', 'Test', 'analysis', 0, 1, 0, '2024-01-01')"
         )
         session.db.execute(
@@ -111,6 +122,7 @@ def test_list_by_layer_skips_corrupt_takes(tmp_path):
 # ---------------------------------------------------------------------------
 # ED4: request_run rejects when already executing
 # ---------------------------------------------------------------------------
+
 
 def test_request_run_rejects_during_execution():
     from echozero.editor.coordinator import Coordinator

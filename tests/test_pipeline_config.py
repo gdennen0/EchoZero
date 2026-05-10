@@ -19,7 +19,6 @@ from echozero.pipelines.registry import get_registry
 from echozero.result import Ok, is_ok, unwrap
 from echozero.services.orchestrator import Orchestrator
 
-
 # ---------------------------------------------------------------------------
 # Mock executor
 # ---------------------------------------------------------------------------
@@ -28,22 +27,30 @@ from echozero.services.orchestrator import Orchestrator
 class MockLoadAudioExecutor:
     def execute(self, block_id: str, context: ExecutionContext):
         from echozero.result import ok
-        return ok(AudioData(sample_rate=44100, duration=5.0, file_path="test.wav",
-                            channel_count=2))
+
+        return ok(
+            AudioData(sample_rate=44100, duration=5.0, file_path="test.wav", channel_count=2)
+        )
 
 
 class MockDetectOnsetsExecutor:
     def execute(self, block_id: str, context: ExecutionContext):
         from echozero.result import ok
+
         block = context.graph.blocks[block_id]
         threshold = block.settings.get("threshold", 0.5)
         # Return fewer events for higher thresholds
         count = max(1, int(10 * (1.0 - threshold)))
         import uuid
+
         events = tuple(
             Event(
-                id=uuid.uuid4().hex, time=i * 0.5, duration=0.1,
-                classifications={}, metadata={}, origin="mock",
+                id=uuid.uuid4().hex,
+                time=i * 0.5,
+                duration=0.1,
+                classifications={},
+                metadata={},
+                origin="mock",
             )
             for i in range(count)
         )
@@ -79,13 +86,21 @@ def song_version(session):
 
     now = datetime.now(timezone.utc)
     song = SongRecord(
-        id=uuid.uuid4().hex, project_id=session.project.id,
-        title="Test SongRecord", artist="Test", order=0,
+        id=uuid.uuid4().hex,
+        project_id=session.project.id,
+        title="Test SongRecord",
+        artist="Test",
+        order=0,
     )
     version = SongVersionRecord(
-        id=uuid.uuid4().hex, song_id=song.id, label="Original",
-        audio_file="test.wav", duration_seconds=5.0,
-        original_sample_rate=44100, audio_hash="abc123", created_at=now,
+        id=uuid.uuid4().hex,
+        song_id=song.id,
+        label="Original",
+        audio_file="test.wav",
+        duration_seconds=5.0,
+        original_sample_rate=44100,
+        audio_hash="abc123",
+        created_at=now,
     )
     session.songs.create(song)
     session.song_versions.create(version)
@@ -138,7 +153,9 @@ class TestCreateConfig:
     def test_create_with_overrides(self, session, song_version):
         orch = Orchestrator(get_registry(), _executors())
         result = orch.create_config(
-            session, song_version.id, "onset_detection",
+            session,
+            song_version.id,
+            "onset_detection",
             knob_overrides={"threshold": 0.7},
         )
         config = unwrap(result)
@@ -164,8 +181,12 @@ class TestCreateConfig:
         assert config.knob_values["snare_onset_threshold"] == pytest.approx(0.150)
 
         pipeline = config.to_pipeline()
-        assert pipeline.graph.blocks["kick_onsets"].settings.get("threshold") == pytest.approx(0.150)
-        assert pipeline.graph.blocks["snare_onsets"].settings.get("threshold") == pytest.approx(0.150)
+        assert pipeline.graph.blocks["kick_onsets"].settings.get("threshold") == pytest.approx(
+            0.150
+        )
+        assert pipeline.graph.blocks["snare_onsets"].settings.get("threshold") == pytest.approx(
+            0.150
+        )
 
 
 class TestEditKnobs:
@@ -214,6 +235,7 @@ class TestEditKnobs:
         config = unwrap(orch.create_config(session, song_version.id, "onset_detection"))
 
         import time
+
         time.sleep(0.01)
         updated = config.with_knob_value("threshold", 0.5)
         assert updated.updated_at > config.updated_at
@@ -251,10 +273,14 @@ class TestExecuteConfig:
         orch = Orchestrator(get_registry(), _executors())
 
         # Create with low threshold (more events)
-        config = unwrap(orch.create_config(
-            session, song_version.id, "onset_detection",
-            knob_overrides={"threshold": 0.1},
-        ))
+        config = unwrap(
+            orch.create_config(
+                session,
+                song_version.id,
+                "onset_detection",
+                knob_overrides={"threshold": 0.1},
+            )
+        )
         result_low = unwrap(orch.execute(session, config.id))
 
         # Update to high threshold (fewer events)
@@ -343,10 +369,13 @@ class TestPerBlockSettings:
         orch = Orchestrator(get_registry(), _executors())
         config = unwrap(orch.create_config(session, song_version.id, "onset_detection"))
 
-        updated = config.with_block_settings("detect_onsets", {
-            "threshold": 0.9,
-            "method": "complex",
-        })
+        updated = config.with_block_settings(
+            "detect_onsets",
+            {
+                "threshold": 0.9,
+                "method": "complex",
+            },
+        )
         pipeline = updated.to_pipeline()
         block = pipeline.graph.blocks["detect_onsets"]
         assert block.settings.get("threshold") == 0.9
@@ -451,10 +480,13 @@ class TestOverrideProtection:
         orch = Orchestrator(get_registry(), _executors())
         config = unwrap(orch.create_config(session, song_version.id, "onset_detection"))
 
-        config = config.with_block_settings("detect_onsets", {
-            "threshold": 0.1,
-            "method": "complex",
-        })
+        config = config.with_block_settings(
+            "detect_onsets",
+            {
+                "threshold": 0.1,
+                "method": "complex",
+            },
+        )
         assert "threshold" in config.block_overrides["detect_onsets"]
         assert "method" in config.block_overrides["detect_onsets"]
 
@@ -472,14 +504,17 @@ class TestMapsToBlock:
 
     def test_targeted_knob_only_updates_mapped_block(self, session, song_version):
         from echozero.pipelines.params import Knob, KnobWidget
+
         orch = Orchestrator(get_registry(), _executors())
         config = unwrap(orch.create_config(session, song_version.id, "full_analysis"))
 
         # Simulate a knob that targets only drums_onsets
         knob_meta = {
             "threshold": Knob(
-                default=0.3, widget=KnobWidget.SLIDER,
-                min_value=0.0, max_value=1.0,
+                default=0.3,
+                widget=KnobWidget.SLIDER,
+                min_value=0.0,
+                max_value=1.0,
                 maps_to_block="drums_onsets",
             ),
         }
@@ -495,13 +530,16 @@ class TestMapsToBlock:
     def test_global_knob_updates_all(self, session, song_version):
         """Knob without maps_to_block updates all matching blocks."""
         from echozero.pipelines.params import Knob, KnobWidget
+
         orch = Orchestrator(get_registry(), _executors())
         config = unwrap(orch.create_config(session, song_version.id, "full_analysis"))
 
         knob_meta = {
             "threshold": Knob(
-                default=0.3, widget=KnobWidget.SLIDER,
-                min_value=0.0, max_value=1.0,
+                default=0.3,
+                widget=KnobWidget.SLIDER,
+                min_value=0.0,
+                max_value=1.0,
                 maps_to_block=None,  # global
             ),
         }
@@ -662,10 +700,14 @@ class TestConfigToFromPipeline:
 
     def test_graph_preserves_settings(self, session, song_version):
         orch = Orchestrator(get_registry(), _executors())
-        config = unwrap(orch.create_config(
-            session, song_version.id, "onset_detection",
-            knob_overrides={"threshold": 0.7},
-        ))
+        config = unwrap(
+            orch.create_config(
+                session,
+                song_version.id,
+                "onset_detection",
+                knob_overrides={"threshold": 0.7},
+            )
+        )
 
         pipeline = config.to_pipeline()
         # Find DetectOnsets block

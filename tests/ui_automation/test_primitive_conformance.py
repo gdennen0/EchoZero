@@ -82,7 +82,9 @@ def test_legacy_nudge_alias_executes_through_canonical_dispatch():
         assert drums_target is not None
         session.invoke("timeline.extract_drum_events", target_id=drums_target.target_id)
 
-        first_event = next(target for target in session.snapshot().targets if target.kind == "event")
+        first_event = next(
+            target for target in session.snapshot().targets if target.kind == "event"
+        )
         session.click(first_event.target_id)
 
         # Legacy alias should resolve to timeline.nudge_selection and execute.

@@ -20,7 +20,6 @@ from enum import Enum, auto
 from pathlib import Path
 from typing import Any, Callable
 
-
 # ---------------------------------------------------------------------------
 # Widget enum
 # ---------------------------------------------------------------------------
@@ -37,26 +36,26 @@ class KnobWidget(Enum):
     AUTO = auto()
 
     # Primitives
-    SLIDER = auto()          # float/int with min/max
-    DROPDOWN = auto()        # select one from options
-    TOGGLE = auto()          # bool on/off
-    TEXT = auto()             # free-form string
-    NUMBER = auto()          # numeric input without slider
+    SLIDER = auto()  # float/int with min/max
+    DROPDOWN = auto()  # select one from options
+    TOGGLE = auto()  # bool on/off
+    TEXT = auto()  # free-form string
+    NUMBER = auto()  # numeric input without slider
 
     # File / model
-    FILE_PICKER = auto()     # browse for files (audio, config, etc.)
-    MODEL_PICKER = auto()    # file_picker + model registry resolution
+    FILE_PICKER = auto()  # browse for files (audio, config, etc.)
+    MODEL_PICKER = auto()  # file_picker + model registry resolution
 
     # Visual
-    COLOR_PICKER = auto()    # hex/rgb color
+    COLOR_PICKER = auto()  # hex/rgb color
 
     # Audio-specific
-    FREQUENCY = auto()       # log-scale slider, 20 Hz – 20 kHz
-    GAIN = auto()            # linear slider, −48 dB – +48 dB
-    TIME_RANGE = auto()      # start/end time pair (seconds)
+    FREQUENCY = auto()  # log-scale slider, 20 Hz – 20 kHz
+    GAIN = auto()  # linear slider, −48 dB – +48 dB
+    TIME_RANGE = auto()  # start/end time pair (seconds)
 
     # Multi-value
-    MULTI_SELECT = auto()    # select multiple from options
+    MULTI_SELECT = auto()  # select multiple from options
 
 
 # ---------------------------------------------------------------------------
@@ -64,17 +63,21 @@ class KnobWidget(Enum):
 # ---------------------------------------------------------------------------
 
 # Widgets that require min_value and max_value
-_RANGE_WIDGETS = frozenset({
-    KnobWidget.SLIDER,
-    KnobWidget.FREQUENCY,
-    KnobWidget.GAIN,
-})
+_RANGE_WIDGETS = frozenset(
+    {
+        KnobWidget.SLIDER,
+        KnobWidget.FREQUENCY,
+        KnobWidget.GAIN,
+    }
+)
 
 # Widgets that require options
-_OPTION_WIDGETS = frozenset({
-    KnobWidget.DROPDOWN,
-    KnobWidget.MULTI_SELECT,
-})
+_OPTION_WIDGETS = frozenset(
+    {
+        KnobWidget.DROPDOWN,
+        KnobWidget.MULTI_SELECT,
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -101,7 +104,9 @@ class Knob:
     file_types: tuple[str, ...] | None = None
     depends_on: str | None = None
     placeholder: str = ""
-    maps_to_block: str | None = None  # block_id this knob targets (None = all blocks with this setting)
+    maps_to_block: str | None = (
+        None  # block_id this knob targets (None = all blocks with this setting)
+    )
     maps_to_setting: str | None = None  # block setting name this knob targets (None = knob key)
 
 
@@ -185,9 +190,7 @@ def _validate(
         and not isinstance(default, bool)
     ):
         if not (min_value <= default <= max_value):
-            errors.append(
-                f"default ({default}) outside range [{min_value}, {max_value}]"
-            )
+            errors.append(f"default ({default}) outside range [{min_value}, {max_value}]")
 
     # Default in options
     if options is not None and widget == KnobWidget.DROPDOWN:
@@ -261,9 +264,7 @@ def knob(
     # Validate
     errors = _validate(resolved_widget, default, min_value, max_value, step, options)
     if errors:
-        raise ValueError(
-            f"Invalid Knob: {'; '.join(errors)}"
-        )
+        raise ValueError(f"Invalid Knob: {'; '.join(errors)}")
 
     return Knob(
         default=default,
@@ -354,9 +355,7 @@ def validate_bindings(
         if expected is float and isinstance(value, int) and not isinstance(value, bool):
             pass  # int→float coercion OK
         elif not isinstance(value, expected):
-            errors.append(
-                f"'{key}': expected {expected.__name__}, got {type(value).__name__}"
-            )
+            errors.append(f"'{key}': expected {expected.__name__}, got {type(value).__name__}")
             continue  # skip further checks if type is wrong
 
         # Range check
@@ -381,8 +380,6 @@ def validate_bindings(
             if isinstance(value, (list, tuple)):
                 for item in value:
                     if item not in pdef.options:
-                        errors.append(
-                            f"'{key}': item '{item}' not in {pdef.options}"
-                        )
+                        errors.append(f"'{key}': item '{item}' not in {pdef.options}")
 
     return errors

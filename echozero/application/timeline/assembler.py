@@ -49,8 +49,7 @@ class TimelineAssembler:
                 layers = self._last_layers
             else:
                 layers = [
-                    assemble_layer(layer, session=session, state=state)
-                    for layer in ordered_layers
+                    assemble_layer(layer, session=session, state=state) for layer in ordered_layers
                 ]
                 self._last_signature = signature
                 self._last_layers = layers

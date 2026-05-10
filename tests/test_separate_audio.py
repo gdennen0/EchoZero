@@ -29,7 +29,6 @@ from echozero.processors.separate_audio import (
 from echozero.progress import ProgressReport, RuntimeBus
 from echozero.result import Err, Ok, is_err, is_ok
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -135,13 +134,15 @@ def _mock_separate_fn(
         # Write a tiny fake file
         with open(stem_path, "wb") as f:
             f.write(b"\x00" * 100)
-        results.append(StemResult(
-            name=name,
-            file_path=stem_path,
-            sample_rate=44100,
-            duration=180.0,
-            channel_count=2,
-        ))
+        results.append(
+            StemResult(
+                name=name,
+                file_path=stem_path,
+                sample_rate=44100,
+                duration=180.0,
+                channel_count=2,
+            )
+        )
     return results
 
 
@@ -244,13 +245,25 @@ class TestSeparateAudioBasic:
         captured: dict[str, Any] = {}
 
         def capture_fn(
-            input_file, model_name, device, shifts, two_stems,
-            output_dir, output_format, mp3_bitrate,
+            input_file,
+            model_name,
+            device,
+            shifts,
+            two_stems,
+            output_dir,
+            output_format,
+            mp3_bitrate,
         ):
             captured["two_stems"] = two_stems
             return _mock_separate_fn(
-                input_file, model_name, device, shifts, two_stems,
-                output_dir, output_format, mp3_bitrate,
+                input_file,
+                model_name,
+                device,
+                shifts,
+                two_stems,
+                output_dir,
+                output_format,
+                mp3_bitrate,
             )
 
         proc = SeparateAudioProcessor(separate_fn=capture_fn)
@@ -290,8 +303,14 @@ class TestSeparateAudioBasic:
         captured: dict[str, Any] = {}
 
         def capture_fn(
-            input_file, model_name, device, shifts, two_stems,
-            output_dir, output_format, mp3_bitrate,
+            input_file,
+            model_name,
+            device,
+            shifts,
+            two_stems,
+            output_dir,
+            output_format,
+            mp3_bitrate,
         ):
             captured["input_file"] = input_file
             captured["model_name"] = model_name
@@ -301,14 +320,24 @@ class TestSeparateAudioBasic:
             captured["output_format"] = output_format
             captured["mp3_bitrate"] = mp3_bitrate
             return _mock_separate_fn(
-                input_file, model_name, device, shifts, two_stems,
-                output_dir, output_format, mp3_bitrate,
+                input_file,
+                model_name,
+                device,
+                shifts,
+                two_stems,
+                output_dir,
+                output_format,
+                mp3_bitrate,
             )
 
         proc = SeparateAudioProcessor(separate_fn=capture_fn)
         sep = _make_separator_block(
-            model="htdemucs_ft", device="cpu", shifts=5,
-            two_stems="bass", output_format="mp3", mp3_bitrate=192,
+            model="htdemucs_ft",
+            device="cpu",
+            shifts=5,
+            two_stems="bass",
+            output_format="mp3",
+            mp3_bitrate=192,
         )
         ctx, _ = _make_context_with_audio(sep)
         proc.execute(sep.id, ctx)
@@ -336,8 +365,14 @@ class TestSeparateAudioBasic:
         captured: dict[str, Any] = {}
 
         def capture_fn(
-            input_file, model_name, device, shifts, two_stems,
-            output_dir, output_format, mp3_bitrate,
+            input_file,
+            model_name,
+            device,
+            shifts,
+            two_stems,
+            output_dir,
+            output_format,
+            mp3_bitrate,
         ):
             captured["model_name"] = model_name
             return _mock_separate_fn(
@@ -374,9 +409,7 @@ class TestSeparateAudioValidation:
         sep = _make_separator_block()
         # Build context WITHOUT pre-loaded audio
         graph = _build_graph([sep], [])
-        ctx = ExecutionContext(
-            execution_id="test", graph=graph, progress_bus=RuntimeBus()
-        )
+        ctx = ExecutionContext(execution_id="test", graph=graph, progress_bus=RuntimeBus())
 
         result = proc.execute(sep.id, ctx)
         assert is_err(result)
@@ -534,15 +567,19 @@ class TestSeparateAudioEngineIntegration:
         # Mock LoadAudio executor
         class MockLoadAudio:
             def execute(self, block_id, context):
-                return Ok(AudioData(
-                    sample_rate=44100, duration=180.0,
-                    file_path="test.wav", channel_count=2,
-                ))
+                return Ok(
+                    AudioData(
+                        sample_rate=44100,
+                        duration=180.0,
+                        file_path="test.wav",
+                        channel_count=2,
+                    )
+                )
 
         engine.register_executor("LoadAudio", MockLoadAudio())
-        engine.register_executor("SeparateAudio", SeparateAudioProcessor(
-            separate_fn=_mock_separate_fn
-        ))
+        engine.register_executor(
+            "SeparateAudio", SeparateAudioProcessor(separate_fn=_mock_separate_fn)
+        )
 
         planner = GraphPlanner()
         plan = planner.plan(graph)

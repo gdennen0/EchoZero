@@ -13,7 +13,6 @@ from pathlib import Path
 from .domain.review import ReviewPolarity
 from .review_server import create_review_http_server
 
-
 DEFAULT_REVIEW_SERVER_HOST = "0.0.0.0"
 DEFAULT_REVIEW_SERVER_PORT = 8421
 
@@ -115,7 +114,11 @@ class ReviewServerController:
 
         self._last_root = normalized_root
         self._last_session_id = normalized_session_id or None
-        if normalized_session_id and default_session_id is not None and str(default_session_id).strip():
+        if (
+            normalized_session_id
+            and default_session_id is not None
+            and str(default_session_id).strip()
+        ):
             self._last_live_scope_key = _live_scope_key(self._runtime_application_session)
         if not self._is_enabled:
             return None
@@ -175,11 +178,11 @@ class ReviewServerController:
     ) -> ReviewServerLaunch:
         """Bump the review-state revision and return the active review launch."""
 
-        normalized_root = Path(root).expanduser().resolve() if root is not None else self._last_root
+        normalized_root = (
+            Path(root).expanduser().resolve() if root is not None else self._last_root
+        )
         normalized_session_id = (
-            str(session_id).strip()
-            if session_id is not None
-            else self._last_session_id
+            str(session_id).strip() if session_id is not None else self._last_session_id
         )
         if normalized_root is None or normalized_session_id is None or not normalized_session_id:
             raise ValueError("Open a phone review session before reloading its status.")

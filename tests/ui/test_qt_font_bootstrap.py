@@ -47,7 +47,9 @@ def test_ensure_qt_fonts_available_noops_when_families_already_present(monkeypat
     assert app.set_font_calls == []
 
 
-def test_ensure_qt_fonts_available_loads_candidate_font_when_none_present(monkeypatch, tmp_path: Path):
+def test_ensure_qt_fonts_available_loads_candidate_font_when_none_present(
+    monkeypatch, tmp_path: Path
+):
     font_file = tmp_path / "segoeui.ttf"
     font_file.write_bytes(b"stub")
 

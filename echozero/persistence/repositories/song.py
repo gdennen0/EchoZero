@@ -20,12 +20,12 @@ class SongRepository(BaseRepository[SongRecord]):
     def _from_row(self, row: sqlite3.Row) -> SongRecord:
         """Convert a database row to a SongRecord entity."""
         return SongRecord(
-            id=row['id'],
-            project_id=row['project_id'],
-            title=row['title'],
-            artist=row['artist'],
-            order=row['order'],
-            active_version_id=row['active_version_id'],
+            id=row["id"],
+            project_id=row["project_id"],
+            title=row["title"],
+            artist=row["artist"],
+            order=row["order"],
+            active_version_id=row["active_version_id"],
         )
 
     def create(self, song: SongRecord) -> None:
@@ -89,22 +89,22 @@ class SongVersionRepository(BaseRepository[SongVersionRecord]):
 
     def _from_row(self, row: sqlite3.Row) -> SongVersionRecord:
         """Convert a database row to a SongVersionRecord entity."""
-        rebuild_plan_raw = row['rebuild_plan_json'] if 'rebuild_plan_json' in row.keys() else '{}'
+        rebuild_plan_raw = row["rebuild_plan_json"] if "rebuild_plan_json" in row.keys() else "{}"
         try:
             rebuild_plan = json.loads(rebuild_plan_raw) if rebuild_plan_raw else {}
         except json.JSONDecodeError:
             rebuild_plan = {}
 
         return SongVersionRecord(
-            id=row['id'],
-            song_id=row['song_id'],
-            label=row['label'],
-            audio_file=row['audio_file'],
-            duration_seconds=row['duration_seconds'],
-            original_sample_rate=row['original_sample_rate'],
-            audio_hash=row['audio_hash'],
-            created_at=datetime.fromisoformat(row['created_at']),
-            ma3_timecode_pool_no=_optional_positive_int(row['ma3_timecode_pool_no']),
+            id=row["id"],
+            song_id=row["song_id"],
+            label=row["label"],
+            audio_file=row["audio_file"],
+            duration_seconds=row["duration_seconds"],
+            original_sample_rate=row["original_sample_rate"],
+            audio_hash=row["audio_hash"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+            ma3_timecode_pool_no=_optional_positive_int(row["ma3_timecode_pool_no"]),
             rebuild_plan=rebuild_plan,
         )
 
@@ -171,9 +171,7 @@ class SongVersionRepository(BaseRepository[SongVersionRecord]):
 
     def delete(self, version_id: str) -> None:
         """Delete a song version by ID. Cascades to layers and takes."""
-        self._execute(
-            "DELETE FROM song_versions WHERE id = ?", (version_id,)
-        )
+        self._execute("DELETE FROM song_versions WHERE id = ?", (version_id,))
 
 
 def _optional_positive_int(value: object) -> int | None:

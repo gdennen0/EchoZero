@@ -59,16 +59,12 @@ class LoadAudioProcessor:
             )
 
         if not os.path.isfile(file_path):
-            return err(
-                ExecutionError(f"Audio file not found: {file_path}")
-            )
+            return err(ExecutionError(f"Audio file not found: {file_path}"))
 
         try:
             info = self._audio_info_fn(file_path)
         except Exception as exc:
-            return err(
-                ExecutionError(f"Failed to read audio info from '{file_path}': {exc}")
-            )
+            return err(ExecutionError(f"Failed to read audio info from '{file_path}': {exc}"))
 
         return ok(
             AudioData(
@@ -78,4 +74,3 @@ class LoadAudioProcessor:
                 channel_count=info.channels,
             )
         )
-

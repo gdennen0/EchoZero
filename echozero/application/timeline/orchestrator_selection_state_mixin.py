@@ -127,7 +127,9 @@ class TimelineOrchestratorSelectionStateMixin:
             normalized_refs.append(event_ref)
             seen.add(key)
         timeline.selection.selected_event_refs = normalized_refs
-        timeline.selection.selected_event_ids = [event_ref.event_id for event_ref in normalized_refs]
+        timeline.selection.selected_event_ids = [
+            event_ref.event_id for event_ref in normalized_refs
+        ]
 
     def _resolve_event_refs_by_ids(
         self,
@@ -140,7 +142,9 @@ class TimelineOrchestratorSelectionStateMixin:
         if not event_ids:
             return []
 
-        preferred_layers = {layer_id for layer_id in (preferred_layer_ids or []) if layer_id is not None}
+        preferred_layers = {
+            layer_id for layer_id in (preferred_layer_ids or []) if layer_id is not None
+        }
         event_records: dict[str, list[EventRef]] = {}
         for layer in timeline.layers:
             for take in layer.takes:
@@ -203,7 +207,9 @@ class TimelineOrchestratorSelectionStateMixin:
         mode: str,
     ) -> None:
         layer = self._find_layer(timeline, layer_id)
-        target_take = self._find_take(layer, take_id) if take_id is not None else self._main_take(layer)
+        target_take = (
+            self._find_take(layer, take_id) if take_id is not None else self._main_take(layer)
+        )
         target_take_id = target_take.id if target_take is not None else take_id
         if event_id is None:
             timeline.selection.selected_layer_id = layer.id
@@ -211,7 +217,9 @@ class TimelineOrchestratorSelectionStateMixin:
             timeline.selection.selected_take_id = target_take_id
             self._set_selected_event_refs(timeline, [])
             return
-        if target_take is None or all(candidate.id != event_id for candidate in target_take.events):
+        if target_take is None or all(
+            candidate.id != event_id for candidate in target_take.events
+        ):
             return
 
         mode_normalized = (mode or "replace").strip().lower()
@@ -356,7 +364,9 @@ class TimelineOrchestratorSelectionStateMixin:
             return
 
         if anchor_layer_id is None or anchor_take_id is None:
-            selected_items = normalized_event_refs if normalized_event_refs else normalized_event_ids
+            selected_items = (
+                normalized_event_refs if normalized_event_refs else normalized_event_ids
+            )
             records = self._selected_event_records(timeline, selected_items)
             if records:
                 last_record = records[-1]
@@ -376,13 +386,15 @@ class TimelineOrchestratorSelectionStateMixin:
         timeline.selection.selected_take_id = anchor_take_id
         self._set_selected_event_refs(
             timeline,
-            normalized_event_refs
-            if normalized_event_refs
-            else self._resolve_event_refs_by_ids(
-                timeline,
-                normalized_event_ids,
-                preferred_layer_ids=timeline.selection.selected_layer_ids,
-                preferred_take_id=anchor_take_id,
+            (
+                normalized_event_refs
+                if normalized_event_refs
+                else self._resolve_event_refs_by_ids(
+                    timeline,
+                    normalized_event_ids,
+                    preferred_layer_ids=timeline.selection.selected_layer_ids,
+                    preferred_take_id=anchor_take_id,
+                )
             ),
         )
 
@@ -632,8 +644,9 @@ class TimelineOrchestratorSelectionStateMixin:
         if playhead_seconds is None:
             iterable = ordered_events if direction > 0 else reversed(ordered_events)
             for event in iterable:
-                if include_demoted or not TimelineOrchestratorSelectionStateMixin._event_is_demoted(
-                    event
+                if (
+                    include_demoted
+                    or not TimelineOrchestratorSelectionStateMixin._event_is_demoted(event)
                 ):
                     return event
             return None

@@ -667,4 +667,3 @@ class TestAudioData:
         audio = AudioData(sample_rate=48000, duration=1.0, file_path="/a.wav")
 
         assert audio.channel_count == 1
-

@@ -21,12 +21,16 @@ def capture_main_lineage(layer: LayerRecord, main_take: Take | None) -> LayerRec
     This gives us something concrete to compare against later when upstream main changes.
     """
     provenance = dict(layer.provenance)
-    provenance['current_main_take_id'] = main_take.id if main_take else None
-    provenance['current_main_run_id'] = main_take.source.run_id if (main_take and main_take.source) else None
+    provenance["current_main_take_id"] = main_take.id if main_take else None
+    provenance["current_main_run_id"] = (
+        main_take.source.run_id if (main_take and main_take.source) else None
+    )
     return replace(layer, provenance=provenance)
 
 
-def upstream_main_change_requires_stale(*, previous_main_take: Take | None, new_main_take: Take | None) -> bool:
+def upstream_main_change_requires_stale(
+    *, previous_main_take: Take | None, new_main_take: Take | None
+) -> bool:
     """Return True only when upstream main actually changed.
 
     Presence of a new non-main take is irrelevant; compare the actual main take identity.
@@ -52,11 +56,11 @@ def mark_dependents_stale_on_upstream_main_change(
 
     updated: list[LayerRecord] = []
     for layer in layers:
-        if layer.provenance.get('source_layer_id') == upstream_layer_id:
+        if layer.provenance.get("source_layer_id") == upstream_layer_id:
             updated.append(
                 mark_layer_stale(
                     layer,
-                    reason='Upstream main changed',
+                    reason="Upstream main changed",
                     upstream_layer_id=upstream_layer_id,
                 )
             )

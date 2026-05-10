@@ -244,9 +244,7 @@ def _application_session_payload(shell: ProjectReviewShell) -> dict[str, object]
         return None
     active_song_id = str(session.active_song_id) if session.active_song_id is not None else None
     active_song_version_id = (
-        str(session.active_song_version_id)
-        if session.active_song_version_id is not None
-        else None
+        str(session.active_song_version_id) if session.active_song_version_id is not None else None
     )
     active_song_title = None
     active_song_version_label = None
@@ -268,15 +266,11 @@ def _application_session_payload(shell: ProjectReviewShell) -> dict[str, object]
         "activeSongTitle": active_song_title,
         "activeSongVersionId": active_song_version_id,
         "activeSongVersionRef": (
-            f"version:{active_song_version_id}"
-            if active_song_version_id is not None
-            else None
+            f"version:{active_song_version_id}" if active_song_version_id is not None else None
         ),
         "activeSongVersionLabel": active_song_version_label,
         "activeTimelineId": (
-            str(session.active_timeline_id)
-            if session.active_timeline_id is not None
-            else None
+            str(session.active_timeline_id) if session.active_timeline_id is not None else None
         ),
         "activeSongVersionMa3TimecodePoolNo": session.active_song_version_ma3_timecode_pool_no,
         "uiPrefsRef": session.ui_prefs_ref,

@@ -43,7 +43,10 @@ class IndexedBinaryDrumBundle:
         bundle_dir = payload.get("bundleDir")
         manifest_file = payload.get("manifestFile")
         weights_file = payload.get("weightsFile")
-        if not all(isinstance(value, str) and value.strip() for value in (bundle_dir, manifest_file, weights_file)):
+        if not all(
+            isinstance(value, str) and value.strip()
+            for value in (bundle_dir, manifest_file, weights_file)
+        ):
             return None
         return cls(
             label=str(label).strip().lower(),
@@ -92,10 +95,7 @@ def save_binary_drum_bundle_index(
     path = binary_drum_bundle_index_path(models_dir)
     payload = {
         "schema": _INDEX_SCHEMA,
-        "bundles": {
-            label: records[label].to_payload()
-            for label in sorted(records)
-        },
+        "bundles": {label: records[label].to_payload() for label in sorted(records)},
     }
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     return path

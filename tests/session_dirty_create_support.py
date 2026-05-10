@@ -5,6 +5,7 @@ Connects the compatibility wrapper to the bounded dirty/create slice.
 
 from tests.session_shared_support import *  # noqa: F401,F403
 
+
 class TestDirtyTracker:
     def test_starts_clean(self):
         tracker = DirtyTracker()
@@ -40,9 +41,13 @@ class TestDirtyTracker:
 
     def test_subscribes_to_block_added(self, event_bus):
         tracker = DirtyTracker(event_bus)
-        event_bus.publish(BlockAddedEvent(
-            **_make_event(), block_id="blk1", block_type="onset_detector",
-        ))
+        event_bus.publish(
+            BlockAddedEvent(
+                **_make_event(),
+                block_id="blk1",
+                block_type="onset_detector",
+            )
+        )
         assert tracker.is_dirty() is True
         assert "blk1" in tracker.dirty_ids
 
@@ -54,33 +59,50 @@ class TestDirtyTracker:
 
     def test_subscribes_to_connection_added(self, event_bus):
         tracker = DirtyTracker(event_bus)
-        event_bus.publish(ConnectionAddedEvent(
-            **_make_event(), source_block_id="a", target_block_id="b",
-        ))
+        event_bus.publish(
+            ConnectionAddedEvent(
+                **_make_event(),
+                source_block_id="a",
+                target_block_id="b",
+            )
+        )
         assert tracker.is_dirty() is True
 
     def test_subscribes_to_connection_removed(self, event_bus):
         tracker = DirtyTracker(event_bus)
-        event_bus.publish(ConnectionRemovedEvent(
-            **_make_event(), source_block_id="a", target_block_id="b",
-        ))
+        event_bus.publish(
+            ConnectionRemovedEvent(
+                **_make_event(),
+                source_block_id="a",
+                target_block_id="b",
+            )
+        )
         assert tracker.is_dirty() is True
 
     def test_block_state_changed_does_not_dirty(self, event_bus):
         """BlockStateChangedEvent is transient execution state — not a structural mutation."""
         tracker = DirtyTracker(event_bus)
-        event_bus.publish(BlockStateChangedEvent(
-            **_make_event(), block_id="blk1",
-            old_state=BlockState.STALE, new_state=BlockState.FRESH,
-        ))
+        event_bus.publish(
+            BlockStateChangedEvent(
+                **_make_event(),
+                block_id="blk1",
+                old_state=BlockState.STALE,
+                new_state=BlockState.FRESH,
+            )
+        )
         assert tracker.is_dirty() is False
 
     def test_subscribes_to_settings_changed(self, event_bus):
         tracker = DirtyTracker(event_bus)
-        event_bus.publish(SettingsChangedEvent(
-            **_make_event(), block_id="blk1", setting_key="threshold",
-            old_value=0.3, new_value=0.5,
-        ))
+        event_bus.publish(
+            SettingsChangedEvent(
+                **_make_event(),
+                block_id="blk1",
+                setting_key="threshold",
+                old_value=0.3,
+                new_value=0.5,
+            )
+        )
         assert tracker.is_dirty() is True
         assert "blk1" in tracker.dirty_ids
 
@@ -200,6 +222,7 @@ class TestSessionOpenDb:
         wd.mkdir(parents=True)
         conn = sqlite3.connect(str(wd / "project.db"))
         from echozero.persistence.schema import init_db
+
         init_db(conn)
         conn.close()
 
@@ -225,8 +248,7 @@ class TestSessionOpenDb:
         wd.mkdir(parents=True)
         conn = sqlite3.connect(str(wd / "project.db"))
         now = _now().isoformat()
-        conn.executescript(
-            """
+        conn.executescript("""
             CREATE TABLE IF NOT EXISTS _meta (
                 key TEXT PRIMARY KEY,
                 value TEXT
@@ -243,8 +265,7 @@ class TestSessionOpenDb:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
-            """
-        )
+            """)
         conn.execute(
             "INSERT INTO projects "
             "(id, name, sample_rate, bpm, bpm_confidence, timecode_fps, "
@@ -357,7 +378,6 @@ class TestSessionTransaction:
 # ---------------------------------------------------------------------------
 # Save and round-trip
 # ---------------------------------------------------------------------------
-
 
 
 __all__ = [name for name in globals() if name.startswith("Test")]

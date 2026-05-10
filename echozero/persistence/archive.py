@@ -57,12 +57,12 @@ def pack_ez(working_dir: Path, dest_path: Path) -> None:
             # Audio files (STORED — already compressed)
             audio_dir = working_dir / "audio"
             if audio_dir.exists():
-                for audio_file in sorted(audio_dir.rglob('*')):
+                for audio_file in sorted(audio_dir.rglob("*")):
                     if audio_file.is_file():
                         rel_path = audio_file.relative_to(working_dir)
                         zf.write(
                             audio_file,
-                            str(rel_path).replace('\\', '/'),
+                            str(rel_path).replace("\\", "/"),
                             compress_type=zipfile.ZIP_STORED,
                         )
 
@@ -112,9 +112,7 @@ def unpack_ez(ez_path: Path, working_dir: Path) -> dict:
             for member in zf.namelist():
                 member_path = (tmp_dir / member).resolve()
                 if not member_path.is_relative_to(tmp_dir_resolved):
-                    raise ValueError(
-                        f"Archive contains path traversal: {member!r}"
-                    )
+                    raise ValueError(f"Archive contains path traversal: {member!r}")
 
             # Read manifest
             manifest_data = zf.read("manifest.json")

@@ -116,9 +116,7 @@ class Graph:
             adjacency[conn.source_block_id].append(conn.target_block_id)
             in_degree[conn.target_block_id] += 1
 
-        queue: deque[str] = deque(
-            bid for bid, degree in in_degree.items() if degree == 0
-        )
+        queue: deque[str] = deque(bid for bid, degree in in_degree.items() if degree == 0)
         result: list[str] = []
 
         while queue:
@@ -200,7 +198,7 @@ class Graph:
 
     def _validate_connection(self, connection: Connection, *, exclude_self: bool = False) -> None:
         """Validate a single connection against all invariants.
-        
+
         Args:
             connection: The connection to validate.
             exclude_self: If True, exclude this connection when counting existing
@@ -226,17 +224,13 @@ class Graph:
         )
         if source_port is None:
             raise ValidationError(
-                f"Output port '{connection.source_output_name}' "
-                f"not found on block '{src_id}'"
+                f"Output port '{connection.source_output_name}' " f"not found on block '{src_id}'"
             )
 
-        target_port = self._find_port(
-            target_block, connection.target_input_name, Direction.INPUT
-        )
+        target_port = self._find_port(target_block, connection.target_input_name, Direction.INPUT)
         if target_port is None:
             raise ValidationError(
-                f"Input port '{connection.target_input_name}' "
-                f"not found on block '{tgt_id}'"
+                f"Input port '{connection.target_input_name}' " f"not found on block '{tgt_id}'"
             )
 
         if source_port.port_type != target_port.port_type:
@@ -260,9 +254,7 @@ class Graph:
                 )
 
     @staticmethod
-    def _find_port(
-        block: Block, port_name: str, direction: Direction
-    ) -> Port | None:
+    def _find_port(block: Block, port_name: str, direction: Direction) -> Port | None:
         """Look up a port by name and direction on a block."""
         if direction == Direction.OUTPUT:
             ports = block.output_ports
@@ -275,5 +267,3 @@ class Graph:
             if port.name == port_name:
                 return port
         return None
-
-

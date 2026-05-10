@@ -16,7 +16,6 @@ from echozero.foundry.domain.review import (
     ReviewSession,
 )
 
-
 _CANONICAL_REF_KEYS = {
     "project_ref": "projectRef",
     "song_ref": "songRef",

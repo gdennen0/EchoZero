@@ -86,9 +86,13 @@ class ArtifactService:
             "taxonomy": dataset_version.taxonomy,
             "labelPolicy": dataset_version.label_policy,
             "syntheticProvenance": {
-                "syntheticSampleIds": list(dataset_version.manifest.get("synthetic_sample_ids", [])),
+                "syntheticSampleIds": list(
+                    dataset_version.manifest.get("synthetic_sample_ids", [])
+                ),
                 "realSampleIds": list(dataset_version.manifest.get("real_sample_ids", [])),
-                "syntheticSampleCount": int(dataset_version.stats.get("synthetic_sample_count", 0)),
+                "syntheticSampleCount": int(
+                    dataset_version.stats.get("synthetic_sample_count", 0)
+                ),
                 "realSampleCount": int(dataset_version.stats.get("real_sample_count", 0)),
             },
             "promotionGate": promotion_result,
@@ -226,7 +230,9 @@ class ArtifactService:
         }
 
     def _load_reference_metrics(self, artifact: ModelArtifact) -> dict:
-        metrics_path_name = (artifact.manifest.get("trainingSummary") or {}).get("metricsPath", "metrics.json")
+        metrics_path_name = (artifact.manifest.get("trainingSummary") or {}).get(
+            "metricsPath", "metrics.json"
+        )
         metrics_path = artifact.path.parent / str(metrics_path_name)
         metrics_payload = self._load_json(metrics_path)
         if metrics_payload:
@@ -260,7 +266,9 @@ class ArtifactService:
         synthetic_mix = trainer_options.get("syntheticMix") or {}
 
         macro_f1_floor = gate_policy.get("macro_f1_floor")
-        if macro_f1_floor is not None and float(final_metrics.get("macro_f1", 0.0)) < float(macro_f1_floor):
+        if macro_f1_floor is not None and float(final_metrics.get("macro_f1", 0.0)) < float(
+            macro_f1_floor
+        ):
             reasons.append(
                 f"macro_f1 {float(final_metrics.get('macro_f1', 0.0)):.4f} below floor {float(macro_f1_floor):.4f}"
             )
@@ -268,7 +276,9 @@ class ArtifactService:
         max_regression = gate_policy.get("max_regression_vs_reference")
         if max_regression is not None:
             if comparison_summary is None:
-                reasons.append("reference comparison required for max_regression_vs_reference gate")
+                reasons.append(
+                    "reference comparison required for max_regression_vs_reference gate"
+                )
             else:
                 regression = -float((comparison_summary.get("delta") or {}).get("macroF1", 0.0))
                 if regression > float(max_regression):
@@ -282,9 +292,14 @@ class ArtifactService:
             if not synthetic_metrics:
                 reasons.append("synthetic evaluation required for max_real_vs_synth_gap gate")
             else:
-                gap = abs(float(final_metrics.get("macro_f1", 0.0)) - float(synthetic_metrics.get("macro_f1", 0.0)))
+                gap = abs(
+                    float(final_metrics.get("macro_f1", 0.0))
+                    - float(synthetic_metrics.get("macro_f1", 0.0))
+                )
                 if gap > float(max_gap):
-                    reasons.append(f"real_vs_synth macro_f1 gap {gap:.4f} exceeds max {float(max_gap):.4f}")
+                    reasons.append(
+                        f"real_vs_synth macro_f1 gap {gap:.4f} exceeds max {float(max_gap):.4f}"
+                    )
 
         per_class_recall_floors = gate_policy.get("per_class_recall_floors") or {}
         for label, floor in sorted(per_class_recall_floors.items()):
@@ -299,7 +314,9 @@ class ArtifactService:
             "policy": gate_policy,
         }
 
-    def validate_compatibility(self, artifact_id: str, consumer: str = "PyTorchAudioClassify") -> CompatibilityReport:
+    def validate_compatibility(
+        self, artifact_id: str, consumer: str = "PyTorchAudioClassify"
+    ) -> CompatibilityReport:
         artifact = self._artifact_repo.get(artifact_id)
         if not artifact:
             raise ValueError(f"Artifact not found: {artifact_id}")
@@ -348,9 +365,15 @@ class ArtifactService:
             manifest_report = validate_manifest_inference_section(
                 m,
                 expected_run_data=expected_run_data,
-                expected_classes=list(dataset_version.class_map) if dataset_version is not None else None,
-                expected_taxonomy=dataset_version.taxonomy if dataset_version is not None else None,
-                expected_label_policy=dataset_version.label_policy if dataset_version is not None else None,
+                expected_classes=(
+                    list(dataset_version.class_map) if dataset_version is not None else None
+                ),
+                expected_taxonomy=(
+                    dataset_version.taxonomy if dataset_version is not None else None
+                ),
+                expected_label_policy=(
+                    dataset_version.label_policy if dataset_version is not None else None
+                ),
             )
         else:
             manifest_report = validate_manifest_inference_section(m)

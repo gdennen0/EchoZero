@@ -79,7 +79,9 @@ def test_runtime_surfaces_recent_ma3_osc_messages() -> None:
     temp_root = _repo_local_temp_root()
 
     class _FakeMessage:
-        def __init__(self, message_type: str, change: str, *, timestamp: float, fields: dict[str, object]) -> None:
+        def __init__(
+            self, message_type: str, change: str, *, timestamp: float, fields: dict[str, object]
+        ) -> None:
             self.message_type = message_type
             self.change = change
             self.timestamp = timestamp
@@ -90,7 +92,9 @@ def test_runtime_surfaces_recent_ma3_osc_messages() -> None:
         def __init__(self) -> None:
             self.messages = [
                 _FakeMessage("connection", "ping", timestamp=1.0, fields={"status": "ok"}),
-                _FakeMessage("transport", "scrubbed", timestamp=2.0, fields={"tc": 112, "to_seconds": 9.5}),
+                _FakeMessage(
+                    "transport", "scrubbed", timestamp=2.0, fields={"tc": 112, "to_seconds": 9.5}
+                ),
             ]
 
     runtime = build_app_shell(

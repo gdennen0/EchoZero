@@ -7,7 +7,14 @@ import pytest
 from echozero.domain.enums import BlockCategory, Direction, PortType
 from echozero.domain.graph import Graph
 from echozero.domain.types import (
-    AudioData, Block, BlockSettings, Connection, Event, EventData, Layer, Port,
+    AudioData,
+    Block,
+    BlockSettings,
+    Connection,
+    Event,
+    EventData,
+    Layer,
+    Port,
 )
 from echozero.execution import ExecutionEngine, GraphPlanner
 from echozero.processors.audio_negate import AudioNegateProcessor, VALID_MODES
@@ -17,10 +24,14 @@ from echozero.result import Ok, is_err, is_ok, unwrap
 
 class MockLoadAudio:
     def execute(self, block_id, context):
-        return Ok(AudioData(
-            sample_rate=44100, duration=5.0,
-            file_path="test.wav", channel_count=2,
-        ))
+        return Ok(
+            AudioData(
+                sample_rate=44100,
+                duration=5.0,
+                file_path="test.wav",
+                channel_count=2,
+            )
+        )
 
 
 def _fake_negate(audio_file, sample_rate, regions, mode, fade_ms, attenuation_db):
@@ -28,45 +39,77 @@ def _fake_negate(audio_file, sample_rate, regions, mode, fade_ms, attenuation_db
 
 
 def _make_event_data() -> EventData:
-    return EventData(layers=(
-        Layer(id="onsets", name="Onsets", events=(
-            Event(id="e1", time=0.5, duration=0.2, classifications={}, metadata={}, origin="test"),
-            Event(id="e2", time=1.5, duration=0.3, classifications={}, metadata={}, origin="test"),
-        )),
-    ))
+    return EventData(
+        layers=(
+            Layer(
+                id="onsets",
+                name="Onsets",
+                events=(
+                    Event(
+                        id="e1",
+                        time=0.5,
+                        duration=0.2,
+                        classifications={},
+                        metadata={},
+                        origin="test",
+                    ),
+                    Event(
+                        id="e2",
+                        time=1.5,
+                        duration=0.3,
+                        classifications={},
+                        metadata={},
+                        origin="test",
+                    ),
+                ),
+            ),
+        )
+    )
 
 
 def _build_graph(mode="silence", fade_ms=10.0, attenuation_db=-20.0) -> Graph:
     g = Graph()
-    g.add_block(Block(
-        id="load", name="Load", block_type="LoadAudio",
-        category=BlockCategory.PROCESSOR,
-        input_ports=(), output_ports=(
-            Port("audio_out", PortType.AUDIO, Direction.OUTPUT),
-        ),
-        settings=BlockSettings({"file_path": "test.wav"}),
-    ))
-    g.add_block(Block(
-        id="events_src", name="Events", block_type="EventSource",
-        category=BlockCategory.PROCESSOR,
-        input_ports=(), output_ports=(
-            Port("events_out", PortType.EVENT, Direction.OUTPUT),
-        ),
-    ))
-    g.add_block(Block(
-        id="negate", name="Negate", block_type="AudioNegate",
-        category=BlockCategory.PROCESSOR,
-        input_ports=(
-            Port("audio_in", PortType.AUDIO, Direction.INPUT),
-            Port("events_in", PortType.EVENT, Direction.INPUT),
-        ),
-        output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
-        settings=BlockSettings({
-            "mode": mode,
-            "fade_ms": fade_ms,
-            "attenuation_db": attenuation_db,
-        }),
-    ))
+    g.add_block(
+        Block(
+            id="load",
+            name="Load",
+            block_type="LoadAudio",
+            category=BlockCategory.PROCESSOR,
+            input_ports=(),
+            output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
+            settings=BlockSettings({"file_path": "test.wav"}),
+        )
+    )
+    g.add_block(
+        Block(
+            id="events_src",
+            name="Events",
+            block_type="EventSource",
+            category=BlockCategory.PROCESSOR,
+            input_ports=(),
+            output_ports=(Port("events_out", PortType.EVENT, Direction.OUTPUT),),
+        )
+    )
+    g.add_block(
+        Block(
+            id="negate",
+            name="Negate",
+            block_type="AudioNegate",
+            category=BlockCategory.PROCESSOR,
+            input_ports=(
+                Port("audio_in", PortType.AUDIO, Direction.INPUT),
+                Port("events_in", PortType.EVENT, Direction.INPUT),
+            ),
+            output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
+            settings=BlockSettings(
+                {
+                    "mode": mode,
+                    "fade_ms": fade_ms,
+                    "attenuation_db": attenuation_db,
+                }
+            ),
+        )
+    )
     g.add_connection(Connection("load", "audio_out", "negate", "audio_in"))
     g.add_connection(Connection("events_src", "events_out", "negate", "events_in"))
     return g
@@ -75,6 +118,7 @@ def _build_graph(mode="silence", fade_ms=10.0, attenuation_db=-20.0) -> Graph:
 class FakeEventSource:
     def execute(self, block_id, context):
         from echozero.result import ok
+
         return ok(_make_event_data())
 
 
@@ -114,23 +158,30 @@ class TestAudioNegateProcessor:
 
     def test_no_audio_returns_error(self):
         g = Graph()
-        g.add_block(Block(
-            id="events_src", name="E", block_type="EventSource",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(), output_ports=(
-                Port("events_out", PortType.EVENT, Direction.OUTPUT),
-            ),
-        ))
-        g.add_block(Block(
-            id="negate", name="N", block_type="AudioNegate",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(
-                Port("audio_in", PortType.AUDIO, Direction.INPUT),
-                Port("events_in", PortType.EVENT, Direction.INPUT),
-            ),
-            output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
-            settings=BlockSettings({"mode": "silence"}),
-        ))
+        g.add_block(
+            Block(
+                id="events_src",
+                name="E",
+                block_type="EventSource",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(),
+                output_ports=(Port("events_out", PortType.EVENT, Direction.OUTPUT),),
+            )
+        )
+        g.add_block(
+            Block(
+                id="negate",
+                name="N",
+                block_type="AudioNegate",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(
+                    Port("audio_in", PortType.AUDIO, Direction.INPUT),
+                    Port("events_in", PortType.EVENT, Direction.INPUT),
+                ),
+                output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
+                settings=BlockSettings({"mode": "silence"}),
+            )
+        )
         g.add_connection(Connection("events_src", "events_out", "negate", "events_in"))
         bus = RuntimeBus()
         engine = ExecutionEngine(g, bus)
@@ -141,24 +192,31 @@ class TestAudioNegateProcessor:
 
     def test_no_events_returns_error(self):
         g = Graph()
-        g.add_block(Block(
-            id="load", name="L", block_type="LoadAudio",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(), output_ports=(
-                Port("audio_out", PortType.AUDIO, Direction.OUTPUT),
-            ),
-            settings=BlockSettings({"file_path": "test.wav"}),
-        ))
-        g.add_block(Block(
-            id="negate", name="N", block_type="AudioNegate",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(
-                Port("audio_in", PortType.AUDIO, Direction.INPUT),
-                Port("events_in", PortType.EVENT, Direction.INPUT),
-            ),
-            output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
-            settings=BlockSettings({"mode": "silence"}),
-        ))
+        g.add_block(
+            Block(
+                id="load",
+                name="L",
+                block_type="LoadAudio",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(),
+                output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
+                settings=BlockSettings({"file_path": "test.wav"}),
+            )
+        )
+        g.add_block(
+            Block(
+                id="negate",
+                name="N",
+                block_type="AudioNegate",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(
+                    Port("audio_in", PortType.AUDIO, Direction.INPUT),
+                    Port("events_in", PortType.EVENT, Direction.INPUT),
+                ),
+                output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
+                settings=BlockSettings({"mode": "silence"}),
+            )
+        )
         g.add_connection(Connection("load", "audio_out", "negate", "audio_in"))
         bus = RuntimeBus()
         engine = ExecutionEngine(g, bus)
@@ -169,15 +227,31 @@ class TestAudioNegateProcessor:
 
     def test_zero_duration_events_returns_audio_unchanged(self):
         """Events with zero duration should result in unchanged audio."""
+
         class ZeroDurationSource:
             def execute(self, block_id, context):
                 from echozero.result import ok
-                return ok(EventData(layers=(
-                    Layer(id="l", name="L", events=(
-                        Event(id="e1", time=0.5, duration=0.0, classifications={},
-                              metadata={}, origin="test"),
-                    )),
-                )))
+
+                return ok(
+                    EventData(
+                        layers=(
+                            Layer(
+                                id="l",
+                                name="L",
+                                events=(
+                                    Event(
+                                        id="e1",
+                                        time=0.5,
+                                        duration=0.0,
+                                        classifications={},
+                                        metadata={},
+                                        origin="test",
+                                    ),
+                                ),
+                            ),
+                        )
+                    )
+                )
 
         g = _build_graph()
         bus = RuntimeBus()
@@ -207,7 +281,6 @@ class TestAudioNegateProcessor:
     def test_negate_fn_failure_returns_error(self):
         def failing(*args, **kwargs):
             raise RuntimeError("boom")
+
         result = _run(_build_graph(), negate_fn=failing)
         assert is_err(result)
-
-

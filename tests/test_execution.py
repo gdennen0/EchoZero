@@ -32,7 +32,6 @@ from echozero.progress import (
 )
 from echozero.result import Err, Ok, err, ok
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -251,9 +250,7 @@ class TestExecutionEngine:
     def test_executor_called_in_topo_order(self) -> None:
         graph, runtime_bus, engine = self._make_engine()
         graph.add_block(_make_block("first", block_type="TypeA", output_ports=(_audio_out(),)))
-        graph.add_block(
-            _make_block("second", block_type="TypeB", input_ports=(_audio_in(),))
-        )
+        graph.add_block(_make_block("second", block_type="TypeB", input_ports=(_audio_in(),)))
         graph.add_connection(
             Connection(
                 source_block_id="first",
@@ -278,7 +275,9 @@ class TestExecutionEngine:
         graph, runtime_bus, engine = self._make_engine()
         graph.add_block(_make_block("a", block_type="Good", output_ports=(_audio_out(),)))
         graph.add_block(
-            _make_block("b", block_type="Bad", input_ports=(_audio_in(),), output_ports=(_audio_out(),))
+            _make_block(
+                "b", block_type="Bad", input_ports=(_audio_in(),), output_ports=(_audio_out(),)
+            )
         )
         graph.add_block(_make_block("c", block_type="Good", input_ports=(_audio_in(),)))
         graph.add_connection(
@@ -351,7 +350,9 @@ class TestExecutionEngine:
         graph.add_block(_make_block("a"))
 
         reports: list[ProgressReport] = []
-        runtime_bus.subscribe(lambda r: reports.append(r) if isinstance(r, ProgressReport) else None)
+        runtime_bus.subscribe(
+            lambda r: reports.append(r) if isinstance(r, ProgressReport) else None
+        )
 
         engine.register_executor("TestType", StubExecutor())
         plan = GraphPlanner().plan(graph)
@@ -368,7 +369,9 @@ class TestExecutionEngine:
         graph.add_block(_make_block("a"))
 
         reports: list[ProgressReport] = []
-        runtime_bus.subscribe(lambda r: reports.append(r) if isinstance(r, ProgressReport) else None)
+        runtime_bus.subscribe(
+            lambda r: reports.append(r) if isinstance(r, ProgressReport) else None
+        )
 
         engine.register_executor("TestType", StubExecutor(should_fail=True))
         plan = GraphPlanner().plan(graph)
@@ -410,9 +413,7 @@ class TestExecutionEngine:
     def test_execution_context_holds_references(self) -> None:
         graph = Graph()
         runtime_bus = RuntimeBus()
-        ctx = ExecutionContext(
-            execution_id="run-1", graph=graph, progress_bus=runtime_bus
-        )
+        ctx = ExecutionContext(execution_id="run-1", graph=graph, progress_bus=runtime_bus)
         assert ctx.execution_id == "run-1"
         assert ctx.graph is graph
         assert ctx.progress_bus is runtime_bus
@@ -477,9 +478,7 @@ class TestExecutionContextDataFlow:
             )
         )
 
-        ctx = ExecutionContext(
-            execution_id="test", graph=graph, progress_bus=RuntimeBus()
-        )
+        ctx = ExecutionContext(execution_id="test", graph=graph, progress_bus=RuntimeBus())
         ctx.set_output("a", "out", "audio_data")
         result = ctx.get_input("b", "in")
 
@@ -489,9 +488,7 @@ class TestExecutionContextDataFlow:
         graph = Graph()
         graph.add_block(_make_block("a"))
 
-        ctx = ExecutionContext(
-            execution_id="test", graph=graph, progress_bus=RuntimeBus()
-        )
+        ctx = ExecutionContext(execution_id="test", graph=graph, progress_bus=RuntimeBus())
         result = ctx.get_input("a", "in")
 
         assert result is None
@@ -509,9 +506,7 @@ class TestExecutionContextDataFlow:
             )
         )
 
-        ctx = ExecutionContext(
-            execution_id="test", graph=graph, progress_bus=RuntimeBus()
-        )
+        ctx = ExecutionContext(execution_id="test", graph=graph, progress_bus=RuntimeBus())
         result = ctx.get_input("b", "in")
 
         assert result is None
@@ -529,9 +524,7 @@ class TestExecutionContextDataFlow:
             )
         )
 
-        ctx = ExecutionContext(
-            execution_id="test", graph=graph, progress_bus=RuntimeBus()
-        )
+        ctx = ExecutionContext(execution_id="test", graph=graph, progress_bus=RuntimeBus())
         ctx.set_output("a", "out", "not_an_int")
 
         with pytest.raises(ExecutionError, match="Type mismatch"):
@@ -550,9 +543,7 @@ class TestExecutionContextDataFlow:
             )
         )
 
-        ctx = ExecutionContext(
-            execution_id="test", graph=graph, progress_bus=RuntimeBus()
-        )
+        ctx = ExecutionContext(execution_id="test", graph=graph, progress_bus=RuntimeBus())
         ctx.set_output("a", "out", 42)
 
         result = ctx.get_input("b", "in", expected_type=int)
@@ -571,9 +562,7 @@ class TestExecutionContextDataFlow:
             )
         )
 
-        ctx = ExecutionContext(
-            execution_id="test", graph=graph, progress_bus=RuntimeBus()
-        )
+        ctx = ExecutionContext(execution_id="test", graph=graph, progress_bus=RuntimeBus())
         ctx.set_output("a", "out", "first")
         ctx.set_output("a", "out", "second")
 
@@ -581,9 +570,7 @@ class TestExecutionContextDataFlow:
         assert result == "second"
 
     def test_context_has_cancel_event(self) -> None:
-        ctx = ExecutionContext(
-            execution_id="test", graph=Graph(), progress_bus=RuntimeBus()
-        )
+        ctx = ExecutionContext(execution_id="test", graph=Graph(), progress_bus=RuntimeBus())
         assert isinstance(ctx.cancel_event, threading.Event)
         assert not ctx.cancel_event.is_set()
 
@@ -628,10 +615,16 @@ class TestMultiPortOutput:
 
     def test_dict_output_stores_per_port(self) -> None:
         graph, runtime_bus, engine = self._make_engine()
-        graph.add_block(_make_block("sep", block_type="Separator", output_ports=(
-            Port(name="drums", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
-            Port(name="bass", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
-        )))
+        graph.add_block(
+            _make_block(
+                "sep",
+                block_type="Separator",
+                output_ports=(
+                    Port(name="drums", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
+                    Port(name="bass", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
+                ),
+            )
+        )
 
         engine.register_executor(
             "Separator",
@@ -646,16 +639,32 @@ class TestMultiPortOutput:
 
     def test_single_value_uses_first_output_port_name(self) -> None:
         graph, runtime_bus, engine = self._make_engine()
-        graph.add_block(_make_block("a", block_type="TypeA", output_ports=(
-            Port(name="audio_out", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
-        )))
-        graph.add_block(_make_block("b", block_type="TypeB", input_ports=(
-            Port(name="audio_in", port_type=PortType.AUDIO, direction=Direction.INPUT),
-        )))
-        graph.add_connection(Connection(
-            source_block_id="a", source_output_name="audio_out",
-            target_block_id="b", target_input_name="audio_in",
-        ))
+        graph.add_block(
+            _make_block(
+                "a",
+                block_type="TypeA",
+                output_ports=(
+                    Port(name="audio_out", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
+                ),
+            )
+        )
+        graph.add_block(
+            _make_block(
+                "b",
+                block_type="TypeB",
+                input_ports=(
+                    Port(name="audio_in", port_type=PortType.AUDIO, direction=Direction.INPUT),
+                ),
+            )
+        )
+        graph.add_connection(
+            Connection(
+                source_block_id="a",
+                source_output_name="audio_out",
+                target_block_id="b",
+                target_input_name="audio_in",
+            )
+        )
 
         reader = InputReadingExecutor("audio_in")
         engine.register_executor("TypeA", StubExecutor(output="audio_data"))
@@ -669,17 +678,33 @@ class TestMultiPortOutput:
 
     def test_multi_port_feeds_downstream_correctly(self) -> None:
         graph, runtime_bus, engine = self._make_engine()
-        graph.add_block(_make_block("sep", block_type="Separator", output_ports=(
-            Port(name="drums", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
-            Port(name="bass", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
-        )))
-        graph.add_block(_make_block("proc", block_type="Processor", input_ports=(
-            Port(name="audio_in", port_type=PortType.AUDIO, direction=Direction.INPUT),
-        )))
-        graph.add_connection(Connection(
-            source_block_id="sep", source_output_name="drums",
-            target_block_id="proc", target_input_name="audio_in",
-        ))
+        graph.add_block(
+            _make_block(
+                "sep",
+                block_type="Separator",
+                output_ports=(
+                    Port(name="drums", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
+                    Port(name="bass", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
+                ),
+            )
+        )
+        graph.add_block(
+            _make_block(
+                "proc",
+                block_type="Processor",
+                input_ports=(
+                    Port(name="audio_in", port_type=PortType.AUDIO, direction=Direction.INPUT),
+                ),
+            )
+        )
+        graph.add_connection(
+            Connection(
+                source_block_id="sep",
+                source_output_name="drums",
+                target_block_id="proc",
+                target_input_name="audio_in",
+            )
+        )
 
         reader = InputReadingExecutor("audio_in")
         engine.register_executor(
@@ -696,19 +721,35 @@ class TestMultiPortOutput:
 
     def test_multi_port_ignores_undeclared_extra_outputs_and_feeds_declared_port(self) -> None:
         graph, runtime_bus, engine = self._make_engine()
-        graph.add_block(_make_block("sep", block_type="Separator", output_ports=(
-            Port(name="drums_out", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
-            Port(name="bass_out", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
-            Port(name="vocals_out", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
-            Port(name="other_out", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
-        )))
-        graph.add_block(_make_block("proc", block_type="Processor", input_ports=(
-            Port(name="audio_in", port_type=PortType.AUDIO, direction=Direction.INPUT),
-        )))
-        graph.add_connection(Connection(
-            source_block_id="sep", source_output_name="drums_out",
-            target_block_id="proc", target_input_name="audio_in",
-        ))
+        graph.add_block(
+            _make_block(
+                "sep",
+                block_type="Separator",
+                output_ports=(
+                    Port(name="drums_out", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
+                    Port(name="bass_out", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
+                    Port(name="vocals_out", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
+                    Port(name="other_out", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
+                ),
+            )
+        )
+        graph.add_block(
+            _make_block(
+                "proc",
+                block_type="Processor",
+                input_ports=(
+                    Port(name="audio_in", port_type=PortType.AUDIO, direction=Direction.INPUT),
+                ),
+            )
+        )
+        graph.add_connection(
+            Connection(
+                source_block_id="sep",
+                source_output_name="drums_out",
+                target_block_id="proc",
+                target_input_name="audio_in",
+            )
+        )
 
         reader = InputReadingExecutor("audio_in")
         engine.register_executor(

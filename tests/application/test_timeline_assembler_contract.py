@@ -499,7 +499,9 @@ def test_assembler_projects_section_cues_and_derived_regions_without_fake_prefir
         ("Q7", 12.0, "Verse"),
         ("Q3", 41.0, "Chorus"),
     ]
-    assert [(region.cue_ref, region.start, region.end) for region in assembled.section_regions] == [
+    assert [
+        (region.cue_ref, region.start, region.end) for region in assembled.section_regions
+    ] == [
         ("Q7", 12.0, 41.0),
         ("Q3", 41.0, 95.0),
     ]
@@ -590,7 +592,9 @@ def test_assembler_marks_take_lane_selection_without_playback_target_state():
 
     assembled = TimelineAssembler().assemble(timeline, session)
     assembled_layer = assembled.layers[0]
-    selected_lane = next(take for take in assembled_layer.takes if take.take_id == selected_take.id)
+    selected_lane = next(
+        take for take in assembled_layer.takes if take.take_id == selected_take.id
+    )
     active_lane = next(take for take in assembled_layer.takes if take.take_id == active_take.id)
 
     assert assembled_layer.is_selected is True

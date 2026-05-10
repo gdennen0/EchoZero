@@ -13,7 +13,6 @@ from echozero.domain.enums import BlockCategory, Direction, PortType
 from echozero.domain.graph import Graph
 from echozero.domain.types import Block, BlockSettings, Connection, Port
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -151,12 +150,20 @@ class TestExecutionCache:
         graph.add_block(_make_block("b", input_ports=(_audio_in(),), output_ports=(_audio_out(),)))
         graph.add_block(_make_block("c", input_ports=(_audio_in(),)))
         graph.add_connection(
-            Connection(source_block_id="a", source_output_name="out",
-                       target_block_id="b", target_input_name="in")
+            Connection(
+                source_block_id="a",
+                source_output_name="out",
+                target_block_id="b",
+                target_input_name="in",
+            )
         )
         graph.add_connection(
-            Connection(source_block_id="b", source_output_name="out",
-                       target_block_id="c", target_input_name="in")
+            Connection(
+                source_block_id="b",
+                source_output_name="out",
+                target_block_id="c",
+                target_input_name="in",
+            )
         )
 
         cache = ExecutionCache()
@@ -176,8 +183,12 @@ class TestExecutionCache:
         graph.add_block(_make_block("a", output_ports=(_audio_out(),)))
         graph.add_block(_make_block("b", input_ports=(_audio_in(),)))
         graph.add_connection(
-            Connection(source_block_id="a", source_output_name="out",
-                       target_block_id="b", target_input_name="in")
+            Connection(
+                source_block_id="a",
+                source_output_name="out",
+                target_block_id="b",
+                target_input_name="in",
+            )
         )
 
         cache = ExecutionCache()
@@ -196,12 +207,20 @@ class TestExecutionCache:
         graph.add_block(_make_block("b", input_ports=(_audio_in(),), output_ports=(_audio_out(),)))
         graph.add_block(_make_block("c", input_ports=(_audio_in(),)))
         graph.add_connection(
-            Connection(source_block_id="a", source_output_name="out",
-                       target_block_id="b", target_input_name="in")
+            Connection(
+                source_block_id="a",
+                source_output_name="out",
+                target_block_id="b",
+                target_input_name="in",
+            )
         )
         graph.add_connection(
-            Connection(source_block_id="b", source_output_name="out",
-                       target_block_id="c", target_input_name="in")
+            Connection(
+                source_block_id="b",
+                source_output_name="out",
+                target_block_id="c",
+                target_input_name="in",
+            )
         )
 
         cache = ExecutionCache()
@@ -245,4 +264,3 @@ class TestExecutionCache:
         result = cache.get("b1", "out")
         assert result is not None
         assert before <= result.produced_at <= after
-

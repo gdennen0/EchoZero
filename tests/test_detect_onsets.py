@@ -12,12 +12,20 @@ import pytest
 
 from echozero.domain.enums import BlockCategory, Direction, PortType
 from echozero.domain.graph import Graph
-from echozero.domain.types import AudioData, Block, BlockSettings, Connection, Event, EventData, Layer, Port
+from echozero.domain.types import (
+    AudioData,
+    Block,
+    BlockSettings,
+    Connection,
+    Event,
+    EventData,
+    Layer,
+    Port,
+)
 from echozero.execution import ExecutionContext
 from echozero.processors.detect_onsets import DetectOnsetsProcessor
 from echozero.progress import ProgressReport, RuntimeBus, RuntimeReport
 from echozero.result import Err, Ok
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -173,9 +181,7 @@ class TestDetectOnsetsSuccess:
         context = _make_context(graph)
         context.set_output("load1", "audio_out", MOCK_AUDIO)
 
-        processor = DetectOnsetsProcessor(
-            onset_detect_fn=lambda fp, sr, th, mg: []
-        )
+        processor = DetectOnsetsProcessor(onset_detect_fn=lambda fp, sr, th, mg: [])
         result = processor.execute("onset1", context)
 
         assert isinstance(result, Ok)
@@ -307,9 +313,7 @@ class TestDetectOnsetsProgress:
         assert reports[2].percent == 1.0
 
     def test_metadata_includes_settings_in_events(self) -> None:
-        graph = _make_graph_with_chain(
-            onset_settings={"threshold": 0.3, "min_gap": 0.02}
-        )
+        graph = _make_graph_with_chain(onset_settings={"threshold": 0.3, "min_gap": 0.02})
         context = _make_context(graph)
         context.set_output("load1", "audio_out", MOCK_AUDIO)
 

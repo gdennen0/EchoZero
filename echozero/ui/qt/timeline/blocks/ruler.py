@@ -18,17 +18,29 @@ class RulerLayout:
 
 
 class RulerBlock:
-    def __init__(self, style: RulerStyle = TIMELINE_STYLE.ruler, *, playhead_color_hex: str = TIMELINE_STYLE.playhead.color_hex):
+    def __init__(
+        self,
+        style: RulerStyle = TIMELINE_STYLE.ruler,
+        *,
+        playhead_color_hex: str = TIMELINE_STYLE.playhead.color_hex,
+    ):
         self.style = style
         self.playhead_color_hex = playhead_color_hex
 
-    def paint(self, painter: QPainter, layout: RulerLayout, presentation: TimelinePresentation) -> None:
+    def paint(
+        self, painter: QPainter, layout: RulerLayout, presentation: TimelinePresentation
+    ) -> None:
         rect = layout.rect
         painter.fillRect(rect, QColor(self.style.background_hex))
-        painter.fillRect(QRectF(rect.left(), rect.bottom() - 1, rect.width(), 1), QColor(self.style.divider_hex))
-        painter.fillRect(QRectF(rect.left(), rect.top(), layout.header_width, rect.height()), QColor(self.style.header_background_hex))
+        painter.fillRect(
+            QRectF(rect.left(), rect.bottom() - 1, rect.width(), 1), QColor(self.style.divider_hex)
+        )
+        painter.fillRect(
+            QRectF(rect.left(), rect.top(), layout.header_width, rect.height()),
+            QColor(self.style.header_background_hex),
+        )
         painter.setPen(QColor(self.style.title_hex))
-        painter.drawText(14, int(rect.top()) + 18, 'Timeline')
+        painter.drawText(14, int(rect.top()) + 18, "Timeline")
         label_font = QFont(painter.font())
         label_font.setPointSize(max(7, int(RULER_FONT_SIZE)))
         painter.setFont(label_font)
@@ -48,7 +60,7 @@ class RulerBlock:
             painter.setPen(QColor(self.style.grid_hex))
             painter.drawLine(int(x), int(rect.top()), int(x), int(rect.bottom()) - 1)
             painter.setPen(QColor(self.style.label_hex))
-            painter.drawText(int(x) + 4, int(rect.top()) + 12, f'{second}')
+            painter.drawText(int(x) + 4, int(rect.top()) + 12, f"{second}")
 
         playhead_x = timeline_x_for_time(
             presentation.playhead,

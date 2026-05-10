@@ -12,7 +12,6 @@ import threading
 
 from echozero.application.playback.process_shared import PLAYBACK_IPC_WS_PATH
 
-
 try:
     from websockets.sync.server import ServerConnection, serve
 except ImportError as exc:  # pragma: no cover - environment contract

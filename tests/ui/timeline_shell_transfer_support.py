@@ -49,9 +49,7 @@ def test_selection_contract_exposes_push_first_ma3_actions():
     )
 
     contract = build_timeline_inspector_contract(presentation)
-    all_actions = [
-        action for section in contract.context_sections for action in section.actions
-    ]
+    all_actions = [action for section in contract.context_sections for action in section.actions]
     action_ids = {action.action_id for action in all_actions}
     workspace_directions = {
         str(action.params.get("direction", "")).lower()
@@ -72,9 +70,7 @@ def test_selection_contract_exposes_push_first_ma3_actions():
 
 def test_empty_contract_omits_primary_ma3_actions():
     contract = build_timeline_inspector_contract(_selection_test_presentation())
-    all_actions = [
-        action for section in contract.context_sections for action in section.actions
-    ]
+    all_actions = [action for section in contract.context_sections for action in section.actions]
     action_ids = {action.action_id for action in all_actions}
     workspace_directions = {
         str(action.params.get("direction", "")).lower()
@@ -116,9 +112,7 @@ def test_layer_contract_exposes_send_actions_without_batch_or_pull_actions():
 
     contract = build_timeline_inspector_contract(presentation)
     section_ids = [section.section_id for section in contract.context_sections]
-    all_actions = [
-        action for section in contract.context_sections for action in section.actions
-    ]
+    all_actions = [action for section in contract.context_sections for action in section.actions]
     action_ids = {action.action_id for action in all_actions}
     workspace_directions = {
         str(action.params.get("direction", "")).lower()
@@ -441,6 +435,7 @@ def test_transfer_route_layer_track_prepares_unassigned_target_with_existing_seq
         "TimelineWidgetMA3PushActionMixin._open_manual_push_route_popup",
         lambda *_args, **_kwargs: "tc1_tg2_tr9",
     )
+
     def _get_item(*args, **kwargs):
         prompts.append(args[2])
         return next(picks)
@@ -550,8 +545,7 @@ def test_transfer_workspace_open_context_menu_uses_single_confirmation_dialog(mo
 
     monkeypatch.setattr(
         "echozero.ui.qt.timeline.widget.QMessageBox.question",
-        lambda *args, **kwargs: prompts.append(str(args[2]))
-        or QMessageBox.StandardButton.Yes,
+        lambda *args, **kwargs: prompts.append(str(args[2])) or QMessageBox.StandardButton.Yes,
     )
 
     def _choose_send(menu, *_args, **_kwargs) -> object | None:
@@ -599,7 +593,9 @@ def test_transfer_workspace_open_context_menu_uses_single_confirmation_dialog(mo
         app.processEvents()
 
 
-def test_transfer_workspace_open_context_menu_fails_gracefully_when_ma3_tracks_cannot_refresh(monkeypatch):
+def test_transfer_workspace_open_context_menu_fails_gracefully_when_ma3_tracks_cannot_refresh(
+    monkeypatch,
+):
     app = QApplication.instance() or QApplication([])
     base = replace(
         _ma3_push_selection_presentation(),
@@ -631,8 +627,7 @@ def test_transfer_workspace_open_context_menu_fails_gracefully_when_ma3_tracks_c
 
     monkeypatch.setattr(
         "echozero.ui.qt.timeline.widget.QMessageBox.question",
-        lambda *args, **kwargs: prompts.append(str(args[2]))
-        or QMessageBox.StandardButton.Yes,
+        lambda *args, **kwargs: prompts.append(str(args[2])) or QMessageBox.StandardButton.Yes,
     )
     monkeypatch.setattr(
         "echozero.ui.qt.timeline.widget.QMessageBox.warning",
@@ -682,7 +677,9 @@ def test_transfer_workspace_open_context_menu_fails_gracefully_when_ma3_tracks_c
         app.processEvents()
 
 
-def test_transfer_workspace_open_context_menu_retries_after_ma3_connection_overlay_applied(monkeypatch):
+def test_transfer_workspace_open_context_menu_retries_after_ma3_connection_overlay_applied(
+    monkeypatch,
+):
     app = QApplication.instance() or QApplication([])
     base = replace(
         _ma3_push_selection_presentation(),
@@ -717,8 +714,7 @@ def test_transfer_workspace_open_context_menu_retries_after_ma3_connection_overl
 
     monkeypatch.setattr(
         "echozero.ui.qt.timeline.widget.QMessageBox.question",
-        lambda *args, **kwargs: prompts.append(str(args[2]))
-        or QMessageBox.StandardButton.Yes,
+        lambda *args, **kwargs: prompts.append(str(args[2])) or QMessageBox.StandardButton.Yes,
     )
     monkeypatch.setattr(
         "echozero.ui.qt.timeline.widget.QMessageBox.warning",
@@ -777,7 +773,9 @@ def test_transfer_workspace_open_context_menu_retries_after_ma3_connection_overl
         app.processEvents()
 
 
-def test_transfer_workspace_open_context_menu_retries_when_service_comes_from_runtime_shell(monkeypatch):
+def test_transfer_workspace_open_context_menu_retries_when_service_comes_from_runtime_shell(
+    monkeypatch,
+):
     app = QApplication.instance() or QApplication([])
     base = replace(
         _ma3_push_selection_presentation(),
@@ -835,8 +833,7 @@ def test_transfer_workspace_open_context_menu_retries_when_service_comes_from_ru
     )
     monkeypatch.setattr(
         "echozero.ui.qt.timeline.widget.QMessageBox.question",
-        lambda *args, **kwargs: prompts.append(str(args[2]))
-        or QMessageBox.StandardButton.Yes,
+        lambda *args, **kwargs: prompts.append(str(args[2])) or QMessageBox.StandardButton.Yes,
     )
     monkeypatch.setattr(
         "echozero.ui.qt.timeline.widget.QMessageBox.warning",
@@ -899,7 +896,9 @@ def test_transfer_workspace_open_context_menu_retries_when_service_comes_from_ru
         app.processEvents()
 
 
-def test_transfer_workspace_open_context_menu_aborts_when_runtime_reconfigure_is_rejected(monkeypatch):
+def test_transfer_workspace_open_context_menu_aborts_when_runtime_reconfigure_is_rejected(
+    monkeypatch,
+):
     app = QApplication.instance() or QApplication([])
     base = replace(
         _ma3_push_selection_presentation(),
@@ -1001,12 +1000,13 @@ def test_transfer_workspace_open_context_menu_aborts_when_runtime_reconfigure_is
         assert hud_services[0] is runtime.app_settings_service
         assert any("Unable to refresh MA3 tracks" in warning for warning in warnings)
         assert any(
-            "Unable to reconfigure the live MA3 connection for this session."
-            in warning
+            "Unable to reconfigure the live MA3 connection for this session." in warning
             for warning in warnings
         )
         assert all("already routed to" not in warning for warning in warnings)
-        assert "PushLayerToMA3" not in {intent.__class__.__name__ for intent in runtime.dispatch_intents}
+        assert "PushLayerToMA3" not in {
+            intent.__class__.__name__ for intent in runtime.dispatch_intents
+        }
     finally:
         widget.close()
         app.processEvents()
@@ -1175,8 +1175,7 @@ def test_transfer_workspace_open_context_menu_shows_overlay_unavailable_warning_
         app.processEvents()
 
         assert any(
-            "The MA3 OSC connection overlay is unavailable in this shell."
-            in warning
+            "The MA3 OSC connection overlay is unavailable in this shell." in warning
             for warning in warnings
         )
     finally:

@@ -18,9 +18,10 @@ from echozero.audio.clock import Clock
 
 class TransportState(Enum):
     """Playback state. Three states, clean transitions."""
-    STOPPED = auto()   # position = 0 or last seek, not outputting audio
-    PLAYING = auto()   # outputting audio, clock advancing
-    PAUSED = auto()    # position held, not outputting audio
+
+    STOPPED = auto()  # position = 0 or last seek, not outputting audio
+    PLAYING = auto()  # outputting audio, clock advancing
+    PAUSED = auto()  # position held, not outputting audio
 
 
 class Transport:

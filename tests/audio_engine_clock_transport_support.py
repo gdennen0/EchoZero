@@ -5,6 +5,7 @@ Connects the compatibility wrapper to the bounded clock and transport slice.
 
 from tests.audio_engine_shared_support import *  # noqa: F401,F403
 
+
 class TestClock:
     def test_initial_position_is_zero(self) -> None:
         clock = Clock(44100)
@@ -288,7 +289,6 @@ class TestTransport:
 # ===========================================================================
 # Resampling tests
 # ===========================================================================
-
 
 
 __all__ = [name for name in globals() if name.startswith("Test")]

@@ -87,7 +87,9 @@ def resolve_runtime_model_path(model_path: str | Path) -> Path:
             raise ValidationError(f"Artifact manifest is not valid JSON: {requested_path}")
         target_path = _manifest_target_path(requested_path, manifest)
         if target_path is None:
-            raise ValidationError(f"Artifact manifest is missing a usable weightsPath: {requested_path}")
+            raise ValidationError(
+                f"Artifact manifest is missing a usable weightsPath: {requested_path}"
+            )
         if not target_path.exists():
             raise FileNotFoundError(f"Resolved artifact weights do not exist: {target_path}")
         return target_path
@@ -95,7 +97,9 @@ def resolve_runtime_model_path(model_path: str | Path) -> Path:
     return requested_path.resolve()
 
 
-def _resolve_manifest_for_model(model_path: Path, report: ValidationReport) -> Mapping[str, Any] | None:
+def _resolve_manifest_for_model(
+    model_path: Path, report: ValidationReport
+) -> Mapping[str, Any] | None:
     candidates = _iter_manifest_candidates(model_path)
     if not candidates:
         report.add_error(
@@ -204,7 +208,9 @@ def _checkpoint_classification_mode(checkpoint: Mapping[str, Any]) -> str:
     return ""
 
 
-def _validate_checkpoint_completeness_for_manifest(checkpoint: Mapping[str, Any], report: ValidationReport) -> None:
+def _validate_checkpoint_completeness_for_manifest(
+    checkpoint: Mapping[str, Any], report: ValidationReport
+) -> None:
     checkpoint_classes = _checkpoint_classes(checkpoint)
     if not checkpoint_classes:
         report.add_error(
@@ -214,7 +220,9 @@ def _validate_checkpoint_completeness_for_manifest(checkpoint: Mapping[str, Any]
         )
 
     checkpoint_preprocessing = _checkpoint_preprocessing(checkpoint)
-    missing_preprocessing = sorted(REQUIRED_PREPROCESSING_KEYS - set(checkpoint_preprocessing.keys()))
+    missing_preprocessing = sorted(
+        REQUIRED_PREPROCESSING_KEYS - set(checkpoint_preprocessing.keys())
+    )
     if missing_preprocessing:
         report.add_error(
             "missing_checkpoint_preprocessing_keys",

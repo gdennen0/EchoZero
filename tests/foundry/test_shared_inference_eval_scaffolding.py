@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from echozero.inference_eval import EvalContract, EvalRequest, EvalResult, InferenceContract, contract_fingerprint
+from echozero.inference_eval import (
+    EvalContract,
+    EvalRequest,
+    EvalResult,
+    InferenceContract,
+    contract_fingerprint,
+)
 from echozero.inference_eval.echozero_adapter import create_echozero_adapter
 from echozero.inference_eval.foundry_adapter import create_foundry_adapter
 
@@ -18,7 +24,9 @@ def test_contract_fingerprint_is_stable_for_equivalent_payload_ordering() -> Non
     )
     eval_contract = EvalContract(classification_mode="multiclass", split_name="test")
 
-    assert contract_fingerprint(inference_a, eval_contract) == contract_fingerprint(inference_b, eval_contract)
+    assert contract_fingerprint(inference_a, eval_contract) == contract_fingerprint(
+        inference_b, eval_contract
+    )
 
 
 def test_foundry_adapter_to_eval_payload_matches_expected_contract_fields() -> None:

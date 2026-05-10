@@ -37,10 +37,14 @@ def test_contract_fingerprint_is_stable_for_equivalent_payload_ordering() -> Non
     )
     eval_contract = EvalContract(classification_mode="multiclass", split_name="test")
 
-    assert contract_fingerprint(inference_a, eval_contract) == contract_fingerprint(inference_b, eval_contract)
+    assert contract_fingerprint(inference_a, eval_contract) == contract_fingerprint(
+        inference_b, eval_contract
+    )
 
 
-def test_validate_inference_contract_enforces_required_preprocessing_keys_from_shared_constants() -> None:
+def test_validate_inference_contract_enforces_required_preprocessing_keys_from_shared_constants() -> (
+    None
+):
     missing_key = sorted(REQUIRED_PREPROCESSING_KEYS)[0]
     preprocessing = _required_preprocessing()
     preprocessing.pop(missing_key)
@@ -61,7 +65,9 @@ def test_validate_inference_contract_enforces_required_preprocessing_keys_from_s
     assert issue.message == f"inference.preprocessing missing keys: {missing_key}"
 
 
-def test_validate_manifest_inference_section_enforces_required_preprocessing_keys_from_shared_constants() -> None:
+def test_validate_manifest_inference_section_enforces_required_preprocessing_keys_from_shared_constants() -> (
+    None
+):
     missing_key = sorted(REQUIRED_PREPROCESSING_KEYS)[-1]
     preprocessing = _required_preprocessing()
     preprocessing.pop(missing_key)
@@ -96,6 +102,8 @@ def test_validate_manifest_inference_section_requires_shared_contract_fingerprin
     )
 
     assert report.ok is False
-    issue = next(error for error in report.errors if error.code == "missing_shared_contract_fingerprint")
+    issue = next(
+        error for error in report.errors if error.code == "missing_shared_contract_fingerprint"
+    )
     assert issue.path == "manifest.sharedContractFingerprint"
     assert issue.message == "manifest.sharedContractFingerprint is required"

@@ -24,7 +24,11 @@ import soundfile as sf
 
 from echozero.foundry import FoundryApp
 from echozero.foundry.domain import CurationState, Dataset, DatasetSample, DatasetVersion
-from echozero.foundry.persistence import DatasetRepository, DatasetVersionRepository, migrate_foundry_state
+from echozero.foundry.persistence import (
+    DatasetRepository,
+    DatasetVersionRepository,
+    migrate_foundry_state,
+)
 from echozero.foundry.services.dataset_service import DatasetService
 from echozero.foundry.services.split_balance_service import SplitBalanceService
 from echozero.models.paths import ensure_installed_models_dir
@@ -34,7 +38,6 @@ from echozero.runtime_models.loader import (
     load_runtime_model,
     predict_probabilities,
 )
-
 
 PROJECT_PATH = Path("/Users/march/Desktop/Olivia/Olivia Scratch 3.ez")
 SAMPLES_ROOT = Path("/Users/march/Desktop/OrginizedSamples")
@@ -85,7 +88,9 @@ class RuntimeScoreSet:
 
 def parse_args() -> argparse.Namespace:
     """Parse the command-line options for the build."""
-    parser = argparse.ArgumentParser(description="Build the Olivia-weighted monster snare binary model.")
+    parser = argparse.ArgumentParser(
+        description="Build the Olivia-weighted monster snare binary model."
+    )
     parser.add_argument("--project", type=Path, default=PROJECT_PATH)
     parser.add_argument("--samples-root", type=Path, default=SAMPLES_ROOT)
     parser.add_argument("--workspace-root", type=Path, default=WORKSPACE_ROOT)
@@ -118,7 +123,9 @@ def main() -> int:
     source_audio_refs = collect_project_source_audio_refs(project_db)
     extract_project_audio(args.project, project_cache, source_audio_refs)
 
-    event_clips = build_project_event_clips(project_db, project_cache, dataset_audio_root / "olivia_events")
+    event_clips = build_project_event_clips(
+        project_db, project_cache, dataset_audio_root / "olivia_events"
+    )
     base_samples = build_base_samples(
         event_clips=event_clips,
         samples_root=args.samples_root.expanduser().resolve(),
@@ -149,7 +156,9 @@ def main() -> int:
     completed_run = app.start_run(run.id)
     artifacts = app.list_artifacts_for_run(completed_run.id)
     if completed_run.status.value != "completed" or not artifacts:
-        raise RuntimeError(f"Training failed or produced no artifacts: {completed_run.status.value}")
+        raise RuntimeError(
+            f"Training failed or produced no artifacts: {completed_run.status.value}"
+        )
     artifact = sorted(artifacts, key=lambda item: item.created_at)[-1]
     compatibility = app.validate_artifact(artifact.id)
     if not compatibility.ok:
@@ -257,7 +266,9 @@ def extract_project_audio(project_path: Path, cache_dir: Path, audio_refs: set[s
             target.write_bytes(archive.read(audio_ref))
 
 
-def build_project_event_clips(project_db: Path, project_cache: Path, output_dir: Path) -> list[EventClip]:
+def build_project_event_clips(
+    project_db: Path, project_cache: Path, output_dir: Path
+) -> list[EventClip]:
     """Materialize Olivia event clips from main Kick and Snare event layers."""
     output_dir.mkdir(parents=True, exist_ok=True)
     clips: list[EventClip] = []
@@ -265,18 +276,15 @@ def build_project_event_clips(project_db: Path, project_cache: Path, output_dir:
         connection.row_factory = sqlite3.Row
         layer_rows = {
             row["id"]: row
-            for row in connection.execute("select id, song_version_id, name, provenance_json from layers")
-        }
-        song_rows = {
-            row["version_id"]: row
             for row in connection.execute(
-                """
+                "select id, song_version_id, name, provenance_json from layers"
+            )
+        }
+        song_rows = {row["version_id"]: row for row in connection.execute("""
                 select song_versions.id as version_id, songs.title, song_versions.audio_file
                 from song_versions
                 join songs on songs.id = song_versions.song_id
-                """
-            )
-        }
+                """)}
         main_audio_by_layer = collect_main_audio_by_layer(connection)
         query = """
             select takes.id as take_id, takes.layer_id, takes.data_json
@@ -314,7 +322,9 @@ def build_project_event_clips(project_db: Path, project_cache: Path, output_dir:
                         group_id=f"olivia:{song_title}:{label}:{event_id}",
                     )
                 )
-    return sorted(clips, key=lambda clip: (clip.label, clip.song_title, clip.time_seconds, clip.event_id))
+    return sorted(
+        clips, key=lambda clip: (clip.label, clip.song_title, clip.time_seconds, clip.event_id)
+    )
 
 
 def is_training_eligible_project_event(label: str, event: dict[str, object]) -> bool:
@@ -325,11 +335,9 @@ def is_training_eligible_project_event(label: str, event: dict[str, object]) -> 
     detection = detection if isinstance(detection, dict) else {}
     review = metadata.get("review")
     review = review if isinstance(review, dict) else {}
-    promotion_state = str(
-        metadata.get("promotion_state")
-        or review.get("promotion_state")
-        or ""
-    ).strip().lower()
+    promotion_state = (
+        str(metadata.get("promotion_state") or review.get("promotion_state") or "").strip().lower()
+    )
     if promotion_state == "demoted":
         return False
     threshold_passed = detection.get("threshold_passed")
@@ -350,7 +358,9 @@ def is_training_eligible_project_event(label: str, event: dict[str, object]) -> 
 def collect_main_audio_by_layer(connection: sqlite3.Connection) -> dict[str, str]:
     """Map layer ids to their main AudioData refs."""
     refs: dict[str, str] = {}
-    for layer_id, data_json in connection.execute("select layer_id, data_json from takes where is_main = 1"):
+    for layer_id, data_json in connection.execute(
+        "select layer_id, data_json from takes where is_main = 1"
+    ):
         payload = parse_json_object(data_json)
         if payload.get("type") == "AudioData" and payload.get("file_path"):
             refs[str(layer_id)] = str(payload["file_path"])
@@ -420,10 +430,18 @@ def build_base_samples(
         samples.append(sample_from_event_clip(clip))
     for audio_path in sorted((samples_root / "Snare").rglob("*")):
         if is_audio_file(audio_path):
-            samples.append(sample_from_library_file(audio_path, label=POSITIVE_LABEL, source_kind="organized_snare"))
+            samples.append(
+                sample_from_library_file(
+                    audio_path, label=POSITIVE_LABEL, source_kind="organized_snare"
+                )
+            )
     negative_paths = collect_negative_library_paths(samples_root, limit=negative_library_limit)
     for audio_path in negative_paths:
-        samples.append(sample_from_library_file(audio_path, label=NEGATIVE_LABEL, source_kind="organized_negative"))
+        samples.append(
+            sample_from_library_file(
+                audio_path, label=NEGATIVE_LABEL, source_kind="organized_negative"
+            )
+        )
     return samples
 
 
@@ -517,7 +535,9 @@ def persist_weighted_dataset(
         stats=build_stats(base_samples),
     )
     split_service = SplitBalanceService()
-    base_split = split_service.plan_splits(base_version, validation_split=0.15, test_split=0.10, seed=42)
+    base_split = split_service.plan_splits(
+        base_version, validation_split=0.15, test_split=0.10, seed=42
+    )
     final_samples = apply_train_only_olivia_weighting(
         base_samples,
         base_split,
@@ -534,7 +554,9 @@ def persist_weighted_dataset(
         samples=final_samples,
         taxonomy=base_version.taxonomy,
         label_policy=base_version.label_policy,
-        manifest=build_manifest(final_samples, project_path=project_path, samples_root=samples_root),
+        manifest=build_manifest(
+            final_samples, project_path=project_path, samples_root=samples_root
+        ),
         split_plan=build_final_split_plan(final_samples, base_split),
         balance_plan=split_service.plan_balance(
             DatasetVersion(
@@ -595,16 +617,24 @@ def apply_train_only_olivia_weighting(
     return final_samples
 
 
-def build_final_split_plan(samples: list[DatasetSample], base_split: dict[str, object]) -> dict[str, object]:
+def build_final_split_plan(
+    samples: list[DatasetSample], base_split: dict[str, object]
+) -> dict[str, object]:
     """Extend the base split with train-only weighting copies."""
     assignments = dict(base_split["assignments"])
     for sample in samples:
         if sample.sample_id in assignments:
             continue
         assignments[sample.sample_id] = "train"
-    train_ids = sorted(sample_id for sample_id, split_name in assignments.items() if split_name == "train")
-    val_ids = sorted(sample_id for sample_id, split_name in assignments.items() if split_name == "val")
-    test_ids = sorted(sample_id for sample_id, split_name in assignments.items() if split_name == "test")
+    train_ids = sorted(
+        sample_id for sample_id, split_name in assignments.items() if split_name == "train"
+    )
+    val_ids = sorted(
+        sample_id for sample_id, split_name in assignments.items() if split_name == "val"
+    )
+    test_ids = sorted(
+        sample_id for sample_id, split_name in assignments.items() if split_name == "test"
+    )
     split_plan = {
         **base_split,
         "dataset_manifest_hash": DatasetService.compute_manifest_hash(samples),
@@ -628,7 +658,9 @@ def build_final_split_plan(samples: list[DatasetSample], base_split: dict[str, o
     split_plan["group_distribution"] = build_group_distribution(samples, assignments)
     split_plan["content_hash_groups"] = build_content_groups(samples)
     split_plan["leakage"] = SplitBalanceService._build_leakage_report(temp_version, assignments)
-    split_plan["reproducibility"] = SplitBalanceService._build_reproducibility_report(temp_version, assignments, seed=42)
+    split_plan["reproducibility"] = SplitBalanceService._build_reproducibility_report(
+        temp_version, assignments, seed=42
+    )
     return split_plan
 
 
@@ -697,7 +729,9 @@ def evaluate_promotion(metrics: dict[str, object]) -> dict[str, object]:
     if macro_f1 < 0.93:
         reasons.append(f"macro_f1 {macro_f1:.6f} below 0.93")
     if snare_recall < canonical_snare_recall:
-        reasons.append(f"snare recall {snare_recall:.6f} below canonical {canonical_snare_recall:.6f}")
+        reasons.append(
+            f"snare recall {snare_recall:.6f} below canonical {canonical_snare_recall:.6f}"
+        )
     if macro_f1 < canonical_macro_f1 - 0.01:
         reasons.append(f"macro_f1 regression exceeds 0.01 vs canonical {canonical_macro_f1:.6f}")
     return {
@@ -744,7 +778,9 @@ def score_runtime_models(
     return score_sets
 
 
-def collect_scoring_events(project_db: Path, project_cache: Path) -> tuple[list[tuple[Path, float]], list[tuple[Path, float]]]:
+def collect_scoring_events(
+    project_db: Path, project_cache: Path
+) -> tuple[list[tuple[Path, float]], list[tuple[Path, float]]]:
     """Collect positive snare and negative kick event windows for real Olivia scoring."""
     positives: list[tuple[Path, float]] = []
     negatives: list[tuple[Path, float]] = []
@@ -752,18 +788,15 @@ def collect_scoring_events(project_db: Path, project_cache: Path) -> tuple[list[
         connection.row_factory = sqlite3.Row
         layer_rows = {
             row["id"]: row
-            for row in connection.execute("select id, song_version_id, name, provenance_json from layers")
-        }
-        song_rows = {
-            row["version_id"]: row
             for row in connection.execute(
-                """
+                "select id, song_version_id, name, provenance_json from layers"
+            )
+        }
+        song_rows = {row["version_id"]: row for row in connection.execute("""
                 select song_versions.id as version_id, songs.title, song_versions.audio_file
                 from song_versions
                 join songs on songs.id = song_versions.song_id
-                """
-            )
-        }
+                """)}
         main_audio_by_layer = collect_main_audio_by_layer(connection)
         query = """
             select takes.layer_id, takes.data_json
@@ -795,7 +828,9 @@ def resolve_reference_model_paths(candidate_model_path: Path) -> list[tuple[str,
     ]
     active = records.get(POSITIVE_LABEL)
     if active is not None:
-        model_paths.append(("active_indexed", models_dir / active.bundle_dir / active.weights_file))
+        model_paths.append(
+            ("active_indexed", models_dir / active.bundle_dir / active.weights_file)
+        )
     unique: list[tuple[str, Path]] = []
     seen: set[Path] = set()
     for name, path in model_paths:
@@ -812,7 +847,9 @@ def score_events(runtime_model, events: list[tuple[Path, float]]) -> list[float]
     try:
         positive_index = runtime_model.classes.index(POSITIVE_LABEL)
     except ValueError as exc:
-        raise RuntimeError(f"Runtime model lacks snare class: {runtime_model.source_path}") from exc
+        raise RuntimeError(
+            f"Runtime model lacks snare class: {runtime_model.source_path}"
+        ) from exc
     scores: list[float] = []
     audio_cache: dict[Path, np.ndarray] = {}
     for audio_path, time_seconds in events:
@@ -856,13 +893,22 @@ def evaluate_olivia_score_gate(score_sets: list[RuntimeScoreSet]) -> dict[str, o
 
 def score_margin(score_set: RuntimeScoreSet) -> float:
     """Compute positive-vs-negative mean separation."""
-    return float(mean(score_set.positive_scores or [0.0]) - mean(score_set.negative_scores or [0.0]))
+    return float(
+        mean(score_set.positive_scores or [0.0]) - mean(score_set.negative_scores or [0.0])
+    )
 
 
 def summarize_scores(scores: list[float]) -> dict[str, float | int]:
     """Summarize classifier scores compactly for reports."""
     if not scores:
-        return {"count": 0, "mean": 0.0, "p10": 0.0, "p50": 0.0, "p90": 0.0, "lowConfidenceCount": 0}
+        return {
+            "count": 0,
+            "mean": 0.0,
+            "p10": 0.0,
+            "p50": 0.0,
+            "p90": 0.0,
+            "lowConfidenceCount": 0,
+        }
     values = np.asarray(scores, dtype=np.float32)
     return {
         "count": int(len(scores)),
@@ -906,7 +952,9 @@ def build_label_policy() -> dict[str, object]:
     }
 
 
-def build_manifest(samples: list[DatasetSample], *, project_path: Path, samples_root: Path) -> dict[str, object]:
+def build_manifest(
+    samples: list[DatasetSample], *, project_path: Path, samples_root: Path
+) -> dict[str, object]:
     """Build the dataset manifest."""
     return {
         "schema": "echozero.olivia_snare_monster_dataset_manifest.v1",
@@ -947,7 +995,9 @@ def build_content_groups(samples: list[DatasetSample]) -> dict[str, list[str]]:
     return {key: sorted(value) for key, value in sorted(groups.items())}
 
 
-def build_label_distribution(samples: list[DatasetSample], assignments: dict[str, str]) -> dict[str, dict[str, int]]:
+def build_label_distribution(
+    samples: list[DatasetSample], assignments: dict[str, str]
+) -> dict[str, dict[str, int]]:
     """Build per-split label counts."""
     distribution: dict[str, dict[str, int]] = {"train": {}, "val": {}, "test": {}}
     for sample in samples:
@@ -957,7 +1007,9 @@ def build_label_distribution(samples: list[DatasetSample], assignments: dict[str
     return distribution
 
 
-def build_group_distribution(samples: list[DatasetSample], assignments: dict[str, str]) -> dict[str, int]:
+def build_group_distribution(
+    samples: list[DatasetSample], assignments: dict[str, str]
+) -> dict[str, int]:
     """Build per-split group counts."""
     groups: dict[str, set[str]] = {"train": set(), "val": set(), "test": set()}
     for sample in samples:

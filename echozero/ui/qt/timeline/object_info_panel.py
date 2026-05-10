@@ -272,9 +272,7 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         self._gain_unity_btn.clicked.connect(
             lambda _checked=False: self._emit_gain_preset("gain_unity")
         )
-        self._gain_up_btn.clicked.connect(
-            lambda _checked=False: self._emit_gain_preset("gain_up")
-        )
+        self._gain_up_btn.clicked.connect(lambda _checked=False: self._emit_gain_preset("gain_up"))
         self._gain_apply_btn.clicked.connect(self._emit_apply_gain)
 
         self._action_buttons: dict[str, QPushButton] = {}
@@ -287,9 +285,7 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         self._layer_controls.setVisible(False)
         self._content_splitter.setStretchFactor(0, 0)
         self._content_splitter.setStretchFactor(1, 1)
-        self._content_splitter.setSizes(
-            [TIMELINE_OBJECT_INFO_METADATA_DEFAULT_HEIGHT_PX, 320]
-        )
+        self._content_splitter.setSizes([TIMELINE_OBJECT_INFO_METADATA_DEFAULT_HEIGHT_PX, 320])
         self._apply_collapsed_state()
 
     @property

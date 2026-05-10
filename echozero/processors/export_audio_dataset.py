@@ -22,17 +22,16 @@ from echozero.execution import ExecutionContext
 from echozero.progress import ProgressReport
 from echozero.result import Result, err, ok
 
-
 # ---------------------------------------------------------------------------
 # Export function signature for DI
 # ---------------------------------------------------------------------------
 
 ExportDatasetFn = Callable[
     [
-        str,   # source_audio_path
-        int,   # sample_rate
-        str,   # output_dir
-        str,   # format (wav, flac, etc.)
+        str,  # source_audio_path
+        int,  # sample_rate
+        str,  # output_dir
+        str,  # format (wav, flac, etc.)
         list[dict[str, Any]],  # clips: [{start, end, label, filename}]
     ],
     int,  # number of clips written
@@ -55,6 +54,7 @@ def _default_export_dataset(
 # ---------------------------------------------------------------------------
 # Processor
 # ---------------------------------------------------------------------------
+
 
 class ExportAudioDatasetProcessor:
     """Extracts audio clips at event time regions for ML dataset creation."""
@@ -79,18 +79,22 @@ class ExportAudioDatasetProcessor:
         # Read audio input
         audio = context.get_input(block_id, "audio_in", AudioData)
         if audio is None:
-            return err(ExecutionError(
-                f"Block '{block_id}' has no audio input — "
-                f"connect an audio source to 'audio_in'"
-            ))
+            return err(
+                ExecutionError(
+                    f"Block '{block_id}' has no audio input — "
+                    f"connect an audio source to 'audio_in'"
+                )
+            )
 
         # Read event input
         event_data = context.get_input(block_id, "events_in", EventData)
         if event_data is None:
-            return err(ExecutionError(
-                f"Block '{block_id}' has no event input — "
-                f"connect an event source to 'events_in'"
-            ))
+            return err(
+                ExecutionError(
+                    f"Block '{block_id}' has no event input — "
+                    f"connect an event source to 'events_in'"
+                )
+            )
 
         # Read settings
         block = context.graph.blocks.get(block_id)
@@ -104,9 +108,9 @@ class ExportAudioDatasetProcessor:
         min_duration = settings.get("min_duration", 0.01)
 
         if not output_dir:
-            return err(ValidationError(
-                f"Block '{block_id}' is missing required setting 'output_dir'"
-            ))
+            return err(
+                ValidationError(f"Block '{block_id}' is missing required setting 'output_dir'")
+            )
 
         # Build clip list from events
         clips: list[dict[str, Any]] = []
@@ -134,18 +138,22 @@ class ExportAudioDatasetProcessor:
 
                 filename = f"{event.id}.{fmt}"
 
-                clips.append({
-                    "start": event.time,
-                    "end": event.time + event.duration,
-                    "label": label,
-                    "filename": filename,
-                    "output_dir": clip_dir,
-                })
+                clips.append(
+                    {
+                        "start": event.time,
+                        "end": event.time + event.duration,
+                        "label": label,
+                        "filename": filename,
+                        "output_dir": clip_dir,
+                    }
+                )
 
         if not clips:
-            return err(ExecutionError(
-                f"No events with duration >= {min_duration}s for block '{block_id}'"
-            ))
+            return err(
+                ExecutionError(
+                    f"No events with duration >= {min_duration}s for block '{block_id}'"
+                )
+            )
 
         context.progress_bus.publish(
             ProgressReport(
@@ -166,14 +174,14 @@ class ExportAudioDatasetProcessor:
                 clips=clips,
             )
         except NotImplementedError:
-            return err(ExecutionError(
-                f"Dataset export backend not available for block '{block_id}'. "
-                f"Install soundfile or provide a custom export_fn."
-            ))
+            return err(
+                ExecutionError(
+                    f"Dataset export backend not available for block '{block_id}'. "
+                    f"Install soundfile or provide a custom export_fn."
+                )
+            )
         except Exception as exc:
-            return err(ExecutionError(
-                f"Dataset export failed for block '{block_id}': {exc}"
-            ))
+            return err(ExecutionError(f"Dataset export failed for block '{block_id}': {exc}"))
 
         context.progress_bus.publish(
             ProgressReport(
@@ -184,11 +192,11 @@ class ExportAudioDatasetProcessor:
             )
         )
 
-        return ok({
-            "clips_exported": clips_written,
-            "output_dir": output_dir,
-            "classes": sorted(classes_seen),
-            "format": fmt,
-        })
-
-
+        return ok(
+            {
+                "clips_exported": clips_written,
+                "output_dir": output_dir,
+                "classes": sorted(classes_seen),
+                "format": fmt,
+            }
+        )

@@ -149,10 +149,14 @@ class _CollidingBinaryDrumClassifyExecutor:
                 )
             )
         if target_class == "kick":
-            return ok(EventData(layers=(DomainLayer(id="kick", name="kick", events=tuple(kick_events)),)))
+            return ok(
+                EventData(layers=(DomainLayer(id="kick", name="kick", events=tuple(kick_events)),))
+            )
         if target_class == "snare":
             return ok(
-                EventData(layers=(DomainLayer(id="snare", name="snare", events=tuple(snare_events)),))
+                EventData(
+                    layers=(DomainLayer(id="snare", name="snare", events=tuple(snare_events)),)
+                )
             )
         return ok(
             EventData(
@@ -267,10 +271,14 @@ class _CaptureBinaryDrumClassifyAudioExecutor:
                 )
             )
         if target_class == "kick":
-            return ok(EventData(layers=(DomainLayer(id="kick", name="kick", events=tuple(kick_events)),)))
+            return ok(
+                EventData(layers=(DomainLayer(id="kick", name="kick", events=tuple(kick_events)),))
+            )
         if target_class == "snare":
             return ok(
-                EventData(layers=(DomainLayer(id="snare", name="snare", events=tuple(snare_events)),))
+                EventData(
+                    layers=(DomainLayer(id="snare", name="snare", events=tuple(snare_events)),)
+                )
             )
         return ok(
             EventData(
@@ -347,7 +355,6 @@ def _merged_binary_drum_input_events(
                 seen.add(key)
                 merged.append(event)
     return tuple(merged)
-
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

@@ -159,7 +159,9 @@ def test_app_shell_runtime_add_song_after_draft_layer_keeps_draft_above_source()
             "Imported Song",
         ]
 
-        source_layer = next(layer for layer in presentation.layers if layer.title == "Imported Song")
+        source_layer = next(
+            layer for layer in presentation.layers if layer.title == "Imported Song"
+        )
         assert presentation.selected_layer_id == source_layer.layer_id
         assert presentation.selected_layer_id == source_layer.layer_id
         assert runtime.session.active_song_version_id is not None
@@ -385,5 +387,6 @@ def test_app_shell_runtime_canonical_build_starts_with_native_empty_timeline_sta
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
+
 
 __all__ = [name for name in globals() if name.startswith("test_")]

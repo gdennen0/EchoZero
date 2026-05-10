@@ -5,7 +5,10 @@ from dataclasses import dataclass
 from PyQt6.QtCore import QRectF, Qt
 from PyQt6.QtGui import QColor, QPainter, QBrush, QFont, QFontMetrics
 
-from echozero.application.presentation.models import LayerHeaderControlPresentation, LayerPresentation
+from echozero.application.presentation.models import (
+    LayerHeaderControlPresentation,
+    LayerPresentation,
+)
 from echozero.ui.qt.timeline.style import LayerHeaderStyle, StatusChipStyle, TIMELINE_STYLE
 
 
@@ -42,9 +45,7 @@ class LayerHeaderBlock:
         fill_hex = (
             self.style.selected_background_hex
             if layer.is_selected and not dimmed
-            else self.style.dimmed_background_hex
-            if dimmed
-            else self.style.background_hex
+            else self.style.dimmed_background_hex if dimmed else self.style.background_hex
         )
         painter.fillRect(rect, QColor(fill_hex))
 
@@ -55,7 +56,9 @@ class LayerHeaderBlock:
         painter.setPen(QColor(self.style.dimmed_title_hex if dimmed else self.style.title_hex))
         painter.drawText(
             slots.title_rect,
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter | Qt.TextFlag.TextSingleLine,
+            Qt.AlignmentFlag.AlignLeft
+            | Qt.AlignmentFlag.AlignVCenter
+            | Qt.TextFlag.TextSingleLine,
             self._elided_title_text(layer.title, title_font, slots.title_rect.width()),
         )
         control_rects: list[tuple[str, QRectF]] = []
@@ -86,7 +89,7 @@ class LayerHeaderBlock:
             painter.drawText(
                 slots.toggle_rect.adjusted(0, -1, 0, -1),
                 Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine,
-                '+' if layer.is_fully_collapsed else 'v' if layer.is_expanded else '>',
+                "+" if layer.is_fully_collapsed else "v" if layer.is_expanded else ">",
             )
             painter.setFont(prior_font)
         return HeaderHitTargets(control_rects=tuple(control_rects))
@@ -150,7 +153,9 @@ class LayerHeaderBlock:
             return 52.0
         return max(40.0, 10.0 + (len(control.label) * 7.0))
 
-    def _draw_status_chips(self, painter: QPainter, rect: QRectF, layer: LayerPresentation) -> None:
+    def _draw_status_chips(
+        self, painter: QPainter, rect: QRectF, layer: LayerPresentation
+    ) -> None:
         if rect.height() < 10:
             return
         x = rect.left()
@@ -159,15 +164,19 @@ class LayerHeaderBlock:
                 self._draw_chip(
                     painter,
                     QRectF(x, rect.top(), 46, 16),
-                    'STALE',
+                    "STALE",
                     self.style.status.stale,
                 )
                 + 6
             )
         if layer.status.manually_modified:
-            self._draw_chip(painter, QRectF(x, rect.top(), 52, 16), 'EDITED', self.style.status.edited)
+            self._draw_chip(
+                painter, QRectF(x, rect.top(), 52, 16), "EDITED", self.style.status.edited
+            )
 
-    def _draw_chip(self, painter: QPainter, rect: QRectF, text: str, style: StatusChipStyle) -> float:
+    def _draw_chip(
+        self, painter: QPainter, rect: QRectF, text: str, style: StatusChipStyle
+    ) -> float:
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(QColor(style.fill_hex)))
         painter.drawRoundedRect(rect, style.corner_radius, style.corner_radius)
@@ -215,7 +224,9 @@ class LayerHeaderBlock:
         )
         painter.setFont(prior_font)
 
-    def _draw_action_button(self, painter: QPainter, rect: QRectF, label: str, *, dimmed: bool) -> None:
+    def _draw_action_button(
+        self, painter: QPainter, rect: QRectF, label: str, *, dimmed: bool
+    ) -> None:
         button_style = self.style.mute_solo
         fill_hex = button_style.inactive.fill_hex
         if dimmed:

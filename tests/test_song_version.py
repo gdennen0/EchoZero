@@ -296,9 +296,7 @@ class TestLtcImportPreprocessing:
         timecode_takes = session.takes.list_by_layer(layers[0].id)
         assert len(timecode_takes) == 1
         assert isinstance(timecode_takes[0].data, AudioData)
-        assert str(timecode_takes[0].data.file_path).endswith(
-            f"{'a' * 16}_ltc_left.wav"
-        )
+        assert str(timecode_takes[0].data.file_path).endswith(f"{'a' * 16}_ltc_left.wav")
         session.close()
 
     def test_ltc_channel_flip_extracts_left_audio_when_ltc_is_right(
@@ -361,9 +359,7 @@ class TestLtcImportPreprocessing:
         timecode_takes = session.takes.list_by_layer(layers[0].id)
         assert len(timecode_takes) == 1
         assert isinstance(timecode_takes[0].data, AudioData)
-        assert str(timecode_takes[0].data.file_path).endswith(
-            f"{'b' * 16}_ltc_right.wav"
-        )
+        assert str(timecode_takes[0].data.file_path).endswith(f"{'b' * 16}_ltc_right.wav")
         session.close()
 
 
@@ -418,6 +414,7 @@ class TestDefaultTemplates:
         configs = session.pipeline_configs.list_by_version(v1.id)
         assert len(configs) == 0
         session.close()
+
     def test_add_version_copies_song_defaults_not_active_version(self, tmp_path: Path) -> None:
         """add_song_version uses song defaults as the source of effective settings."""
         session = _create_session(tmp_path)
@@ -794,7 +791,9 @@ class TestAddSongVersion:
         audio1 = _create_audio_file(tmp_path, "v1.wav")
         audio2 = _create_audio_file(tmp_path, "v2.wav")
 
-        song, v1 = session.import_song("Test SongRecord", audio1, scan_fn=_mock_scan, default_templates=[])
+        song, v1 = session.import_song(
+            "Test SongRecord", audio1, scan_fn=_mock_scan, default_templates=[]
+        )
         source_layer = _make_layer_record(song_version_id=v1.id, name="Drums", order=0)
         session.layers.create(source_layer)
         session.takes.create(source_layer.id, _make_audio_take(label="Take 1", is_main=True))
@@ -810,7 +809,9 @@ class TestAddSongVersion:
         audio1 = _create_audio_file(tmp_path, "v1.wav")
         audio2 = _create_audio_file(tmp_path, "v2.wav")
 
-        song, v1 = session.import_song("Test SongRecord", audio1, scan_fn=_mock_scan, default_templates=[])
+        song, v1 = session.import_song(
+            "Test SongRecord", audio1, scan_fn=_mock_scan, default_templates=[]
+        )
         parent_layer = _make_layer_record(song_version_id=v1.id, name="Drums", order=0)
         child_layer = _make_layer_record(
             song_version_id=v1.id,
@@ -853,7 +854,9 @@ class TestAddSongVersion:
         audio1 = _create_audio_file(tmp_path, "v1.wav")
         audio2 = _create_audio_file(tmp_path, "v2.wav")
 
-        song, v1 = session.import_song("Test SongRecord", audio1, scan_fn=_mock_scan, default_templates=[])
+        song, v1 = session.import_song(
+            "Test SongRecord", audio1, scan_fn=_mock_scan, default_templates=[]
+        )
         drums = _make_layer_record(song_version_id=v1.id, name="Drums", order=0)
         bass = _make_layer_record(song_version_id=v1.id, name="Bass", order=1)
         fx = _make_layer_record(song_version_id=v1.id, name="FX", order=2)

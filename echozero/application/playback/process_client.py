@@ -34,7 +34,6 @@ from echozero.application.presentation.models import TimelinePresentation
 from echozero.application.settings import AudioOutputRuntimeConfig
 from echozero.errors import InfrastructureError
 
-
 try:
     from websockets.sync.client import connect as ws_connect
 except ImportError as exc:  # pragma: no cover - environment contract
@@ -326,7 +325,9 @@ class ProcessPlaybackClient:
         diagnostics.last_ipc_command = self._last_ipc_command
         return state
 
-    def presentation_signature(self, presentation: TimelinePresentation) -> tuple[tuple[str, str], ...]:
+    def presentation_signature(
+        self, presentation: TimelinePresentation
+    ) -> tuple[tuple[str, str], ...]:
         payload = PlaybackSyncPayload.from_presentation(presentation).to_dict()
         self._latest_sync_payload = payload
         response = self._command("presentation_signature", {"payload": payload})
@@ -556,9 +557,12 @@ class ProcessPlaybackClient:
             return
 
         if event_type == "latency-profile-switched":
-            self._latency_profile = str(body.get("profile", self._latency_profile) or self._latency_profile)
+            self._latency_profile = str(
+                body.get("profile", self._latency_profile) or self._latency_profile
+            )
             self._latency_profile_switch_count = int(
-                body.get("switch_count", self._latency_profile_switch_count) or self._latency_profile_switch_count
+                body.get("switch_count", self._latency_profile_switch_count)
+                or self._latency_profile_switch_count
             )
             self._last_latency_profile_reason = (
                 str(body.get("reason")) if body.get("reason") is not None else None

@@ -39,7 +39,6 @@ from echozero.result import is_err, unwrap
 from echozero.serialization import deserialize_graph, deserialize_pipeline, serialize_graph
 from echozero.takes import Take, TakeLayer, TakeLayerError
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -229,7 +228,12 @@ class TestE1ExceptionChaining:
 
     def test_executor_exception_is_execution_error(self):
         """Executor exceptions should be wrapped in ExecutionError."""
-        from echozero.execution import BlockExecutor, ExecutionContext, ExecutionEngine, GraphPlanner
+        from echozero.execution import (
+            BlockExecutor,
+            ExecutionContext,
+            ExecutionEngine,
+            GraphPlanner,
+        )
         from echozero.progress import RuntimeBus
 
         graph = Graph()
@@ -259,6 +263,7 @@ class TestE1ExceptionChaining:
         assert is_err(result)
         # Should be ExecutionError, not RuntimeError
         from echozero.result import Err
+
         assert isinstance(result, Err)
         assert isinstance(result.error, ExecutionError)
         # Original cause should be chained
@@ -267,7 +272,12 @@ class TestE1ExceptionChaining:
 
     def test_executor_exception_message_contains_block_type(self):
         """Error message should include the block type for debugging."""
-        from echozero.execution import BlockExecutor, ExecutionContext, ExecutionEngine, GraphPlanner
+        from echozero.execution import (
+            BlockExecutor,
+            ExecutionContext,
+            ExecutionEngine,
+            GraphPlanner,
+        )
         from echozero.progress import RuntimeBus
 
         graph = Graph()
@@ -294,6 +304,7 @@ class TestE1ExceptionChaining:
         result = engine.run(plan)
 
         from echozero.result import Err
+
         assert isinstance(result.error, ExecutionError)
         assert "MyBlockType" in str(result.error)
 
@@ -378,21 +389,25 @@ class TestS3ChangeSettings:
         bus.subscribe(SettingsChangedEvent, lambda e: events_received.append(e))
 
         pipeline = EditorPipeline(bus)
-        pipeline.dispatch(AddBlockCommand(
-            block_id="b1",
-            name="B1",
-            block_type="T",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(),
-            output_ports=(),
-            control_ports=(),
-            settings_entries=(("gain", 1.0),),
-        ))
-        pipeline.dispatch(ChangeBlockSettingsCommand(
-            block_id="b1",
-            setting_key="gain",
-            new_value=2.0,
-        ))
+        pipeline.dispatch(
+            AddBlockCommand(
+                block_id="b1",
+                name="B1",
+                block_type="T",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(),
+                output_ports=(),
+                control_ports=(),
+                settings_entries=(("gain", 1.0),),
+            )
+        )
+        pipeline.dispatch(
+            ChangeBlockSettingsCommand(
+                block_id="b1",
+                setting_key="gain",
+                new_value=2.0,
+            )
+        )
 
         assert len(events_received) == 1
         assert events_received[0].setting_key == "gain"
@@ -470,10 +485,7 @@ class TestO1GraphMutationDuringIteration:
             graph.add_block(block)
 
         # Collect IDs first (O1 fix pattern)
-        load_audio_ids = [
-            bid for bid, b in graph.blocks.items()
-            if b.block_type == "LoadAudio"
-        ]
+        load_audio_ids = [bid for bid, b in graph.blocks.items() if b.block_type == "LoadAudio"]
         audio_path = "test/audio.wav"
         for block_id in load_audio_ids:
             block = graph.blocks[block_id]

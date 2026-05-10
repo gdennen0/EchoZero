@@ -13,7 +13,15 @@ from echozero.application.session.models import (
 )
 from echozero.application.session.service import SessionService
 from echozero.application.shared.enums import LayerKind
-from echozero.application.shared.ids import EventId, LayerId, ProjectId, SessionId, SongVersionId, TakeId, TimelineId
+from echozero.application.shared.ids import (
+    EventId,
+    LayerId,
+    ProjectId,
+    SessionId,
+    SongVersionId,
+    TakeId,
+    TimelineId,
+)
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
 from echozero.application.timeline.intents import (
@@ -191,7 +199,15 @@ def _build_orchestrator(sync_service: SyncService):
                 id=TakeId("take_kick"),
                 layer_id=LayerId("layer_kick"),
                 name="Main",
-                events=[Event(id=EventId("kick_evt"), take_id=TakeId("take_kick"), start=1.0, end=1.5, label="Kick")],
+                events=[
+                    Event(
+                        id=EventId("kick_evt"),
+                        take_id=TakeId("take_kick"),
+                        start=1.0,
+                        end=1.5,
+                        label="Kick",
+                    )
+                ],
             )
         ],
     )
@@ -206,7 +222,15 @@ def _build_orchestrator(sync_service: SyncService):
                 id=TakeId("take_snare"),
                 layer_id=LayerId("layer_snare"),
                 name="Main",
-                events=[Event(id=EventId("snare_evt"), take_id=TakeId("take_snare"), start=2.0, end=2.5, label="Snare")],
+                events=[
+                    Event(
+                        id=EventId("snare_evt"),
+                        take_id=TakeId("take_snare"),
+                        start=2.0,
+                        end=2.5,
+                        label="Snare",
+                    )
+                ],
             )
         ],
     )
@@ -247,7 +271,10 @@ def test_save_transfer_preset_captures_current_mappings_in_creation_order():
     orchestrator.handle(timeline, SaveTransferPreset(name="Drum Mapping"))
     orchestrator.handle(timeline, SaveTransferPreset(name="Drum Mapping"))
 
-    assert [preset.preset_id for preset in session.transfer_presets] == ["drum-mapping", "drum-mapping-2"]
+    assert [preset.preset_id for preset in session.transfer_presets] == [
+        "drum-mapping",
+        "drum-mapping-2",
+    ]
     assert [preset.name for preset in session.transfer_presets] == ["Drum Mapping", "Drum Mapping"]
     assert session.transfer_presets[0].push_target_mapping_by_layer_id == {
         LayerId("layer_kick"): "tc1_tg2_tr3",
@@ -288,9 +315,15 @@ def test_apply_transfer_preset_updates_active_push_context_and_rebuilds_rows():
     assert timeline.layers[1].sync.ma3_track_coord == "tc1_tg2_tr4"
     assert session.manual_push_flow.target_track_coord == "tc1_tg2_tr3"
     assert session.batch_transfer_plan is not None
-    assert [row.row_id for row in session.batch_transfer_plan.rows] == ["push:layer_kick", "push:layer_snare"]
+    assert [row.row_id for row in session.batch_transfer_plan.rows] == [
+        "push:layer_kick",
+        "push:layer_snare",
+    ]
     assert [row.status for row in session.batch_transfer_plan.rows] == ["ready", "ready"]
-    assert [row.target_track_coord for row in session.batch_transfer_plan.rows] == ["tc1_tg2_tr3", "tc1_tg2_tr4"]
+    assert [row.target_track_coord for row in session.batch_transfer_plan.rows] == [
+        "tc1_tg2_tr3",
+        "tc1_tg2_tr4",
+    ]
 
 
 def test_apply_and_delete_transfer_preset_updates_active_pull_context():
@@ -318,7 +351,9 @@ def test_apply_and_delete_transfer_preset_updates_active_pull_context():
 
     orchestrator.handle(timeline, OpenPullFromMA3Dialog())
     orchestrator.handle(timeline, SetPullTrackOptions(tracks=tracks))
-    orchestrator.handle(timeline, SelectPullSourceTracks(source_track_coords=["tc1_tg2_tr3", "tc1_tg2_tr4"]))
+    orchestrator.handle(
+        timeline, SelectPullSourceTracks(source_track_coords=["tc1_tg2_tr3", "tc1_tg2_tr4"])
+    )
     orchestrator.handle(timeline, SelectPullSourceTrack(source_track_coord="tc1_tg2_tr3"))
     orchestrator.handle(timeline, SelectPullSourceEvents(selected_ma3_event_ids=["ma3_evt_1"]))
     orchestrator.handle(timeline, SelectPullSourceTrack(source_track_coord="tc1_tg2_tr4"))

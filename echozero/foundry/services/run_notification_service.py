@@ -10,7 +10,6 @@ from typing import Any, Callable, cast
 
 from echozero.foundry.domain import TrainRun, TrainRunStatus
 
-
 _TERMINAL_STATUSES = {TrainRunStatus.COMPLETED, TrainRunStatus.FAILED, TrainRunStatus.CANCELED}
 _ACTIVE_STATUSES = {
     TrainRunStatus.QUEUED,
@@ -61,7 +60,11 @@ class RunNotificationService:
 
             terminal_count = len(terminal_runs)
             last_milestone = int(state.get("last_milestone_notified", 0))
-            if terminal_count >= 3 and terminal_count % 3 == 0 and terminal_count != last_milestone:
+            if (
+                terminal_count >= 3
+                and terminal_count % 3 == 0
+                and terminal_count != last_milestone
+            ):
                 self.notify_openclaw_deduped(
                     f"milestone:{terminal_count}",
                     f"Foundry milestone: {terminal_count} runs reached terminal state.",
@@ -72,9 +75,13 @@ class RunNotificationService:
                 state["last_milestone_notified"] = terminal_count
 
             if not active_runs:
-                completed = sum(1 for item in terminal_runs if item.status == TrainRunStatus.COMPLETED)
+                completed = sum(
+                    1 for item in terminal_runs if item.status == TrainRunStatus.COMPLETED
+                )
                 failed = sum(1 for item in terminal_runs if item.status == TrainRunStatus.FAILED)
-                canceled = sum(1 for item in terminal_runs if item.status == TrainRunStatus.CANCELED)
+                canceled = sum(
+                    1 for item in terminal_runs if item.status == TrainRunStatus.CANCELED
+                )
                 digest_signature = f"{terminal_count}:{completed}:{failed}:{canceled}"
                 if digest_signature != state.get("last_digest_signature"):
                     self.notify_openclaw_deduped(

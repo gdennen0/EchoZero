@@ -33,17 +33,21 @@ from echozero.services.orchestrator import (
     OutputMapping,
 )
 
-
 # ---------------------------------------------------------------------------
 # Mock executors
 # ---------------------------------------------------------------------------
 
+
 class MockLoadAudio:
     def execute(self, block_id, context):
-        return ok(AudioData(
-            sample_rate=44100, duration=180.0,
-            file_path="test.wav", channel_count=2,
-        ))
+        return ok(
+            AudioData(
+                sample_rate=44100,
+                duration=180.0,
+                file_path="test.wav",
+                channel_count=2,
+            )
+        )
 
 
 class CaptureLoadAudioPath:
@@ -53,49 +57,83 @@ class CaptureLoadAudioPath:
     def execute(self, block_id, context):
         path = context.graph.blocks[block_id].settings.get("file_path", "")
         self.paths.append(path)
-        return ok(AudioData(
-            sample_rate=44100,
-            duration=180.0,
-            file_path=path,
-            channel_count=2,
-        ))
+        return ok(
+            AudioData(
+                sample_rate=44100,
+                duration=180.0,
+                file_path=path,
+                channel_count=2,
+            )
+        )
 
 
 class EmptyDetectOnsets:
     def execute(self, block_id, context):
-        return ok(EventData(layers=(
-            Layer(id="onsets_layer", name="onsets", events=()),
-        )))
+        return ok(EventData(layers=(Layer(id="onsets_layer", name="onsets", events=()),)))
 
 
 class MockDetectOnsets:
     """Returns 3 onset events."""
+
     def execute(self, block_id, context):
-        return ok(EventData(layers=(
-            Layer(id="onsets_layer", name="onsets", events=(
-                Event(id="e1", time=1.0, duration=0.1,
-                      classifications={"type": "onset"}, metadata={}, origin="pipeline"),
-                Event(id="e2", time=2.5, duration=0.1,
-                      classifications={"type": "onset"}, metadata={}, origin="pipeline"),
-                Event(id="e3", time=4.0, duration=0.1,
-                      classifications={"type": "onset"}, metadata={}, origin="pipeline"),
-            )),
-        )))
+        return ok(
+            EventData(
+                layers=(
+                    Layer(
+                        id="onsets_layer",
+                        name="onsets",
+                        events=(
+                            Event(
+                                id="e1",
+                                time=1.0,
+                                duration=0.1,
+                                classifications={"type": "onset"},
+                                metadata={},
+                                origin="pipeline",
+                            ),
+                            Event(
+                                id="e2",
+                                time=2.5,
+                                duration=0.1,
+                                classifications={"type": "onset"},
+                                metadata={},
+                                origin="pipeline",
+                            ),
+                            Event(
+                                id="e3",
+                                time=4.0,
+                                duration=0.1,
+                                classifications={"type": "onset"},
+                                metadata={},
+                                origin="pipeline",
+                            ),
+                        ),
+                    ),
+                )
+            )
+        )
 
 
 class MockSeparator:
     """Returns 4 stem AudioData on separate ports."""
+
     def execute(self, block_id, context):
-        return ok({
-            "drums_out": AudioData(sample_rate=44100, duration=180.0,
-                                    file_path="/tmp/drums.wav", channel_count=2),
-            "bass_out": AudioData(sample_rate=44100, duration=180.0,
-                                   file_path="/tmp/bass.wav", channel_count=2),
-            "vocals_out": AudioData(sample_rate=44100, duration=180.0,
-                                     file_path="/tmp/vocals.wav", channel_count=2),
-            "other_out": AudioData(sample_rate=44100, duration=180.0,
-                                    file_path="/tmp/other.wav", channel_count=2),
-        })
+        return ok(
+            {
+                "drums_out": AudioData(
+                    sample_rate=44100, duration=180.0, file_path="/tmp/drums.wav", channel_count=2
+                ),
+                "bass_out": AudioData(
+                    sample_rate=44100, duration=180.0, file_path="/tmp/bass.wav", channel_count=2
+                ),
+                "vocals_out": AudioData(
+                    sample_rate=44100, duration=180.0, file_path="/tmp/vocals.wav", channel_count=2
+                ),
+                "other_out": AudioData(
+                    sample_rate=44100, duration=180.0, file_path="/tmp/other.wav", channel_count=2
+                ),
+            }
+        )
 
 
 class MockClassify:
@@ -107,9 +145,14 @@ class MockClassify:
         new_layers = []
         for layer in events_in.layers:
             new_events = tuple(
-                Event(id=e.id, time=e.time, duration=e.duration,
-                      classifications={"class": "kick"}, metadata=e.metadata,
-                      origin=e.origin)
+                Event(
+                    id=e.id,
+                    time=e.time,
+                    duration=e.duration,
+                    classifications={"class": "kick"},
+                    metadata=e.metadata,
+                    origin=e.origin,
+                )
                 for e in layer.events
             )
             new_layers.append(Layer(id=layer.id, name=layer.name, events=new_events))
@@ -138,13 +181,20 @@ def _create_session(tmp_path, audio_file="/path/to/test.wav"):
     song = SongRecord(
         id=uuid.uuid4().hex,
         project_id=session.project.id,
-        title="Test SongRecord", artist="Test Artist", order=0,
+        title="Test SongRecord",
+        artist="Test Artist",
+        order=0,
     )
     session.songs.create(song)
     version = SongVersionRecord(
-        id=uuid.uuid4().hex, song_id=song.id, label="Studio Mix",
-        audio_file=audio_file, duration_seconds=180.0,
-        original_sample_rate=44100, audio_hash="abc123", created_at=now,
+        id=uuid.uuid4().hex,
+        song_id=song.id,
+        label="Studio Mix",
+        audio_file=audio_file,
+        duration_seconds=180.0,
+        original_sample_rate=44100,
+        audio_hash="abc123",
+        created_at=now,
     )
     session.song_versions.create(version)
     session.commit()
@@ -154,6 +204,7 @@ def _create_session(tmp_path, audio_file="/path/to/test.wav"):
 # ---------------------------------------------------------------------------
 # Auto-mapping: onset_detection (EventData → layer_take)
 # ---------------------------------------------------------------------------
+
 
 class TestAutoMapping:
     def test_event_data_auto_maps_to_layer_take(self, tmp_path):
@@ -210,13 +261,17 @@ class TestAutoMapping:
 # Custom OutputMapping
 # ---------------------------------------------------------------------------
 
+
 class TestCustomMapping:
     def test_custom_label_overrides_auto(self, tmp_path):
         session, _, version = _create_session(tmp_path)
         orch = Orchestrator(get_registry(), _default_executors())
-        orch.set_output_mappings("onset_detection", [
-            OutputMapping(output_name="onsets", label="My Custom Onsets"),
-        ])
+        orch.set_output_mappings(
+            "onset_detection",
+            [
+                OutputMapping(output_name="onsets", label="My Custom Onsets"),
+            ],
+        )
 
         orch.analyze(session, version.id, "onset_detection")
 
@@ -229,9 +284,12 @@ class TestCustomMapping:
         """Force an EventData output to song_version target (no-op in V1 but validates routing)."""
         session, _, version = _create_session(tmp_path)
         orch = Orchestrator(get_registry(), _default_executors())
-        orch.set_output_mappings("onset_detection", [
-            OutputMapping(output_name="onsets", target="song_version", label="Onsets Audio"),
-        ])
+        orch.set_output_mappings(
+            "onset_detection",
+            [
+                OutputMapping(output_name="onsets", target="song_version", label="Onsets Audio"),
+            ],
+        )
 
         result = orch.analyze(session, version.id, "onset_detection")
         assert isinstance(result, Ok)
@@ -244,6 +302,7 @@ class TestCustomMapping:
 # ---------------------------------------------------------------------------
 # Multi-output pipelines (full_analysis)
 # ---------------------------------------------------------------------------
+
 
 class TestMultiOutput:
     def test_full_analysis_creates_four_layers(self, tmp_path):
@@ -286,6 +345,7 @@ class TestMultiOutput:
 # Re-run behavior (same as before, but through output-based mapping)
 # ---------------------------------------------------------------------------
 
+
 class TestRerun:
     def test_rerun_adds_non_main_take(self, tmp_path):
         session, _, version = _create_session(tmp_path)
@@ -322,6 +382,7 @@ class TestRerun:
 # Provenance tracking
 # ---------------------------------------------------------------------------
 
+
 class TestProvenance:
     def test_take_source_has_block_info(self, tmp_path):
         session, _, version = _create_session(tmp_path)
@@ -352,6 +413,7 @@ class TestProvenance:
 # Persistence round-trip
 # ---------------------------------------------------------------------------
 
+
 class TestRoundTrip:
     def test_close_reopen_verify(self, tmp_path):
         session, _, version = _create_session(tmp_path)
@@ -377,6 +439,7 @@ class TestRoundTrip:
 # Error handling
 # ---------------------------------------------------------------------------
 
+
 class TestErrors:
     def test_nonexistent_song_version(self, tmp_path):
         session = ProjectStorage.create_new("Test", working_dir_root=tmp_path)
@@ -396,8 +459,9 @@ class TestErrors:
     def test_invalid_bindings(self, tmp_path):
         session, _, version = _create_session(tmp_path)
         orch = Orchestrator(get_registry(), _default_executors())
-        result = orch.analyze(session, version.id, "onset_detection",
-                              bindings={"threshold": "bad"})
+        result = orch.analyze(
+            session, version.id, "onset_detection", bindings={"threshold": "bad"}
+        )
         assert isinstance(result, Err)
         session.close()
 
@@ -406,14 +470,18 @@ class TestErrors:
 # Audio path resolution
 # ---------------------------------------------------------------------------
 
+
 class TestAudioPathResolution:
     def test_relative_song_audio_path_is_resolved_against_working_dir(self, tmp_path):
         session, _, version = _create_session(tmp_path, audio_file="audio/clip.wav")
         load_exec = CaptureLoadAudioPath()
-        orch = Orchestrator(get_registry(), {
-            "LoadAudio": load_exec,
-            "DetectOnsets": EmptyDetectOnsets(),
-        })
+        orch = Orchestrator(
+            get_registry(),
+            {
+                "LoadAudio": load_exec,
+                "DetectOnsets": EmptyDetectOnsets(),
+            },
+        )
 
         result = orch.analyze(session, version.id, "onset_detection")
 
@@ -426,6 +494,7 @@ class TestAudioPathResolution:
 # ---------------------------------------------------------------------------
 # Label derivation
 # ---------------------------------------------------------------------------
+
 
 class TestLabelDerivation:
     def test_simple_name(self):
@@ -441,6 +510,7 @@ class TestLabelDerivation:
 # ---------------------------------------------------------------------------
 # Output resolution
 # ---------------------------------------------------------------------------
+
 
 class TestOutputResolution:
     def test_single_port_output(self):
@@ -471,6 +541,7 @@ class TestOutputResolution:
 # ---------------------------------------------------------------------------
 # Target auto-detection
 # ---------------------------------------------------------------------------
+
 
 class TestTargetAutoDetect:
     def test_event_data_auto_detects_layer_take(self):

@@ -6,14 +6,29 @@ from echozero.application.mixer.models import AudibilityState, MixerState, Layer
 from echozero.application.mixer.service import MixerService
 from echozero.application.playback.models import PlaybackState
 from echozero.application.playback.service import PlaybackService
-from echozero.application.session.models import ManualPushDiffPreview, ManualPushTrackOption, Session
+from echozero.application.session.models import (
+    ManualPushDiffPreview,
+    ManualPushTrackOption,
+    Session,
+)
 from echozero.application.session.service import SessionService
 from echozero.application.shared.enums import LayerKind
-from echozero.application.shared.ids import EventId, ProjectId, SessionId, SongVersionId, TimelineId
+from echozero.application.shared.ids import (
+    EventId,
+    ProjectId,
+    SessionId,
+    SongVersionId,
+    TimelineId,
+)
 from echozero.application.sync.diff_service import SyncDiffRow, SyncDiffSummary
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
-from echozero.application.timeline.intents import ConfirmPushToMA3, OpenPushToMA3Dialog, SelectLayer, SetPushTransferMode
+from echozero.application.timeline.intents import (
+    ConfirmPushToMA3,
+    OpenPushToMA3Dialog,
+    SelectLayer,
+    SetPushTransferMode,
+)
 from echozero.application.timeline.models import Event, Layer, Take, Timeline
 from echozero.application.timeline.orchestrator import TimelineOrchestrator
 from echozero.application.transport.models import TransportState
@@ -148,9 +163,7 @@ class _PushTrackListingSyncService(_SyncService):
         if timecode_no is None:
             return list(self._tracks)
         return [
-            track
-            for track in self._tracks
-            if track.coord.startswith(f"tc{int(timecode_no)}_")
+            track for track in self._tracks if track.coord.startswith(f"tc{int(timecode_no)}_")
         ]
 
 
@@ -276,13 +289,15 @@ def test_open_push_intent_hydrates_available_tracks_from_sync_service_provider()
         ),
         ManualPushTrackOption(coord="tc1_tg1_tr2", name="Track 2"),
     ]
-    assert [(timecode.number, timecode.name) for timecode in session.manual_push_flow.available_timecodes] == [
-        (1, None)
-    ]
+    assert [
+        (timecode.number, timecode.name)
+        for timecode in session.manual_push_flow.available_timecodes
+    ] == [(1, None)]
     assert session.manual_push_flow.selected_timecode_no == 1
-    assert [(group.number, group.track_count) for group in session.manual_push_flow.available_track_groups] == [
-        (1, 2)
-    ]
+    assert [
+        (group.number, group.track_count)
+        for group in session.manual_push_flow.available_track_groups
+    ] == [(1, 2)]
     assert session.manual_push_flow.selected_track_group_no == 1
 
 
@@ -419,7 +434,10 @@ def test_open_push_intent_uses_multi_layer_scope_for_push_plan_rows():
         OpenPushToMA3Dialog(selection_event_ids=[EventId("evt_1"), EventId("evt_3")]),
     )
 
-    assert session.manual_push_flow.selected_layer_ids == [timeline.layers[0].id, timeline.layers[1].id]
+    assert session.manual_push_flow.selected_layer_ids == [
+        timeline.layers[0].id,
+        timeline.layers[1].id,
+    ]
     assert session.batch_transfer_plan is not None
     assert [row.row_id for row in session.batch_transfer_plan.rows] == [
         "push:layer_push",
@@ -537,5 +555,7 @@ def test_set_push_transfer_mode_updates_flow_and_validates():
 
     assert session.manual_push_flow.transfer_mode == "overwrite"
 
-    with pytest.raises(ValueError, match="SetPushTransferMode requires mode 'merge' or 'overwrite'"):
+    with pytest.raises(
+        ValueError, match="SetPushTransferMode requires mode 'merge' or 'overwrite'"
+    ):
         SetPushTransferMode(mode="replace")

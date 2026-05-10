@@ -193,7 +193,9 @@ class ActionSettingsDialog(QDialog):
         self._scope_group.setToolTip(scope_hint)
         self._scope.setToolTip(scope_hint)
         self._copy_group.setVisible(bool(session.copy_sources))
-        self._apply_copy.setEnabled(bool(session.copy_sources) and bool(self._copy_source.currentData()))
+        self._apply_copy.setEnabled(
+            bool(session.copy_sources) and bool(self._copy_source.currentData())
+        )
         copy_hint = self._copy_hint_text(session)
         self._copy_group.setToolTip(copy_hint)
         self._copy_source.setToolTip(copy_hint)
@@ -228,7 +230,9 @@ class ActionSettingsDialog(QDialog):
         scope = self._scope.currentData()
         if not scope:
             return
-        self._render_session(self._dispatch_command(self._session.session_id, ChangeSessionScope(scope)))
+        self._render_session(
+            self._dispatch_command(self._session.session_id, ChangeSessionScope(scope))
+        )
 
     def _on_copy_source_changed(self) -> None:
         self._apply_copy.setEnabled(bool(self._copy_source.currentData()))
@@ -241,13 +245,17 @@ class ActionSettingsDialog(QDialog):
             self._copy_source.setToolTip(hint_text)
             self._apply_copy.setToolTip(hint_text)
             return
-        self._render_session(self._dispatch_command(self._session.session_id, PreviewCopySource(source_id)))
+        self._render_session(
+            self._dispatch_command(self._session.session_id, PreviewCopySource(source_id))
+        )
 
     def _on_apply_copy(self) -> None:
         source_id = self._copy_source.currentData()
         if not source_id:
             return
-        self._render_session(self._dispatch_command(self._session.session_id, ApplyCopySource(source_id)))
+        self._render_session(
+            self._dispatch_command(self._session.session_id, ApplyCopySource(source_id))
+        )
 
     def _on_save(self) -> None:
         self._dispatch_command(self._session.session_id, SaveSession())
@@ -289,11 +297,7 @@ class ActionSettingsDialog(QDialog):
     @staticmethod
     def _context_text(session: ObjectActionSettingsSession) -> str:
         target_summary = session.plan.summary or session.plan.object_id or session.plan.object_type
-        status = (
-            "Unsaved changes"
-            if session.has_unsaved_changes
-            else "Up to date"
-        )
+        status = "Unsaved changes" if session.has_unsaved_changes else "Up to date"
         return " · ".join(
             (
                 session.plan.title,

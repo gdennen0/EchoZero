@@ -22,7 +22,6 @@ from echozero.foundry.domain import (
     TrainRunStatus,
 )
 
-
 _STATE_VERSION = 1
 _STATE_ITEMS_KEY = "items"
 
@@ -374,7 +373,9 @@ class DatasetVersionRepository:
                     synthetic_provenance=s.get("synthetic_provenance", {}),
                     quality_flags=list(s.get("quality_flags", [])),
                     split_assignment=s.get("split_assignment"),
-                    curation_state=CurationState(s.get("curation_state", CurationState.UNKNOWN.value)),
+                    curation_state=CurationState(
+                        s.get("curation_state", CurationState.UNKNOWN.value)
+                    ),
                 )
                 for s in row.get("samples", [])
             ],

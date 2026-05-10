@@ -18,7 +18,6 @@ from echozero.processors.audio_filter import AudioFilterProcessor
 from echozero.progress import ProgressReport, RuntimeBus
 from echozero.result import Err, Ok
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -106,9 +105,7 @@ class TestAudioFilterSuccess:
     """Verify correct AudioData is returned with mocked filtering."""
 
     def test_returns_audio_data_with_correct_metadata(self) -> None:
-        graph = _make_graph_with_filter(
-            filter_settings={"filter_type": "lowpass", "freq": 5000.0}
-        )
+        graph = _make_graph_with_filter(filter_settings={"filter_type": "lowpass", "freq": 5000.0})
         context = _make_context(graph)
         context.set_output("load1", "audio_out", MOCK_AUDIO)
 
@@ -123,9 +120,7 @@ class TestAudioFilterSuccess:
         assert audio_data.channel_count == 2
 
     def test_lowpass_filter_creates_output(self) -> None:
-        graph = _make_graph_with_filter(
-            filter_settings={"filter_type": "lowpass", "freq": 3000.0}
-        )
+        graph = _make_graph_with_filter(filter_settings={"filter_type": "lowpass", "freq": 3000.0})
         context = _make_context(graph)
         context.set_output("load1", "audio_out", MOCK_AUDIO)
 
@@ -136,9 +131,7 @@ class TestAudioFilterSuccess:
         assert result.value.file_path == "/tmp/filtered_audio.wav"
 
     def test_highpass_filter_creates_output(self) -> None:
-        graph = _make_graph_with_filter(
-            filter_settings={"filter_type": "highpass", "freq": 100.0}
-        )
+        graph = _make_graph_with_filter(filter_settings={"filter_type": "highpass", "freq": 100.0})
         context = _make_context(graph)
         context.set_output("load1", "audio_out", MOCK_AUDIO)
 
@@ -229,9 +222,7 @@ class TestAudioFilterSuccess:
         assert isinstance(result, Ok)
 
     def test_default_gain_db_zero(self) -> None:
-        graph = _make_graph_with_filter(
-            filter_settings={"filter_type": "lowpass", "freq": 1000.0}
-        )
+        graph = _make_graph_with_filter(filter_settings={"filter_type": "lowpass", "freq": 1000.0})
         context = _make_context(graph)
         context.set_output("load1", "audio_out", MOCK_AUDIO)
 
@@ -390,9 +381,7 @@ class TestAudioFilterErrors:
         assert "positive" in str(result.error).lower()
 
     def test_zero_freq_returns_err(self) -> None:
-        graph = _make_graph_with_filter(
-            filter_settings={"filter_type": "lowpass", "freq": 0}
-        )
+        graph = _make_graph_with_filter(filter_settings={"filter_type": "lowpass", "freq": 0})
         context = _make_context(graph)
         context.set_output("load1", "audio_out", MOCK_AUDIO)
 
@@ -402,9 +391,7 @@ class TestAudioFilterErrors:
         assert isinstance(result, Err)
 
     def test_non_numeric_freq_returns_err(self) -> None:
-        graph = _make_graph_with_filter(
-            filter_settings={"filter_type": "lowpass", "freq": "bad"}
-        )
+        graph = _make_graph_with_filter(filter_settings={"filter_type": "lowpass", "freq": "bad"})
         context = _make_context(graph)
         context.set_output("load1", "audio_out", MOCK_AUDIO)
 
@@ -448,9 +435,7 @@ class TestAudioFilterErrors:
         assert "positive" in str(result.error).lower()
 
     def test_filter_fn_exception_returns_err(self) -> None:
-        graph = _make_graph_with_filter(
-            filter_settings={"filter_type": "lowpass", "freq": 1000.0}
-        )
+        graph = _make_graph_with_filter(filter_settings={"filter_type": "lowpass", "freq": 1000.0})
         context = _make_context(graph)
         context.set_output("load1", "audio_out", MOCK_AUDIO)
 
@@ -473,9 +458,7 @@ class TestAudioFilterProgress:
     """Verify progress reports are published."""
 
     def test_progress_reports_published(self) -> None:
-        graph = _make_graph_with_filter(
-            filter_settings={"filter_type": "lowpass", "freq": 1000.0}
-        )
+        graph = _make_graph_with_filter(filter_settings={"filter_type": "lowpass", "freq": 1000.0})
         runtime_bus = RuntimeBus()
         context = ExecutionContext(
             execution_id="test-run",

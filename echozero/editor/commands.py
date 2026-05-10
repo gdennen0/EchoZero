@@ -110,4 +110,3 @@ class ChangeBlockSettingsCommand(Command):
     @property
     def is_undoable(self) -> bool:
         return True
-

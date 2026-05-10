@@ -148,7 +148,9 @@ def test_select_pull_source_events_requires_selected_ma3_event_ids():
 
 
 @pytest.mark.parametrize("selected_ma3_event_ids", [[""], ["   "], ["ma3_evt_1", ""]])
-def test_select_pull_source_events_requires_non_empty_selected_ma3_event_ids(selected_ma3_event_ids):
+def test_select_pull_source_events_requires_non_empty_selected_ma3_event_ids(
+    selected_ma3_event_ids,
+):
     with pytest.raises(
         ValueError,
         match="SelectPullSourceEvents requires non-empty selected_ma3_event_ids",

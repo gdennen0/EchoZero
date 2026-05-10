@@ -21,7 +21,6 @@ from echozero.execution import ExecutionContext
 from echozero.progress import ProgressReport
 from echozero.result import Result, err, ok
 
-
 # ---------------------------------------------------------------------------
 # Band type + defaults
 # ---------------------------------------------------------------------------
@@ -49,7 +48,9 @@ def validate_bands(bands: list[dict[str, Any]], sample_rate: int) -> list[str]:
         if not isinstance(freq_low, (int, float)) or freq_low < 20:
             errors.append(f"Band {i}: freq_low must be >= 20 Hz, got {freq_low}")
         if not isinstance(freq_high, (int, float)) or freq_high > nyquist:
-            errors.append(f"Band {i}: freq_high must be <= {nyquist} Hz (Nyquist), got {freq_high}")
+            errors.append(
+                f"Band {i}: freq_high must be <= {nyquist} Hz (Nyquist), got {freq_high}"
+            )
         if isinstance(freq_low, (int, float)) and isinstance(freq_high, (int, float)):
             if freq_low >= freq_high:
                 errors.append(f"Band {i}: freq_low ({freq_low}) must be < freq_high ({freq_high})")
@@ -65,10 +66,10 @@ def validate_bands(bands: list[dict[str, Any]], sample_rate: int) -> list[str]:
 
 EQBandsFn = Callable[
     [
-        str,   # file_path
-        int,   # sample_rate
+        str,  # file_path
+        int,  # sample_rate
         list,  # bands (list of dicts)
-        int,   # filter_order
+        int,  # filter_order
     ],
     tuple[str, int, float],  # (output_file_path, sample_rate, duration)
 ]
@@ -143,6 +144,7 @@ def _default_eq_bands(
 # Processor
 # ---------------------------------------------------------------------------
 
+
 class EQBandsProcessor:
     """Multi-band parametric EQ processor."""
 
@@ -180,20 +182,24 @@ class EQBandsProcessor:
         filter_order = settings.get("filter_order", 4)
 
         if not isinstance(bands, list):
-            return err(ValidationError(
-                f"Block '{block_id}': 'bands' must be a list of band dicts"
-            ))
+            return err(
+                ValidationError(f"Block '{block_id}': 'bands' must be a list of band dicts")
+            )
         if not isinstance(filter_order, int) or filter_order < 1 or filter_order > 8:
-            return err(ValidationError(
-                f"Block '{block_id}': filter_order must be 1-8, got {filter_order}"
-            ))
+            return err(
+                ValidationError(
+                    f"Block '{block_id}': filter_order must be 1-8, got {filter_order}"
+                )
+            )
 
         # Validate bands
         band_errors = validate_bands(bands, audio.sample_rate)
         if band_errors:
-            return err(ValidationError(
-                f"Block '{block_id}' band validation errors: {'; '.join(band_errors)}"
-            ))
+            return err(
+                ValidationError(
+                    f"Block '{block_id}' band validation errors: {'; '.join(band_errors)}"
+                )
+            )
 
         active_bands = [b for b in bands if abs(float(b.get("gain_db", 0))) >= 0.01]
 
@@ -217,9 +223,7 @@ class EQBandsProcessor:
         except (ValidationError, ExecutionError) as exc:
             return err(exc)
         except Exception as exc:
-            return err(ExecutionError(
-                f"EQ processing failed for block '{block_id}': {exc}"
-            ))
+            return err(ExecutionError(f"EQ processing failed for block '{block_id}': {exc}"))
 
         context.progress_bus.publish(
             ProgressReport(
@@ -230,11 +234,11 @@ class EQBandsProcessor:
             )
         )
 
-        return ok(AudioData(
-            sample_rate=sr,
-            duration=duration,
-            file_path=output_file,
-            channel_count=audio.channel_count,
-        ))
-
-
+        return ok(
+            AudioData(
+                sample_rate=sr,
+                duration=duration,
+                file_path=output_file,
+                channel_count=audio.channel_count,
+            )
+        )

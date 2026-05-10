@@ -8,6 +8,7 @@ from echozero.ui.qt.timeline.object_info_panel_text import (
 )
 from tests.ui.timeline_shell_shared_support import *  # noqa: F401,F403
 
+
 def test_main_row_event_click_dispatches_main_take_identity():
     app = QApplication.instance() or QApplication([])
     intents: list[SelectEvent] = []
@@ -1102,7 +1103,6 @@ def test_fix_mode_demoted_event_context_menu_exposes_and_dispatches_find_similar
     finally:
         widget.close()
         app.processEvents()
-
 
 
 __all__ = [name for name in globals() if name.startswith("test_")]

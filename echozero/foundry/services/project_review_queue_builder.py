@@ -158,9 +158,7 @@ class ProjectReviewQueueBuilder:
                 item_limit=item_limit,
             )
             if not items:
-                raise ValueError(
-                    f"No reviewable project items found in scope for {source_path}"
-                )
+                raise ValueError(f"No reviewable project items found in scope for {source_path}")
             deduped_song_ids = list(dict.fromkeys(song_ids))
             deduped_version_ids = list(dict.fromkeys(version_ids))
             deduped_layer_ids = list(dict.fromkeys(layer_ids))
@@ -249,7 +247,9 @@ class ProjectReviewQueueBuilder:
             if not songs:
                 raise ValueError(f"SongRecord not found: {song_id}")
         scopes: list[_VersionScope] = []
-        for song in sorted(songs, key=lambda candidate: (candidate.order, candidate.title, candidate.id)):
+        for song in sorted(
+            songs, key=lambda candidate: (candidate.order, candidate.title, candidate.id)
+        ):
             if song.active_version_id is None:
                 continue
             version = version_repo.get(song.active_version_id)
@@ -397,7 +397,8 @@ class ProjectReviewQueueBuilder:
             "audio_ref": str(audio_path),
             "source_audio_ref": str(source_audio_path),
             "original_start_ms": review_state.original_start_ms or (float(event.time) * 1000.0),
-            "original_end_ms": review_state.original_end_ms or (float(event.time + event.duration) * 1000.0),
+            "original_end_ms": review_state.original_end_ms
+            or (float(event.time + event.duration) * 1000.0),
             "current_start_ms": float(event.time) * 1000.0,
             "current_end_ms": float(event.time + event.duration) * 1000.0,
             "current_target_class": current_target_class,
@@ -405,7 +406,9 @@ class ProjectReviewQueueBuilder:
             "review_state": review_state.review_state,
             "review_outcome": review_state.review_outcome.value,
             "review_decision_kind": (
-                review_state.decision_kind.value if review_state.decision_kind is not None else None
+                review_state.decision_kind.value
+                if review_state.decision_kind is not None
+                else None
             ),
             "corrected_label": review_state.corrected_label,
             "original_label": review_state.original_label,
@@ -481,9 +484,7 @@ class ProjectReviewQueueBuilder:
     def _score(event: DomainEvent) -> float | None:
         candidates = []
         if isinstance(event.classifications, dict):
-            candidates.extend(
-                event.classifications.get(key) for key in ("confidence", "score")
-            )
+            candidates.extend(event.classifications.get(key) for key in ("confidence", "score"))
         if isinstance(event.metadata, dict):
             candidates.extend(event.metadata.get(key) for key in ("confidence", "score"))
         for candidate in candidates:

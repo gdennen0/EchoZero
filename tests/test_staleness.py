@@ -15,7 +15,6 @@ from echozero.editor.staleness import (
     setting_changed_reason,
 )
 
-
 # ---------------------------------------------------------------------------
 # StaleReason factory tests
 # ---------------------------------------------------------------------------
@@ -25,9 +24,7 @@ class TestStaleReasonFactories:
     """Verify human-readable reason creation."""
 
     def test_setting_changed_with_values(self) -> None:
-        reason = setting_changed_reason(
-            "sep1", "Separator", "model", "htdemucs", "htdemucs_ft"
-        )
+        reason = setting_changed_reason("sep1", "Separator", "model", "htdemucs", "htdemucs_ft")
         assert "Separator" in str(reason)
         assert "model" in str(reason)
         assert "htdemucs" in str(reason)
@@ -194,26 +191,38 @@ class TestCoordinatorStaleness:
         from echozero.result import Ok
 
         graph = Graph()
-        graph.add_block(Block(
-            id="load", name="Load Audio", block_type="LoadAudio",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(),
-            output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
-            settings=BlockSettings({"file_path": "test.wav"}),
-        ))
-        graph.add_block(Block(
-            id="detect", name="Detect Onsets", block_type="DetectOnsets",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
-            output_ports=(Port("events_out", PortType.EVENT, Direction.OUTPUT),),
-            settings=BlockSettings({"threshold": 0.3}),
-        ))
-        graph.add_block(Block(
-            id="classify", name="Classify", block_type="Classify",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(Port("events_in", PortType.EVENT, Direction.INPUT),),
-            output_ports=(Port("events_out", PortType.EVENT, Direction.OUTPUT),),
-        ))
+        graph.add_block(
+            Block(
+                id="load",
+                name="Load Audio",
+                block_type="LoadAudio",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(),
+                output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
+                settings=BlockSettings({"file_path": "test.wav"}),
+            )
+        )
+        graph.add_block(
+            Block(
+                id="detect",
+                name="Detect Onsets",
+                block_type="DetectOnsets",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
+                output_ports=(Port("events_out", PortType.EVENT, Direction.OUTPUT),),
+                settings=BlockSettings({"threshold": 0.3}),
+            )
+        )
+        graph.add_block(
+            Block(
+                id="classify",
+                name="Classify",
+                block_type="Classify",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(Port("events_in", PortType.EVENT, Direction.INPUT),),
+                output_ports=(Port("events_out", PortType.EVENT, Direction.OUTPUT),),
+            )
+        )
         graph.add_connection(Connection("load", "audio_out", "detect", "audio_in"))
         graph.add_connection(Connection("detect", "events_out", "classify", "events_in"))
 

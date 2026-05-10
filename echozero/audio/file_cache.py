@@ -29,9 +29,7 @@ class CachedAudioFile:
 
 _CACHE: OrderedDict[str, CachedAudioFile] = OrderedDict()
 _CACHE_BYTES = 0
-_CACHE_MAX_BYTES = int(
-    float(os.environ.get("ECHOZERO_AUDIO_FILE_CACHE_MB", "256")) * 1024 * 1024
-)
+_CACHE_MAX_BYTES = int(float(os.environ.get("ECHOZERO_AUDIO_FILE_CACHE_MB", "256")) * 1024 * 1024)
 _CACHE_LOCK = RLock()
 
 
@@ -40,11 +38,7 @@ def load_audio_file(path: str | Path) -> tuple[np.ndarray, int]:
 
     resolved_path = Path(path).expanduser().resolve()
     stat = resolved_path.stat()
-    cache_key = (
-        f"{resolved_path}"
-        f"|mtime:{int(stat.st_mtime_ns)}"
-        f"|size:{int(stat.st_size)}"
-    )
+    cache_key = f"{resolved_path}" f"|mtime:{int(stat.st_mtime_ns)}" f"|size:{int(stat.st_size)}"
 
     with _CACHE_LOCK:
         cached = _CACHE.get(cache_key)

@@ -8,7 +8,9 @@ from echozero.testing import demo_suite
 from echozero.testing.demo_suite_scenarios import ScenarioResult
 
 
-def test_list_scenarios_prints_declared_order(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
+def test_list_scenarios_prints_declared_order(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
     monkeypatch.setattr(demo_suite, "SCENARIO_ORDER", ["alpha", "beta", "gamma"])
 
     result = demo_suite.main(["--list-scenarios"])

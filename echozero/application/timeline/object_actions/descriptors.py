@@ -211,7 +211,9 @@ _ALIASES: tuple[ActionAlias, ...] = (
     ActionAlias(alias_id="cancel_transfer_plan", canonical_id="transfer.plan_cancel"),
     ActionAlias(alias_id="route_layer_to_ma3_track", canonical_id="transfer.route_layer_track"),
     ActionAlias(alias_id="send_selected_events_to_ma3", canonical_id="transfer.send_selection"),
-    ActionAlias(alias_id="send_to_different_track_once", canonical_id="transfer.send_to_track_once"),
+    ActionAlias(
+        alias_id="send_to_different_track_once", canonical_id="transfer.send_to_track_once"
+    ),
     ActionAlias(alias_id="enable_sync", canonical_id="sync.enable"),
     ActionAlias(alias_id="disable_sync", canonical_id="sync.disable"),
     ActionAlias(alias_id="screenshot", canonical_id="capture.screenshot"),
@@ -228,7 +230,11 @@ def descriptor_for_action(action_id: str) -> ActionDescriptor | None:
 
 def workflow_descriptor_for_action(action_id: str) -> ActionDescriptor | None:
     descriptor = descriptor_for_action(action_id)
-    if descriptor is None or descriptor.workflow_id is None or descriptor.pipeline_template_id is None:
+    if (
+        descriptor is None
+        or descriptor.workflow_id is None
+        or descriptor.pipeline_template_id is None
+    ):
         return None
     return descriptor
 
@@ -243,7 +249,9 @@ def action_descriptors() -> tuple[ActionDescriptor, ...]:
 
 
 def object_action_descriptors() -> tuple[ActionDescriptor, ...]:
-    return tuple(descriptor for descriptor in action_descriptors() if "object_action" in descriptor.groups)
+    return tuple(
+        descriptor for descriptor in action_descriptors() if "object_action" in descriptor.groups
+    )
 
 
 def pipeline_actions_for_audio_layer(
@@ -266,11 +274,7 @@ def pipeline_actions_for_audio_layer(
     if is_onset_capable:
         descriptors.append(EXTRACT_DRUM_EVENTS_DESCRIPTOR)
     if is_drum_capable:
-        descriptors.extend(
-            (
-                EXTRACT_CLASSIFIED_DRUMS_DESCRIPTOR,
-            )
-        )
+        descriptors.extend((EXTRACT_CLASSIFIED_DRUMS_DESCRIPTOR,))
     return tuple(descriptors)
 
 

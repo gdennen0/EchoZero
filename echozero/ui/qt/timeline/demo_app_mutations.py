@@ -240,9 +240,7 @@ def open_pull_workspace(
                         start=option.start,
                         end=option.end,
                     )
-                    for option in sync_list(
-                        sync_service, "list_pull_source_events", "tc1_tg2_tr3"
-                    )
+                    for option in sync_list(sync_service, "list_pull_source_events", "tc1_tg2_tr3")
                 ]
                 if track_options
                 else []
@@ -292,9 +290,7 @@ def apply_take_action(
             if presentation.selected_take_id != take_id:
                 updated.append(layer)
                 continue
-            selected_events = [
-                event for event in take.events if event.event_id in selected_lookup
-            ]
+            selected_events = [event for event in take.events if event.event_id in selected_lookup]
             if not selected_events:
                 updated.append(layer)
                 continue

@@ -35,7 +35,6 @@ from echozero.serialization import (
     serialize_take_layer,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -234,30 +233,58 @@ class TestGraphSerialization:
     def test_diamond_topology_survives_round_trip(self) -> None:
         """Diamond: a -> b, a -> c, b -> d, c -> d."""
         graph = Graph()
-        graph.add_block(_make_block("a", output_ports=(
-            Port(name="out1", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
-            Port(name="out2", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
-        )))
+        graph.add_block(
+            _make_block(
+                "a",
+                output_ports=(
+                    Port(name="out1", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
+                    Port(name="out2", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
+                ),
+            )
+        )
         graph.add_block(_make_block("b", input_ports=(_audio_in(),), output_ports=(_event_out(),)))
-        graph.add_block(_make_block("c", input_ports=(
-            Port(name="audio_in", port_type=PortType.AUDIO, direction=Direction.INPUT),
-        ), output_ports=(_event_out("event_out2"),)))
-        graph.add_block(_make_block("d", input_ports=(
-            Port(name="event_in", port_type=PortType.EVENT, direction=Direction.INPUT),
-        )))
+        graph.add_block(
+            _make_block(
+                "c",
+                input_ports=(
+                    Port(name="audio_in", port_type=PortType.AUDIO, direction=Direction.INPUT),
+                ),
+                output_ports=(_event_out("event_out2"),),
+            )
+        )
+        graph.add_block(
+            _make_block(
+                "d",
+                input_ports=(
+                    Port(name="event_in", port_type=PortType.EVENT, direction=Direction.INPUT),
+                ),
+            )
+        )
 
-        graph.add_connection(Connection(
-            source_block_id="a", source_output_name="out1",
-            target_block_id="b", target_input_name="audio_in",
-        ))
-        graph.add_connection(Connection(
-            source_block_id="a", source_output_name="out2",
-            target_block_id="c", target_input_name="audio_in",
-        ))
-        graph.add_connection(Connection(
-            source_block_id="b", source_output_name="event_out",
-            target_block_id="d", target_input_name="event_in",
-        ))
+        graph.add_connection(
+            Connection(
+                source_block_id="a",
+                source_output_name="out1",
+                target_block_id="b",
+                target_input_name="audio_in",
+            )
+        )
+        graph.add_connection(
+            Connection(
+                source_block_id="a",
+                source_output_name="out2",
+                target_block_id="c",
+                target_input_name="audio_in",
+            )
+        )
+        graph.add_connection(
+            Connection(
+                source_block_id="b",
+                source_output_name="event_out",
+                target_block_id="d",
+                target_input_name="event_in",
+            )
+        )
 
         data = serialize_graph(graph)
         restored = deserialize_graph(data)
@@ -387,9 +414,7 @@ class TestTakeSerialization:
         restored = deserialize_take(data)
 
         # Allow minor rounding from ISO format
-        assert abs(
-            (restored.created_at - take.created_at).total_seconds()
-        ) < 0.001
+        assert abs((restored.created_at - take.created_at).total_seconds()) < 0.001
 
 
 # ---------------------------------------------------------------------------
@@ -448,10 +473,14 @@ class TestProjectSaveLoad:
         graph = Graph()
         graph.add_block(_make_block("a", output_ports=(_audio_out(),)))
         graph.add_block(_make_block("b", input_ports=(_audio_in(),)))
-        graph.add_connection(Connection(
-            source_block_id="a", source_output_name="audio_out",
-            target_block_id="b", target_input_name="audio_in",
-        ))
+        graph.add_connection(
+            Connection(
+                source_block_id="a",
+                source_output_name="audio_out",
+                target_block_id="b",
+                target_input_name="audio_in",
+            )
+        )
 
         main = _make_take(label="Main", times=(1.0, 2.0), is_main=True)
         run1 = _make_take(label="Run 1", times=(1.1, 2.1))
@@ -510,4 +539,3 @@ class TestProjectSaveLoad:
 
         restored_graph, take_layers = load_project(path)
         assert len(take_layers) == 0
-

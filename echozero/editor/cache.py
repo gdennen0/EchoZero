@@ -64,9 +64,7 @@ class ExecutionCache:
 
     def invalidate(self, block_id: str) -> None:
         """Remove all cached outputs for a block."""
-        keys_to_remove = [
-            key for key in self._entries if key[0] == block_id
-        ]
+        keys_to_remove = [key for key in self._entries if key[0] == block_id]
         for key in keys_to_remove:
             del self._entries[key]
 

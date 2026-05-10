@@ -20,6 +20,7 @@ from echozero.application.timeline.object_actions.session import (
 from echozero.persistence.session import ProjectStorage
 from echozero.pipelines.registry import get_registry
 
+
 class ObjectActionSettingsCopyShell(Protocol):
     @property
     def session(self) -> Session: ...
@@ -77,6 +78,7 @@ class ObjectActionSettingsCopyShell(Protocol):
         object_id: object | None,
         object_type: str | None,
     ) -> dict[str, object]: ...
+
 
 class ObjectActionSettingsCopyMixin:
     def preview_copy(
@@ -293,8 +295,7 @@ def preview_copy_source(
         object_type=settings_session.object_type,
         scope=settings_session.scope,
         drafts_by_scope={
-            state.scope: state.draft_values
-            for state in settings_session.scope_states
+            state.scope: state.draft_values for state in settings_session.scope_states
         },
         selected_copy_source_id=source_id,
         copy_preview=copy_preview,
@@ -327,10 +328,7 @@ def apply_copy_source(
         object_type=settings_session.object_type,
         scope=settings_session.scope,
     )
-    drafts_by_scope = {
-        state.scope: state.draft_values
-        for state in settings_session.scope_states
-    }
+    drafts_by_scope = {state.scope: state.draft_values for state in settings_session.scope_states}
     drafts_by_scope[settings_session.scope] = merged_values
     return shell._build_session(
         session_id=settings_session.session_id,
@@ -369,6 +367,7 @@ def build_session_copy_preview(
         summary=f"{source.label} -> {scope_label(settings_session.scope)}",
         changes=tuple(changes),
     )
+
 
 def preview_copy_between_scopes(
     shell: ObjectActionSettingsCopyShell,
@@ -418,6 +417,7 @@ def preview_copy_between_scopes(
             "target_scope": target_scope,
             "changes": changes,
         }
+
 
 def apply_copy_between_scopes(
     shell: ObjectActionSettingsCopyShell,
@@ -494,7 +494,9 @@ def require_copy_source(
     settings_session: ObjectActionSettingsSession,
     source_id: str,
 ) -> ObjectActionCopySource:
-    match = next((source for source in settings_session.copy_sources if source.source_id == source_id), None)
+    match = next(
+        (source for source in settings_session.copy_sources if source.source_id == source_id), None
+    )
     if match is None:
         raise ValueError(f"Unknown copy source '{source_id}'.")
     return match

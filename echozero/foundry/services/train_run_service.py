@@ -9,7 +9,11 @@ from threading import Event
 from uuid import uuid4
 
 from echozero.foundry.domain import TrainRun, TrainRunStatus
-from echozero.foundry.persistence import DatasetVersionRepository, EvalReportRepository, TrainRunRepository
+from echozero.foundry.persistence import (
+    DatasetVersionRepository,
+    EvalReportRepository,
+    TrainRunRepository,
+)
 from echozero.foundry.services.artifact_service import ArtifactService
 from echozero.foundry.services.baseline_trainer import BaselineTrainer, RunCanceledError
 from echozero.foundry.services.eval_service import EvalService
@@ -18,10 +22,17 @@ from echozero.foundry.services.run_spec_validator import RunSpecValidator
 from echozero.foundry.services.run_telemetry_service import RunTelemetryService
 from echozero.foundry.services.trainer_backend_factory import TrainerBackendFactory
 
-
 _ALLOWED_TRANSITIONS: dict[TrainRunStatus, set[TrainRunStatus]] = {
-    TrainRunStatus.QUEUED: {TrainRunStatus.PREPARING, TrainRunStatus.RUNNING, TrainRunStatus.CANCELED},
-    TrainRunStatus.PREPARING: {TrainRunStatus.RUNNING, TrainRunStatus.FAILED, TrainRunStatus.CANCELED},
+    TrainRunStatus.QUEUED: {
+        TrainRunStatus.PREPARING,
+        TrainRunStatus.RUNNING,
+        TrainRunStatus.CANCELED,
+    },
+    TrainRunStatus.PREPARING: {
+        TrainRunStatus.RUNNING,
+        TrainRunStatus.FAILED,
+        TrainRunStatus.CANCELED,
+    },
     TrainRunStatus.RUNNING: {
         TrainRunStatus.EVALUATING,
         TrainRunStatus.EXPORTING,
@@ -29,8 +40,17 @@ _ALLOWED_TRANSITIONS: dict[TrainRunStatus, set[TrainRunStatus]] = {
         TrainRunStatus.FAILED,
         TrainRunStatus.CANCELED,
     },
-    TrainRunStatus.EVALUATING: {TrainRunStatus.EXPORTING, TrainRunStatus.COMPLETED, TrainRunStatus.FAILED, TrainRunStatus.CANCELED},
-    TrainRunStatus.EXPORTING: {TrainRunStatus.COMPLETED, TrainRunStatus.FAILED, TrainRunStatus.CANCELED},
+    TrainRunStatus.EVALUATING: {
+        TrainRunStatus.EXPORTING,
+        TrainRunStatus.COMPLETED,
+        TrainRunStatus.FAILED,
+        TrainRunStatus.CANCELED,
+    },
+    TrainRunStatus.EXPORTING: {
+        TrainRunStatus.COMPLETED,
+        TrainRunStatus.FAILED,
+        TrainRunStatus.CANCELED,
+    },
     TrainRunStatus.COMPLETED: set(),
     TrainRunStatus.FAILED: {TrainRunStatus.QUEUED},
     TrainRunStatus.CANCELED: {TrainRunStatus.QUEUED},
@@ -64,7 +84,13 @@ class TrainRunService:
         self._telemetry = RunTelemetryService(root)
         self._notifications = RunNotificationService(root)
 
-    def create_run(self, dataset_version_id: str, run_spec: dict, backend: str = "pytorch", device: str = "cpu") -> TrainRun:
+    def create_run(
+        self,
+        dataset_version_id: str,
+        run_spec: dict,
+        backend: str = "pytorch",
+        device: str = "cpu",
+    ) -> TrainRun:
         self._validate_run_spec(dataset_version_id, run_spec)
         spec_json = json.dumps(run_spec, sort_keys=True)
         spec_hash = hashlib.sha256(spec_json.encode("utf-8")).hexdigest()
@@ -129,7 +155,9 @@ class TrainRunService:
                 self.save_checkpoint(
                     run.id,
                     epoch=epoch,
-                    metric_snapshot={key: value for key, value in checkpoint.items() if key != "epoch"},
+                    metric_snapshot={
+                        key: value for key, value in checkpoint.items() if key != "epoch"
+                    },
                 )
 
             run = self._transition(run.id, TrainRunStatus.EVALUATING, "RUN_EVALUATING")
@@ -161,7 +189,9 @@ class TrainRunService:
             return self.fail_run(run.id, str(exc))
 
     def cancel_run(self, run_id: str, reason: str = "user") -> TrainRun:
-        return self._transition(run_id, TrainRunStatus.CANCELED, "RUN_CANCELED", {"reason": reason})
+        return self._transition(
+            run_id, TrainRunStatus.CANCELED, "RUN_CANCELED", {"reason": reason}
+        )
 
     def complete_run(self, run_id: str, metrics: dict | None = None) -> TrainRun:
         return self._transition(
@@ -178,11 +208,17 @@ class TrainRunService:
         return self._transition(run_id, TrainRunStatus.QUEUED, "RUN_RESUMED")
 
     def set_stage(self, run_id: str, stage: TrainRunStatus) -> TrainRun:
-        if stage not in {TrainRunStatus.PREPARING, TrainRunStatus.EVALUATING, TrainRunStatus.EXPORTING}:
+        if stage not in {
+            TrainRunStatus.PREPARING,
+            TrainRunStatus.EVALUATING,
+            TrainRunStatus.EXPORTING,
+        }:
             raise ValueError(f"Unsupported stage transition: {stage.value}")
         return self._transition(run_id, stage, f"RUN_{stage.value.upper()}")
 
-    def save_checkpoint(self, run_id: str, epoch: int, metric_snapshot: dict | None = None) -> Path:
+    def save_checkpoint(
+        self, run_id: str, epoch: int, metric_snapshot: dict | None = None
+    ) -> Path:
         if epoch < 1:
             raise ValueError("checkpoint epoch must be >= 1")
         run = self._require(run_id)
@@ -267,9 +303,13 @@ class TrainRunService:
         self._telemetry.write_status_snapshot(run_id, status=status, event_type=event_type)
 
     def _write_progress_snapshot(self, run_id: str, *, epoch: int, metric_snapshot: dict) -> None:
-        self._telemetry.write_progress_snapshot(run_id, epoch=epoch, metric_snapshot=metric_snapshot)
+        self._telemetry.write_progress_snapshot(
+            run_id, epoch=epoch, metric_snapshot=metric_snapshot
+        )
 
-    def _append_run_telemetry(self, run: TrainRun, *, epoch: int, metric_snapshot: dict[str, object]) -> None:
+    def _append_run_telemetry(
+        self, run: TrainRun, *, epoch: int, metric_snapshot: dict[str, object]
+    ) -> None:
         self._telemetry.append_run_telemetry(run, epoch=epoch, metric_snapshot=metric_snapshot)
 
     def _collect_system_stats(self) -> dict[str, object]:

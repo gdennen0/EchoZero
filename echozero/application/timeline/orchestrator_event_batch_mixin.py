@@ -55,13 +55,18 @@ class TimelineOrchestratorEventBatchMixin(TimelineOrchestratorEventEditMixin):
         take = self._find_take(layer, take_id)
         if take is None:
             return
-        anchor_event = next((candidate for candidate in take.events if candidate.id == event_id), None)
+        anchor_event = next(
+            (candidate for candidate in take.events if candidate.id == event_id), None
+        )
         if anchor_event is None:
             return
 
         if scope_mode == "take":
             candidate_ref_groups = (
-                tuple(self._event_ref(layer.id, take.id, event.id) for event in self._ordered_events(take)),
+                tuple(
+                    self._event_ref(layer.id, take.id, event.id)
+                    for event in self._ordered_events(take)
+                ),
             )
             selected_layer_ids = (layer.id,)
             anchor_take_id = take.id
@@ -212,7 +217,9 @@ class TimelineOrchestratorEventBatchMixin(TimelineOrchestratorEventEditMixin):
             layer = self._find_layer(timeline, scope.layer_id)
             main_take = self._main_take(layer)
             event_refs = (
-                self._ordered_event_refs_for_take(layer, main_take) if main_take is not None else ()
+                self._ordered_event_refs_for_take(layer, main_take)
+                if main_take is not None
+                else ()
             )
             return ResolvedEventBatchScope(
                 scope=scope,
@@ -251,9 +258,7 @@ class TimelineOrchestratorEventBatchMixin(TimelineOrchestratorEventEditMixin):
             resolved.anchor_layer_id if resolved.selected_layer_ids else None
         )
         timeline.selection.selected_layer_ids = list(resolved.selected_layer_ids)
-        timeline.selection.selected_take_id = (
-            resolved.anchor_take_id if event_refs else None
-        )
+        timeline.selection.selected_take_id = resolved.anchor_take_id if event_refs else None
         self._set_selected_event_refs(timeline, event_refs)
 
     def _selected_layers_main_groups(
@@ -297,9 +302,7 @@ class TimelineOrchestratorEventBatchMixin(TimelineOrchestratorEventEditMixin):
         event_ref_groups: tuple[tuple[EventRef, ...], ...],
     ) -> tuple[EventRef, ...]:
         return tuple(
-            event_ref
-            for event_ref_group in event_ref_groups
-            for event_ref in event_ref_group
+            event_ref for event_ref_group in event_ref_groups for event_ref in event_ref_group
         )
 
 
@@ -396,7 +399,9 @@ def _feature_vector(
     return tuple(vector)
 
 
-def _cosine_similarity(anchor_vector: tuple[float, ...], candidate_vector: tuple[float, ...]) -> float | None:
+def _cosine_similarity(
+    anchor_vector: tuple[float, ...], candidate_vector: tuple[float, ...]
+) -> float | None:
     if len(anchor_vector) != len(candidate_vector):
         return None
     dot_product = sum(
@@ -449,7 +454,9 @@ def _merge_label_weights(label_weights: dict[str, float], mapping: dict[str, obj
             continue
         if isinstance(value, dict):
             nested_token = _token_from_nested_classification(value)
-            nested_weight = _normalized_confidence(_confidence_from_mapping(value)) or default_weight
+            nested_weight = (
+                _normalized_confidence(_confidence_from_mapping(value)) or default_weight
+            )
             if nested_token is not None:
                 _add_label_weight(label_weights, nested_token, nested_weight)
                 continue

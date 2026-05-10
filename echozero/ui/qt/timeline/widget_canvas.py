@@ -192,7 +192,9 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
         self._section_label_rects: list[_SectionLabelRect] = []
         self._section_boundary_rects: list[_SectionBoundaryRect] = []
         self._fix_event_rects: list[_FixEventRect] = []
-        self._focused_fix_overlay_key: tuple[LayerId, TakeId | None, str, float, float] | None = None
+        self._focused_fix_overlay_key: tuple[LayerId, TakeId | None, str, float, float] | None = (
+            None
+        )
         self._event_lane_rects: list[_EventLaneRect] = []
         self._header_select_rects: list[tuple[object, LayerId]] = []
         self._row_body_select_rects: list[tuple[object, LayerId, TakeId | None]] = []
@@ -391,7 +393,9 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
         for layer_id in stale_layer_ids:
             self._custom_main_row_height_by_layer.pop(layer_id, None)
         self._fully_collapsed_layer_ids = {
-            layer_id for layer_id in self._fully_collapsed_layer_ids if layer_id in active_layer_ids
+            layer_id
+            for layer_id in self._fully_collapsed_layer_ids
+            if layer_id in active_layer_ids
         }
 
     def _apply_full_collapse_overrides(
@@ -408,7 +412,14 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
         return replace(presentation, layers=layers)
 
     def toggle_layer_fully_collapsed(self, layer_id: LayerId) -> None:
-        layer = next((candidate for candidate in self.presentation.layers if candidate.layer_id == layer_id), None)
+        layer = next(
+            (
+                candidate
+                for candidate in self.presentation.layers
+                if candidate.layer_id == layer_id
+            ),
+            None,
+        )
         if layer is None or not layer.takes:
             return
         if layer_id in self._fully_collapsed_layer_ids:

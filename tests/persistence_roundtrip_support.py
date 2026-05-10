@@ -5,6 +5,7 @@ Connects the compatibility wrapper to the bounded persistence round-trip slice.
 
 from tests.persistence_shared_support import *  # noqa: F401,F403
 
+
 class TestRoundTrip:
     def test_full_hierarchy_round_trip(self, conn):
         pr = ProjectRepository(conn)
@@ -27,18 +28,24 @@ class TestRoundTrip:
         vr.create(version)
 
         layer = _make_layer(
-            version.id, name="Onsets", layer_type="analysis",
-            color="#FF5500", source_pipeline={"name": "onset_detector", "version": "2.0"},
+            version.id,
+            name="Onsets",
+            layer_type="analysis",
+            color="#FF5500",
+            source_pipeline={"name": "onset_detector", "version": "2.0"},
         )
         lr.create(layer)
 
         source = TakeSource(
-            block_id="blk_onset", block_type="onset_detector",
+            block_id="blk_onset",
+            block_type="onset_detector",
             settings_snapshot={"threshold": 0.25, "min_gap": 0.1},
             run_id="run_001",
         )
         take = _make_take(
-            is_main=True, label="Initial Analysis", source=source,
+            is_main=True,
+            label="Initial Analysis",
+            source=source,
             notes="First pass with default settings",
         )
         tr.create(layer.id, take)
@@ -152,7 +159,10 @@ class TestEdgeCases:
         vr.create(v)
         conn.commit()
         layer = _make_layer(
-            v.id, color=None, parent_layer_id=None, source_pipeline=None,
+            v.id,
+            color=None,
+            parent_layer_id=None,
+            source_pipeline=None,
         )
         lr.create(layer)
         conn.commit()
@@ -246,14 +256,24 @@ class TestSongVersionUpdate:
 
     def test_update_round_trip(self, conn):
         vr, song_id = self._setup(conn)
-        v = _make_version(song_id, label="V1", audio_file="a.wav",
-                          duration_seconds=200.0, original_sample_rate=48000,
-                          audio_hash="hash1")
+        v = _make_version(
+            song_id,
+            label="V1",
+            audio_file="a.wav",
+            duration_seconds=200.0,
+            original_sample_rate=48000,
+            audio_hash="hash1",
+        )
         vr.create(v)
         conn.commit()
-        updated = replace(v, label="V2", audio_file="b.wav",
-                          duration_seconds=300.0, original_sample_rate=96000,
-                          audio_hash="hash2")
+        updated = replace(
+            v,
+            label="V2",
+            audio_file="b.wav",
+            duration_seconds=300.0,
+            original_sample_rate=96000,
+            audio_hash="hash2",
+        )
         vr.update(updated)
         conn.commit()
         got = vr.get(v.id)
@@ -337,7 +357,6 @@ class TestTakeIsArchived:
 # ---------------------------------------------------------------------------
 # Duplicate ID tests (item 18)
 # ---------------------------------------------------------------------------
-
 
 
 __all__ = [name for name in globals() if name.startswith("Test")]

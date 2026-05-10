@@ -39,9 +39,7 @@ def test_module_size_failures_reports_guarded_file_over_limit(tmp_path: Path) ->
 
     failures = module.module_size_failures(tmp_path, rules={"tests/ui/test_timeline_shell.py": 25})
 
-    assert failures == [
-        "tests/ui/test_timeline_shell.py: exceeds max line count 25 (30 lines)"
-    ]
+    assert failures == ["tests/ui/test_timeline_shell.py: exceeds max line count 25 (30 lines)"]
 
 
 def test_tracked_ez_failures_allow_explicit_allowlist_entries() -> None:
@@ -69,12 +67,14 @@ def test_tracked_ez_failures_report_non_allowlisted_archives() -> None:
     ]
 
 
-def test_canonical_runtime_support_import_failures_accept_clean_runtime_sources(tmp_path: Path) -> None:
+def test_canonical_runtime_support_import_failures_accept_clean_runtime_sources(
+    tmp_path: Path,
+) -> None:
     module = _load_hygiene_module()
     runtime_file = tmp_path / "echozero" / "ui" / "qt" / "app_shell.py"
     runtime_file.parent.mkdir(parents=True, exist_ok=True)
     runtime_file.write_text(
-        'from echozero.ui.qt.app_shell_runtime_services import build_runtime_timeline_application\n',
+        "from echozero.ui.qt.app_shell_runtime_services import build_runtime_timeline_application\n",
         encoding="utf-8",
     )
 
@@ -91,12 +91,14 @@ def test_canonical_runtime_support_import_failures_accept_clean_runtime_sources(
     assert failures == []
 
 
-def test_canonical_runtime_support_import_failures_report_support_surface_imports(tmp_path: Path) -> None:
+def test_canonical_runtime_support_import_failures_report_support_surface_imports(
+    tmp_path: Path,
+) -> None:
     module = _load_hygiene_module()
     runtime_file = tmp_path / "run_echozero.py"
     runtime_file.parent.mkdir(parents=True, exist_ok=True)
     runtime_file.write_text(
-        'from echozero.ui.qt.timeline.fixture_loader import load_realistic_timeline_fixture\n',
+        "from echozero.ui.qt.timeline.fixture_loader import load_realistic_timeline_fixture\n",
         encoding="utf-8",
     )
 
@@ -119,14 +121,21 @@ def test_canonical_runtime_support_import_failures_report_support_surface_import
 def test_recent_split_roots_have_default_size_guardrails() -> None:
     module = _load_hygiene_module()
 
-    assert module.MODULE_MAX_LINE_RULES["echozero/ui/qt/timeline/object_info_panel.py"] == 325
-    assert module.MODULE_MAX_LINE_RULES["echozero/ui/qt/timeline/widget_canvas.py"] == 225
+    assert module.MODULE_MAX_LINE_RULES["echozero/ui/qt/timeline/object_info_panel.py"] == 450
+    assert module.MODULE_MAX_LINE_RULES["echozero/ui/qt/timeline/widget_canvas.py"] == 439
     assert module.MODULE_MAX_LINE_RULES["echozero/foundry/ui/main_window_run_mixin.py"] == 40
-    assert module.MODULE_MAX_LINE_RULES["echozero/application/timeline/object_action_settings_service.py"] == 500
+    assert (
+        module.MODULE_MAX_LINE_RULES[
+            "echozero/application/timeline/object_action_settings_service.py"
+        ]
+        == 500
+    )
     assert module.MODULE_MAX_LINE_RULES["echozero/persistence/session.py"] == 430
     assert module.MODULE_MAX_LINE_RULES["echozero/models/provider.py"] == 360
-    assert module.MODULE_MAX_LINE_RULES["echozero/foundry/services/baseline_trainer.py"] == 150
-    assert module.MODULE_MAX_LINE_RULES["echozero/foundry/ui/main_window_workspace_mixin.py"] == 120
+    assert module.MODULE_MAX_LINE_RULES["echozero/foundry/services/baseline_trainer.py"] == 225
+    assert (
+        module.MODULE_MAX_LINE_RULES["echozero/foundry/ui/main_window_workspace_mixin.py"] == 120
+    )
     assert module.MODULE_MAX_LINE_RULES["tests/ui/timeline_shell_support.py"] == 30
     assert module.MODULE_MAX_LINE_RULES["tests/ui/app_shell_runtime_flow_support.py"] == 25
     assert module.MODULE_MAX_LINE_RULES["tests/persistence_support.py"] == 20

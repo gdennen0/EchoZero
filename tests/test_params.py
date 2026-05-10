@@ -13,6 +13,7 @@ from echozero.pipelines.params import (
     knob,
     validate_bindings,
 )
+
 # resources.py was removed (dead code) — ModelRef/parse_model_ref tests removed
 
 
@@ -22,9 +23,19 @@ from echozero.pipelines.params import (
 class TestKnobWidget:
     def test_all_expected_widgets_exist(self):
         expected = {
-            "AUTO", "SLIDER", "DROPDOWN", "TOGGLE", "TEXT", "NUMBER",
-            "FILE_PICKER", "MODEL_PICKER", "COLOR_PICKER",
-            "FREQUENCY", "GAIN", "TIME_RANGE", "MULTI_SELECT",
+            "AUTO",
+            "SLIDER",
+            "DROPDOWN",
+            "TOGGLE",
+            "TEXT",
+            "NUMBER",
+            "FILE_PICKER",
+            "MODEL_PICKER",
+            "COLOR_PICKER",
+            "FREQUENCY",
+            "GAIN",
+            "TIME_RANGE",
+            "MULTI_SELECT",
         }
         actual = {w.name for w in KnobWidget}
         assert actual == expected
@@ -230,7 +241,10 @@ class TestIntegration:
 
         def onset_detection(
             threshold: float = knob(
-                0.5, min_value=0.0, max_value=1.0, step=0.01,
+                0.5,
+                min_value=0.0,
+                max_value=1.0,
+                step=0.01,
                 label="Detection Threshold",
                 description="Sensitivity of onset detection",
                 group="Detection",
@@ -269,16 +283,22 @@ class TestIntegration:
         assert groups == {"Detection", "Filter", "Output"}
 
         # Validate good bindings
-        errors = validate_bindings(params, {
-            "threshold": 0.7,
-            "method": "rms",
-            "min_frequency": 500.0,
-        })
+        errors = validate_bindings(
+            params,
+            {
+                "threshold": 0.7,
+                "method": "rms",
+                "min_frequency": 500.0,
+            },
+        )
         assert errors == []
 
         # Validate bad bindings
-        errors = validate_bindings(params, {
-            "threshold": 5.0,  # out of range
-            "method": "nope",  # invalid option
-        })
+        errors = validate_bindings(
+            params,
+            {
+                "threshold": 5.0,  # out of range
+                "method": "nope",  # invalid option
+            },
+        )
         assert len(errors) == 2

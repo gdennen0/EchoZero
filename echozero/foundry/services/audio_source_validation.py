@@ -39,10 +39,14 @@ def inspect_audio_source(path: Path) -> AudioSourceMetadata:
     try:
         info = sf.info(path)
     except Exception as exc:
-        raise InvalidAudioSourceError("unreadable", f"audio source could not be decoded: {exc}") from exc
+        raise InvalidAudioSourceError(
+            "unreadable", f"audio source could not be decoded: {exc}"
+        ) from exc
 
     if int(info.samplerate) <= 0:
-        raise InvalidAudioSourceError("invalid_sample_rate", "audio source has an invalid sample rate")
+        raise InvalidAudioSourceError(
+            "invalid_sample_rate", "audio source has an invalid sample rate"
+        )
     if int(info.frames) <= 0:
         raise InvalidAudioSourceError("empty_audio", "audio source contains no frames")
 
@@ -63,10 +67,14 @@ def load_audio_source(path: Path, *, sample_rate: int, max_length: int) -> np.nd
     try:
         audio, file_sample_rate = sf.read(path, dtype="float32", always_2d=False)
     except Exception as exc:
-        raise InvalidAudioSourceError("unreadable", f"audio source could not be decoded: {exc}") from exc
+        raise InvalidAudioSourceError(
+            "unreadable", f"audio source could not be decoded: {exc}"
+        ) from exc
 
     if int(file_sample_rate) <= 0:
-        raise InvalidAudioSourceError("invalid_sample_rate", "audio source has an invalid sample rate")
+        raise InvalidAudioSourceError(
+            "invalid_sample_rate", "audio source has an invalid sample rate"
+        )
 
     audio = np.asarray(audio, dtype=np.float32)
     if audio.ndim > 1:
@@ -79,7 +87,9 @@ def load_audio_source(path: Path, *, sample_rate: int, max_length: int) -> np.nd
         audio = np.asarray(audio, dtype=np.float32)
 
     if not np.isfinite(audio).all():
-        raise InvalidAudioSourceError("non_finite_audio", "audio source contains non-finite samples")
+        raise InvalidAudioSourceError(
+            "non_finite_audio", "audio source contains non-finite samples"
+        )
 
     if len(audio) > max_length:
         audio = audio[:max_length]
@@ -92,7 +102,9 @@ def load_audio_source(path: Path, *, sample_rate: int, max_length: int) -> np.nd
     audio = audio.astype(np.float32)
 
     if not np.isfinite(audio).all():
-        raise InvalidAudioSourceError("non_finite_audio", "normalized audio source contains non-finite samples")
+        raise InvalidAudioSourceError(
+            "non_finite_audio", "normalized audio source contains non-finite samples"
+        )
     return audio
 
 
@@ -100,7 +112,14 @@ def _file_size_bytes(path: Path) -> int:
     try:
         return int(path.stat().st_size)
     except OSError as exc:
-        raise InvalidAudioSourceError("unreadable", f"audio source metadata could not be read: {exc}") from exc
+        raise InvalidAudioSourceError(
+            "unreadable", f"audio source metadata could not be read: {exc}"
+        ) from exc
 
 
-__all__ = ["AudioSourceMetadata", "InvalidAudioSourceError", "inspect_audio_source", "load_audio_source"]
+__all__ = [
+    "AudioSourceMetadata",
+    "InvalidAudioSourceError",
+    "inspect_audio_source",
+    "load_audio_source",
+]

@@ -16,7 +16,9 @@ def _prepare_run(tmp_path: Path):
     app = FoundryApp(tmp_path)
     dataset = app.datasets.create_dataset("Fingerprint Drums", source_ref=str(samples))
     version = app.datasets.ingest_from_folder(dataset.id, samples)
-    app.plan_version(version.id, validation_split=0.2, test_split=0.2, seed=43, balance_strategy="none")
+    app.plan_version(
+        version.id, validation_split=0.2, test_split=0.2, seed=43, balance_strategy="none"
+    )
 
     run_spec = {
         "schema": "foundry.train_run_spec.v1",
@@ -59,7 +61,9 @@ def test_finalize_artifact_persists_shared_contract_fingerprint(tmp_path: Path) 
     app, version, run = _prepare_run(tmp_path)
 
     artifact = app.finalize_artifact(run.id, _artifact_manifest_payload(version))
-    expected = create_foundry_adapter().contract_fingerprint_from_run_spec(run.spec, class_map=version.class_map)
+    expected = create_foundry_adapter().contract_fingerprint_from_run_spec(
+        run.spec, class_map=version.class_map
+    )
 
     assert artifact.manifest["sharedContractFingerprint"] == expected
     assert artifact.manifest["artifactIdentity"] == {
@@ -85,7 +89,9 @@ def test_finalize_artifact_persists_shared_contract_fingerprint(tmp_path: Path) 
     assert persisted.manifest["artifactIdentity"] == artifact.manifest["artifactIdentity"]
 
 
-def test_validate_compatibility_rejects_shared_contract_fingerprint_mismatch(tmp_path: Path) -> None:
+def test_validate_compatibility_rejects_shared_contract_fingerprint_mismatch(
+    tmp_path: Path,
+) -> None:
     app, version, run = _prepare_run(tmp_path)
     artifact = app.finalize_artifact(run.id, _artifact_manifest_payload(version))
 
@@ -119,7 +125,9 @@ def test_validate_compatibility_rejects_shared_contract_fingerprint_mismatch(tmp
     } in report.error_details
 
 
-def test_validate_compatibility_rejects_missing_shared_contract_fingerprint(tmp_path: Path) -> None:
+def test_validate_compatibility_rejects_missing_shared_contract_fingerprint(
+    tmp_path: Path,
+) -> None:
     app, version, run = _prepare_run(tmp_path)
     artifact = app.finalize_artifact(run.id, _artifact_manifest_payload(version))
 
@@ -150,7 +158,9 @@ def test_validate_compatibility_rejects_missing_shared_contract_fingerprint(tmp_
     } in report.error_details
 
 
-def test_validate_compatibility_includes_structured_details_for_manifest_and_runtime_issues(tmp_path: Path) -> None:
+def test_validate_compatibility_includes_structured_details_for_manifest_and_runtime_issues(
+    tmp_path: Path,
+) -> None:
     app, version, run = _prepare_run(tmp_path)
     artifact = app.finalize_artifact(run.id, _artifact_manifest_payload(version))
 

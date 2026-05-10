@@ -25,7 +25,10 @@ from echozero.infrastructure.osc import OscUdpSendTransport
 from echozero.persistence.session import ProjectStorage
 from echozero.services.orchestrator import Orchestrator
 from echozero.ui.qt.app_shell_runtime_services import build_playback_controller
-from echozero.ui.qt.app_shell_timeline_state import clear_selected_events, resolve_event_clip_preview
+from echozero.ui.qt.app_shell_timeline_state import (
+    clear_selected_events,
+    resolve_event_clip_preview,
+)
 
 
 class RuntimeAudioController(Protocol):
@@ -229,8 +232,12 @@ def apply_audio_output_config(
                 snapshot_state = getattr(previous_runtime_audio, "snapshot_state", None)
                 if callable(snapshot_state):
                     shell.session.playback_state = snapshot_state(presentation)
-                shell.session.transport_state.is_playing = bool(previous_runtime_audio.is_playing())
-                shell.session.transport_state.playhead = float(previous_runtime_audio.current_time_seconds())
+                shell.session.transport_state.is_playing = bool(
+                    previous_runtime_audio.is_playing()
+                )
+                shell.session.transport_state.playhead = float(
+                    previous_runtime_audio.current_time_seconds()
+                )
                 return
             except Exception:
                 # Fall through to full rebuild path when in-process reconfigure is unavailable.

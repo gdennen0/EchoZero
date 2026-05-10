@@ -51,7 +51,9 @@ def _check_file(path: Path) -> list[str]:
         for name in names:
             for prefix in FORBIDDEN_IMPORT_PREFIXES:
                 if _import_matches(name, prefix):
-                    failures.append(f"{path}:{node.lineno}: forbidden import '{name}' in guarded layer")
+                    failures.append(
+                        f"{path}:{node.lineno}: forbidden import '{name}' in guarded layer"
+                    )
     return failures
 
 

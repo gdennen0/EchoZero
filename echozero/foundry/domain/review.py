@@ -83,7 +83,9 @@ class ReviewDecision:
     corrected_end_ms: float | None = None
     created_event_ref: str | None = None
     provenance: ReviewDecisionProvenance | None = None
-    training_eligibility: ReviewTrainingEligibility = field(default_factory=ReviewTrainingEligibility)
+    training_eligibility: ReviewTrainingEligibility = field(
+        default_factory=ReviewTrainingEligibility
+    )
 
 
 @dataclass(slots=True)
@@ -270,7 +272,9 @@ def build_review_provenance(
         or _coerce_mapping_text(source_payload, "layer_ref", "layerRef"),
         event_ref=_coerce_mapping_text(explicit_payload, "event_ref", "eventRef")
         or _coerce_mapping_text(source_payload, "event_ref", "eventRef"),
-        source_event_ref=_coerce_mapping_text(explicit_payload, "source_event_ref", "sourceEventRef")
+        source_event_ref=_coerce_mapping_text(
+            explicit_payload, "source_event_ref", "sourceEventRef"
+        )
         or _coerce_mapping_text(source_payload, "source_event_ref", "sourceEventRef"),
         model_ref=_coerce_mapping_text(explicit_payload, "model_ref", "modelRef")
         or _coerce_mapping_text(explicit_payload, "bundle_ref", "bundleRef")
@@ -317,7 +321,10 @@ def _normalize_decision_kind(
         return ReviewDecisionKind.VERIFIED
     if created_event_ref:
         return ReviewDecisionKind.MISSED_EVENT_ADDED
-    if any(value is not None for value in (original_start_ms, original_end_ms, corrected_start_ms, corrected_end_ms)):
+    if any(
+        value is not None
+        for value in (original_start_ms, original_end_ms, corrected_start_ms, corrected_end_ms)
+    ):
         return ReviewDecisionKind.BOUNDARY_CORRECTED
     if corrected_label or review_note:
         return ReviewDecisionKind.RELABELED

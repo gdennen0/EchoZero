@@ -28,7 +28,6 @@ from echozero.editor.pipeline import Pipeline
 from echozero.progress import RuntimeBus
 from echozero.result import Err, Ok, err, is_ok, ok, unwrap
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -112,8 +111,12 @@ class TestReadyNodes:
         graph.add_block(_make_block("a", output_ports=(_audio_out(),)))
         graph.add_block(_make_block("b", input_ports=(_audio_in(),)))
         graph.add_connection(
-            Connection(source_block_id="a", source_output_name="out",
-                       target_block_id="b", target_input_name="in")
+            Connection(
+                source_block_id="a",
+                source_output_name="out",
+                target_block_id="b",
+                target_input_name="in",
+            )
         )
         cache = ExecutionCache()
 
@@ -125,8 +128,12 @@ class TestReadyNodes:
         graph.add_block(_make_block("a", output_ports=(_audio_out(),)))
         graph.add_block(_make_block("b", input_ports=(_audio_in(),)))
         graph.add_connection(
-            Connection(source_block_id="a", source_output_name="out",
-                       target_block_id="b", target_input_name="in")
+            Connection(
+                source_block_id="a",
+                source_output_name="out",
+                target_block_id="b",
+                target_input_name="in",
+            )
         )
         cache = ExecutionCache()
 
@@ -165,12 +172,20 @@ class TestReadyNodes:
         graph.add_block(_make_block("b", input_ports=(_audio_in(),), output_ports=(_audio_out(),)))
         graph.add_block(_make_block("c", input_ports=(_audio_in(),)))
         graph.add_connection(
-            Connection(source_block_id="a", source_output_name="out",
-                       target_block_id="b", target_input_name="in")
+            Connection(
+                source_block_id="a",
+                source_output_name="out",
+                target_block_id="b",
+                target_input_name="in",
+            )
         )
         graph.add_connection(
-            Connection(source_block_id="b", source_output_name="out",
-                       target_block_id="c", target_input_name="in")
+            Connection(
+                source_block_id="b",
+                source_output_name="out",
+                target_block_id="c",
+                target_input_name="in",
+            )
         )
         cache = ExecutionCache()
 
@@ -180,36 +195,74 @@ class TestReadyNodes:
     def test_diamond_both_middle_ready_when_root_clean(self) -> None:
         """Diamond: a -> b, a -> c, b -> d, c -> d. With a clean, b and c are ready."""
         graph = Graph()
-        graph.add_block(_make_block("a", output_ports=(
-            Port(name="out1", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
-            Port(name="out2", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
-        )))
-        graph.add_block(_make_block("b", input_ports=(_audio_in(),), output_ports=(
-            Port(name="event_out", port_type=PortType.EVENT, direction=Direction.OUTPUT),
-        )))
-        graph.add_block(_make_block("c", input_ports=(
-            Port(name="in", port_type=PortType.AUDIO, direction=Direction.INPUT),
-        ), output_ports=(
-            Port(name="event_out", port_type=PortType.EVENT, direction=Direction.OUTPUT),
-        )))
-        graph.add_block(_make_block("d", input_ports=(
-            Port(name="events", port_type=PortType.EVENT, direction=Direction.INPUT),
-        )))
-        graph.add_connection(
-            Connection(source_block_id="a", source_output_name="out1",
-                       target_block_id="b", target_input_name="in")
+        graph.add_block(
+            _make_block(
+                "a",
+                output_ports=(
+                    Port(name="out1", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
+                    Port(name="out2", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
+                ),
+            )
+        )
+        graph.add_block(
+            _make_block(
+                "b",
+                input_ports=(_audio_in(),),
+                output_ports=(
+                    Port(name="event_out", port_type=PortType.EVENT, direction=Direction.OUTPUT),
+                ),
+            )
+        )
+        graph.add_block(
+            _make_block(
+                "c",
+                input_ports=(
+                    Port(name="in", port_type=PortType.AUDIO, direction=Direction.INPUT),
+                ),
+                output_ports=(
+                    Port(name="event_out", port_type=PortType.EVENT, direction=Direction.OUTPUT),
+                ),
+            )
+        )
+        graph.add_block(
+            _make_block(
+                "d",
+                input_ports=(
+                    Port(name="events", port_type=PortType.EVENT, direction=Direction.INPUT),
+                ),
+            )
         )
         graph.add_connection(
-            Connection(source_block_id="a", source_output_name="out2",
-                       target_block_id="c", target_input_name="in")
+            Connection(
+                source_block_id="a",
+                source_output_name="out1",
+                target_block_id="b",
+                target_input_name="in",
+            )
         )
         graph.add_connection(
-            Connection(source_block_id="b", source_output_name="event_out",
-                       target_block_id="d", target_input_name="events")
+            Connection(
+                source_block_id="a",
+                source_output_name="out2",
+                target_block_id="c",
+                target_input_name="in",
+            )
         )
         graph.add_connection(
-            Connection(source_block_id="c", source_output_name="event_out",
-                       target_block_id="d", target_input_name="events")
+            Connection(
+                source_block_id="b",
+                source_output_name="event_out",
+                target_block_id="d",
+                target_input_name="events",
+            )
+        )
+        graph.add_connection(
+            Connection(
+                source_block_id="c",
+                source_output_name="event_out",
+                target_block_id="d",
+                target_input_name="events",
+            )
         )
         cache = ExecutionCache()
         # a was already executed (it's clean), so its outputs are cached
@@ -262,15 +315,27 @@ class TestCoordinatorRequestRun:
     def test_request_run_with_target_only_runs_upstream(self) -> None:
         graph, engine, cache, coord = _make_coordinator()
         graph.add_block(_make_block("a", block_type="TypeA", output_ports=(_audio_out(),)))
-        graph.add_block(_make_block("b", block_type="TypeB", input_ports=(_audio_in(),), output_ports=(_audio_out(),)))
+        graph.add_block(
+            _make_block(
+                "b", block_type="TypeB", input_ports=(_audio_in(),), output_ports=(_audio_out(),)
+            )
+        )
         graph.add_block(_make_block("c", block_type="TypeC", input_ports=(_audio_in(),)))
         graph.add_connection(
-            Connection(source_block_id="a", source_output_name="out",
-                       target_block_id="b", target_input_name="in")
+            Connection(
+                source_block_id="a",
+                source_output_name="out",
+                target_block_id="b",
+                target_input_name="in",
+            )
         )
         graph.add_connection(
-            Connection(source_block_id="b", source_output_name="out",
-                       target_block_id="c", target_input_name="in")
+            Connection(
+                source_block_id="b",
+                source_output_name="out",
+                target_block_id="c",
+                target_input_name="in",
+            )
         )
 
         exec_a = StubExecutor(output="a_out")
@@ -356,12 +421,20 @@ class TestCoordinatorPropagateStale:
         graph.add_block(_make_block("b", input_ports=(_audio_in(),), output_ports=(_audio_out(),)))
         graph.add_block(_make_block("c", input_ports=(_audio_in(),)))
         graph.add_connection(
-            Connection(source_block_id="a", source_output_name="out",
-                       target_block_id="b", target_input_name="in")
+            Connection(
+                source_block_id="a",
+                source_output_name="out",
+                target_block_id="b",
+                target_input_name="in",
+            )
         )
         graph.add_connection(
-            Connection(source_block_id="b", source_output_name="out",
-                       target_block_id="c", target_input_name="in")
+            Connection(
+                source_block_id="b",
+                source_output_name="out",
+                target_block_id="c",
+                target_input_name="in",
+            )
         )
 
         affected = coord.propagate_stale("a")
@@ -376,8 +449,12 @@ class TestCoordinatorPropagateStale:
         graph.add_block(_make_block("a", output_ports=(_audio_out(),)))
         graph.add_block(_make_block("b", input_ports=(_audio_in(),)))
         graph.add_connection(
-            Connection(source_block_id="a", source_output_name="out",
-                       target_block_id="b", target_input_name="in")
+            Connection(
+                source_block_id="a",
+                source_output_name="out",
+                target_block_id="b",
+                target_input_name="in",
+            )
         )
 
         cache.store("a", "out", "data_a", "run-1")
@@ -394,8 +471,12 @@ class TestCoordinatorPropagateStale:
         graph.add_block(_make_block("b", input_ports=(_audio_in(),)))
         graph.add_block(_make_block("c"))  # Disconnected
         graph.add_connection(
-            Connection(source_block_id="a", source_output_name="out",
-                       target_block_id="b", target_input_name="in")
+            Connection(
+                source_block_id="a",
+                source_output_name="out",
+                target_block_id="b",
+                target_input_name="in",
+            )
         )
 
         cache.store("c", "out", "data_c", "run-1")
@@ -421,8 +502,12 @@ class TestReadyNodesPortAware:
         graph.add_block(_make_block("a", output_ports=(_audio_out(),)))
         graph.add_block(_make_block("b", input_ports=(_audio_in(),)))
         graph.add_connection(
-            Connection(source_block_id="a", source_output_name="out",
-                       target_block_id="b", target_input_name="in")
+            Connection(
+                source_block_id="a",
+                source_output_name="out",
+                target_block_id="b",
+                target_input_name="in",
+            )
         )
         cache = ExecutionCache()
         # a is NOT dirty, NOT running, but has no cached output
@@ -435,8 +520,12 @@ class TestReadyNodesPortAware:
         graph.add_block(_make_block("a", output_ports=(_audio_out(),)))
         graph.add_block(_make_block("b", input_ports=(_audio_in(),)))
         graph.add_connection(
-            Connection(source_block_id="a", source_output_name="out",
-                       target_block_id="b", target_input_name="in")
+            Connection(
+                source_block_id="a",
+                source_output_name="out",
+                target_block_id="b",
+                target_input_name="in",
+            )
         )
         cache = ExecutionCache()
         cache.store("a", "out", "data", "run-0")
@@ -485,7 +574,9 @@ class TestAutoEvaluation:
             timestamp=time.time(),
             correlation_id=create_event_id(),
             block_id="a",
-            setting_key="threshold", old_value=0.3, new_value=0.5,
+            setting_key="threshold",
+            old_value=0.3,
+            new_value=0.5,
         )
         doc_bus.publish(event)
 
@@ -496,8 +587,12 @@ class TestAutoEvaluation:
         graph.add_block(_make_block("a", output_ports=(_audio_out(),)))
         graph.add_block(_make_block("b", input_ports=(_audio_in(),)))
         graph.add_connection(
-            Connection(source_block_id="a", source_output_name="out",
-                       target_block_id="b", target_input_name="in")
+            Connection(
+                source_block_id="a",
+                source_output_name="out",
+                target_block_id="b",
+                target_input_name="in",
+            )
         )
 
         doc_bus = EventBus()
@@ -534,7 +629,9 @@ class TestAutoEvaluation:
             timestamp=time.time(),
             correlation_id=create_event_id(),
             block_id="a",
-            setting_key="threshold", old_value=0.3, new_value=0.5,
+            setting_key="threshold",
+            old_value=0.3,
+            new_value=0.5,
         )
         doc_bus.publish(event)
 
@@ -559,7 +656,9 @@ class TestAutoEvaluation:
             timestamp=time.time(),
             correlation_id=create_event_id(),
             block_id="a",
-            setting_key="threshold", old_value=0.3, new_value=0.5,
+            setting_key="threshold",
+            old_value=0.3,
+            new_value=0.5,
         )
         doc_bus.publish(event)
 
@@ -607,7 +706,9 @@ class TestAutoEvaluation:
             timestamp=time.time(),
             correlation_id=create_event_id(),
             block_id="a",
-            setting_key="threshold", old_value=0.3, new_value=0.5,
+            setting_key="threshold",
+            old_value=0.3,
+            new_value=0.5,
         )
         doc_bus.publish(event)
 
@@ -637,10 +738,16 @@ class TestCoordinatorMultiPort:
 
     def test_coordinator_caches_multi_port_outputs(self) -> None:
         graph, engine, cache, coord = _make_coordinator()
-        graph.add_block(_make_block("sep", block_type="Separator", output_ports=(
-            Port(name="drums", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
-            Port(name="bass", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
-        )))
+        graph.add_block(
+            _make_block(
+                "sep",
+                block_type="Separator",
+                output_ports=(
+                    Port(name="drums", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
+                    Port(name="bass", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
+                ),
+            )
+        )
 
         engine.register_executor(
             "Separator",
@@ -656,9 +763,14 @@ class TestCoordinatorMultiPort:
 
     def test_coordinator_caches_single_port_to_named_port(self) -> None:
         graph, engine, cache, coord = _make_coordinator()
-        graph.add_block(_make_block("a", output_ports=(
-            Port(name="audio_out", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
-        )))
+        graph.add_block(
+            _make_block(
+                "a",
+                output_ports=(
+                    Port(name="audio_out", port_type=PortType.AUDIO, direction=Direction.OUTPUT),
+                ),
+            )
+        )
 
         engine.register_executor("TestType", StubExecutor(output="audio_data"))
 
@@ -666,5 +778,3 @@ class TestCoordinatorMultiPort:
 
         assert cache.get("a", "audio_out") is not None
         assert cache.get("a", "audio_out").value == "audio_data"
-
-

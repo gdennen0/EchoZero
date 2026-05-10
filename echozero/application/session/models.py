@@ -7,7 +7,15 @@ from typing import TYPE_CHECKING
 
 from echozero.application.shared.cue_numbers import CueNumber
 from echozero.application.shared.enums import LayerKind
-from echozero.application.shared.ids import EventId, LayerId, ProjectId, SessionId, SongId, SongVersionId, TimelineId
+from echozero.application.shared.ids import (
+    EventId,
+    LayerId,
+    ProjectId,
+    SessionId,
+    SongId,
+    SongVersionId,
+    TimelineId,
+)
 from echozero.application.sync.diff_service import SyncDiffRow, SyncDiffSummary
 from echozero.application.transport.models import TransportState
 from echozero.application.mixer.models import MixerState
@@ -226,7 +234,5 @@ class Session:
     manual_pull_flow: ManualPullFlowState = field(default_factory=ManualPullFlowState)
     batch_transfer_plan: BatchTransferPlanState | None = None
     transfer_presets: list[TransferPresetState] = field(default_factory=list)
-    operation_progress_by_id: dict[str, OperationProgressState] = field(
-        default_factory=dict
-    )
+    operation_progress_by_id: dict[str, OperationProgressState] = field(default_factory=dict)
     ui_prefs_ref: str | None = None

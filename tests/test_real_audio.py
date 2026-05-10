@@ -44,7 +44,6 @@ from echozero.processors.transcribe_notes import TranscribeNotesProcessor
 from echozero.progress import RuntimeBus
 from echozero.result import Ok, is_err, is_ok, unwrap
 
-
 # ---------------------------------------------------------------------------
 # Module-local temp root to avoid machine-specific ACL issues under AppData\\Temp.
 # ---------------------------------------------------------------------------
@@ -57,6 +56,7 @@ _REAL_AUDIO_TMP_ROOT.mkdir(parents=True, exist_ok=True)
 # ---------------------------------------------------------------------------
 # Audio generation helpers
 # ---------------------------------------------------------------------------
+
 
 def _write_wav(path: str, samples: np.ndarray, sample_rate: int = 44100) -> str:
     """Write a numpy array (float64, -1..1) to a 16-bit WAV file."""
@@ -98,7 +98,9 @@ def _clicks_at(times: list[float], duration: float = 3.0, sr: int = 44100) -> np
     return samples
 
 
-def _tone_bursts(freqs_and_times: list[tuple[float, float, float]], duration: float = 5.0, sr: int = 44100) -> np.ndarray:
+def _tone_bursts(
+    freqs_and_times: list[tuple[float, float, float]], duration: float = 5.0, sr: int = 44100
+) -> np.ndarray:
     """Generate audio with tone bursts at specified (freq, start, dur) tuples."""
     samples = np.zeros(int(sr * duration))
     for freq, start, dur in freqs_and_times:
@@ -113,6 +115,7 @@ def _tone_bursts(freqs_and_times: list[tuple[float, float, float]], duration: fl
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def tmp_dir():
     """Temp directory cleaned up after test."""
@@ -120,6 +123,7 @@ def tmp_dir():
     d.mkdir(parents=True, exist_ok=True)
     yield str(d)
     import shutil
+
     shutil.rmtree(d, ignore_errors=True)
 
 
@@ -152,11 +156,14 @@ def mixed_wav(tmp_dir) -> str:
 def tone_burst_wav(tmp_dir) -> str:
     """WAV with 3 tone bursts at known times for event-region tests."""
     path = os.path.join(tmp_dir, "bursts.wav")
-    audio = _tone_bursts([
-        (440.0, 0.5, 0.2),
-        (880.0, 1.5, 0.3),
-        (220.0, 2.5, 0.2),
-    ], duration=4.0)
+    audio = _tone_bursts(
+        [
+            (440.0, 0.5, 0.2),
+            (880.0, 1.5, 0.3),
+            (220.0, 2.5, 0.2),
+        ],
+        duration=4.0,
+    )
     return _write_wav(path, audio)
 
 
@@ -164,18 +171,22 @@ def tone_burst_wav(tmp_dir) -> str:
 # 1. LoadAudio — real file, real metadata
 # ---------------------------------------------------------------------------
 
+
 class TestLoadAudioReal:
     def test_loads_wav_metadata(self, sine_wav):
         proc = LoadAudioProcessor()
         graph = Graph()
-        graph.add_block(Block(
-            id="load", name="Load", block_type="LoadAudio",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(), output_ports=(
-                Port("audio_out", PortType.AUDIO, Direction.OUTPUT),
-            ),
-            settings=BlockSettings({"file_path": sine_wav}),
-        ))
+        graph.add_block(
+            Block(
+                id="load",
+                name="Load",
+                block_type="LoadAudio",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(),
+                output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
+                settings=BlockSettings({"file_path": sine_wav}),
+            )
+        )
         ctx = ExecutionContext("test", graph, RuntimeBus())
         result = proc.execute("load", ctx)
         assert is_ok(result)
@@ -189,14 +200,17 @@ class TestLoadAudioReal:
     def test_missing_file_returns_error(self, tmp_dir):
         proc = LoadAudioProcessor()
         graph = Graph()
-        graph.add_block(Block(
-            id="load", name="Load", block_type="LoadAudio",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(), output_ports=(
-                Port("audio_out", PortType.AUDIO, Direction.OUTPUT),
-            ),
-            settings=BlockSettings({"file_path": os.path.join(tmp_dir, "nope.wav")}),
-        ))
+        graph.add_block(
+            Block(
+                id="load",
+                name="Load",
+                block_type="LoadAudio",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(),
+                output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
+                settings=BlockSettings({"file_path": os.path.join(tmp_dir, "nope.wav")}),
+            )
+        )
         ctx = ExecutionContext("test", graph, RuntimeBus())
         result = proc.execute("load", ctx)
         assert is_err(result)
@@ -214,21 +228,28 @@ class TestDetectOnsetsReal:
         """Real librosa onset detection on a file with 4 clicks."""
         proc = DetectOnsetsProcessor()  # uses _default_onset_detect (librosa)
         graph = Graph()
-        graph.add_block(Block(
-            id="load", name="Load", block_type="LoadAudio",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(), output_ports=(
-                Port("audio_out", PortType.AUDIO, Direction.OUTPUT),
-            ),
-            settings=BlockSettings({"file_path": click_wav}),
-        ))
-        graph.add_block(Block(
-            id="onsets", name="Onsets", block_type="DetectOnsets",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
-            output_ports=(Port("events_out", PortType.EVENT, Direction.OUTPUT),),
-            settings=BlockSettings({"threshold": 0.3, "min_gap": 0.1}),
-        ))
+        graph.add_block(
+            Block(
+                id="load",
+                name="Load",
+                block_type="LoadAudio",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(),
+                output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
+                settings=BlockSettings({"file_path": click_wav}),
+            )
+        )
+        graph.add_block(
+            Block(
+                id="onsets",
+                name="Onsets",
+                block_type="DetectOnsets",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
+                output_ports=(Port("events_out", PortType.EVENT, Direction.OUTPUT),),
+                settings=BlockSettings({"threshold": 0.3, "min_gap": 0.1}),
+            )
+        )
         graph.add_connection(Connection("load", "audio_out", "onsets", "audio_in"))
 
         bus = RuntimeBus()
@@ -258,21 +279,28 @@ class TestDetectOnsetsReal:
 
         proc = DetectOnsetsProcessor()
         graph = Graph()
-        graph.add_block(Block(
-            id="load", name="Load", block_type="LoadAudio",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(), output_ports=(
-                Port("audio_out", PortType.AUDIO, Direction.OUTPUT),
-            ),
-            settings=BlockSettings({"file_path": silence_path}),
-        ))
-        graph.add_block(Block(
-            id="onsets", name="Onsets", block_type="DetectOnsets",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
-            output_ports=(Port("events_out", PortType.EVENT, Direction.OUTPUT),),
-            settings=BlockSettings({"threshold": 0.5, "min_gap": 0.1}),
-        ))
+        graph.add_block(
+            Block(
+                id="load",
+                name="Load",
+                block_type="LoadAudio",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(),
+                output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
+                settings=BlockSettings({"file_path": silence_path}),
+            )
+        )
+        graph.add_block(
+            Block(
+                id="onsets",
+                name="Onsets",
+                block_type="DetectOnsets",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
+                output_ports=(Port("events_out", PortType.EVENT, Direction.OUTPUT),),
+                settings=BlockSettings({"threshold": 0.5, "min_gap": 0.1}),
+            )
+        )
         graph.add_connection(Connection("load", "audio_out", "onsets", "audio_in"))
 
         bus = RuntimeBus()
@@ -307,8 +335,7 @@ class TestDetectOnsetsReal:
         comparable_count = min(len(without_backtrack), len(with_backtrack))
         assert comparable_count > 0
         assert all(
-            with_backtrack[index] <= without_backtrack[index]
-            for index in range(comparable_count)
+            with_backtrack[index] <= without_backtrack[index] for index in range(comparable_count)
         )
 
 
@@ -324,26 +351,35 @@ class TestAudioFilterReal:
         """Lowpass at 500Hz on a 100Hz+4000Hz mix should reduce energy above 500Hz."""
         proc = AudioFilterProcessor()  # uses _default_filter (scipy)
         graph = Graph()
-        graph.add_block(Block(
-            id="load", name="Load", block_type="LoadAudio",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(), output_ports=(
-                Port("audio_out", PortType.AUDIO, Direction.OUTPUT),
-            ),
-            settings=BlockSettings({"file_path": mixed_wav}),
-        ))
-        graph.add_block(Block(
-            id="filter", name="Filter", block_type="AudioFilter",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
-            output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
-            settings=BlockSettings({
-                "filter_type": "lowpass",
-                "freq": 500.0,
-                "gain_db": 0.0,
-                "Q": 1.0,
-            }),
-        ))
+        graph.add_block(
+            Block(
+                id="load",
+                name="Load",
+                block_type="LoadAudio",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(),
+                output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
+                settings=BlockSettings({"file_path": mixed_wav}),
+            )
+        )
+        graph.add_block(
+            Block(
+                id="filter",
+                name="Filter",
+                block_type="AudioFilter",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
+                output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
+                settings=BlockSettings(
+                    {
+                        "filter_type": "lowpass",
+                        "freq": 500.0,
+                        "gain_db": 0.0,
+                        "Q": 1.0,
+                    }
+                ),
+            )
+        )
         graph.add_connection(Connection("load", "audio_out", "filter", "audio_in"))
 
         bus = RuntimeBus()
@@ -360,6 +396,7 @@ class TestAudioFilterReal:
 
         # Verify the output file is actually a valid WAV
         import soundfile as sf
+
         data, sr = sf.read(audio_out.file_path)
         assert sr == 44100
         assert len(data) > 0
@@ -377,31 +414,40 @@ class TestAudioFilterReal:
         low_energy = np.mean(fft[low_mask] ** 2)
 
         # After lowpass at 500Hz, high energy should be much less than low energy
-        assert high_energy < low_energy, (
-            f"Lowpass failed: high_energy={high_energy:.2f} >= low_energy={low_energy:.2f}"
-        )
+        assert (
+            high_energy < low_energy
+        ), f"Lowpass failed: high_energy={high_energy:.2f} >= low_energy={low_energy:.2f}"
 
     def test_highpass_removes_low_frequencies(self, mixed_wav, tmp_dir):
         """Highpass at 2000Hz should remove the 100Hz component."""
         graph = Graph()
-        graph.add_block(Block(
-            id="load", name="Load", block_type="LoadAudio",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(), output_ports=(
-                Port("audio_out", PortType.AUDIO, Direction.OUTPUT),
-            ),
-            settings=BlockSettings({"file_path": mixed_wav}),
-        ))
-        graph.add_block(Block(
-            id="filter", name="Filter", block_type="AudioFilter",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
-            output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
-            settings=BlockSettings({
-                "filter_type": "highpass",
-                "freq": 2000.0,
-            }),
-        ))
+        graph.add_block(
+            Block(
+                id="load",
+                name="Load",
+                block_type="LoadAudio",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(),
+                output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
+                settings=BlockSettings({"file_path": mixed_wav}),
+            )
+        )
+        graph.add_block(
+            Block(
+                id="filter",
+                name="Filter",
+                block_type="AudioFilter",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
+                output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
+                settings=BlockSettings(
+                    {
+                        "filter_type": "highpass",
+                        "freq": 2000.0,
+                    }
+                ),
+            )
+        )
         graph.add_connection(Connection("load", "audio_out", "filter", "audio_in"))
 
         bus = RuntimeBus()
@@ -414,6 +460,7 @@ class TestAudioFilterReal:
         audio_out = unwrap(result)["filter"]["audio_out"]
 
         import soundfile as sf
+
         data, sr = sf.read(audio_out.file_path)
         if data.ndim > 1:
             data = data[:, 0]
@@ -425,40 +472,50 @@ class TestAudioFilterReal:
         low_energy = np.mean(fft[low_mask] ** 2)
         high_energy = np.mean(fft[high_mask] ** 2)
 
-        assert low_energy < high_energy, (
-            f"Highpass failed: low_energy={low_energy:.2f} >= high_energy={high_energy:.2f}"
-        )
+        assert (
+            low_energy < high_energy
+        ), f"Highpass failed: low_energy={low_energy:.2f} >= high_energy={high_energy:.2f}"
 
 
 # ---------------------------------------------------------------------------
 # 4. EQBands — real scipy multi-band EQ
 # ---------------------------------------------------------------------------
 
+
 class TestEQBandsReal:
     def test_boost_low_band(self, mixed_wav):
         """Boosting 60-250Hz by 12dB should increase low-frequency energy."""
         graph = Graph()
-        graph.add_block(Block(
-            id="load", name="Load", block_type="LoadAudio",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(), output_ports=(
-                Port("audio_out", PortType.AUDIO, Direction.OUTPUT),
-            ),
-            settings=BlockSettings({"file_path": mixed_wav}),
-        ))
-        graph.add_block(Block(
-            id="eq", name="EQ", block_type="EQBands",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
-            output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
-            settings=BlockSettings({
-                "bands": [
-                    {"freq_low": 60.0, "freq_high": 250.0, "gain_db": 12.0},
-                    {"freq_low": 2000.0, "freq_high": 8000.0, "gain_db": 0.0},
-                ],
-                "filter_order": 4,
-            }),
-        ))
+        graph.add_block(
+            Block(
+                id="load",
+                name="Load",
+                block_type="LoadAudio",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(),
+                output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
+                settings=BlockSettings({"file_path": mixed_wav}),
+            )
+        )
+        graph.add_block(
+            Block(
+                id="eq",
+                name="EQ",
+                block_type="EQBands",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
+                output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
+                settings=BlockSettings(
+                    {
+                        "bands": [
+                            {"freq_low": 60.0, "freq_high": 250.0, "gain_db": 12.0},
+                            {"freq_low": 2000.0, "freq_high": 8000.0, "gain_db": 0.0},
+                        ],
+                        "filter_order": 4,
+                    }
+                ),
+            )
+        )
         graph.add_connection(Connection("load", "audio_out", "eq", "audio_in"))
 
         bus = RuntimeBus()
@@ -472,6 +529,7 @@ class TestEQBandsReal:
         assert os.path.isfile(audio_out.file_path)
 
         import soundfile as sf
+
         data, sr = sf.read(audio_out.file_path)
         assert sr == 44100
         assert len(data) > 0
@@ -481,49 +539,89 @@ class TestEQBandsReal:
 # 5. AudioNegate — real negation on tone bursts
 # ---------------------------------------------------------------------------
 
+
 class TestAudioNegateReal:
     def test_silence_mode_zeros_event_regions(self, tone_burst_wav):
         """Silence mode should zero out audio at event time regions."""
         graph = Graph()
-        graph.add_block(Block(
-            id="load", name="Load", block_type="LoadAudio",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(), output_ports=(
-                Port("audio_out", PortType.AUDIO, Direction.OUTPUT),
-            ),
-            settings=BlockSettings({"file_path": tone_burst_wav}),
-        ))
-        graph.add_block(Block(
-            id="events_src", name="Events", block_type="EventSource",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(), output_ports=(
-                Port("events_out", PortType.EVENT, Direction.OUTPUT),
-            ),
-        ))
-        graph.add_block(Block(
-            id="negate", name="Negate", block_type="AudioNegate",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(
-                Port("audio_in", PortType.AUDIO, Direction.INPUT),
-                Port("events_in", PortType.EVENT, Direction.INPUT),
-            ),
-            output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
-            settings=BlockSettings({
-                "mode": "silence",
-                "fade_ms": 5.0,
-            }),
-        ))
+        graph.add_block(
+            Block(
+                id="load",
+                name="Load",
+                block_type="LoadAudio",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(),
+                output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
+                settings=BlockSettings({"file_path": tone_burst_wav}),
+            )
+        )
+        graph.add_block(
+            Block(
+                id="events_src",
+                name="Events",
+                block_type="EventSource",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(),
+                output_ports=(Port("events_out", PortType.EVENT, Direction.OUTPUT),),
+            )
+        )
+        graph.add_block(
+            Block(
+                id="negate",
+                name="Negate",
+                block_type="AudioNegate",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(
+                    Port("audio_in", PortType.AUDIO, Direction.INPUT),
+                    Port("events_in", PortType.EVENT, Direction.INPUT),
+                ),
+                output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
+                settings=BlockSettings(
+                    {
+                        "mode": "silence",
+                        "fade_ms": 5.0,
+                    }
+                ),
+            )
+        )
         graph.add_connection(Connection("load", "audio_out", "negate", "audio_in"))
         graph.add_connection(Connection("events_src", "events_out", "negate", "events_in"))
 
         # Event regions match tone burst times
-        event_data = EventData(layers=(
-            Layer(id="bursts", name="Bursts", events=(
-                Event(id="b1", time=0.5, duration=0.2, classifications={}, metadata={}, origin="test"),
-                Event(id="b2", time=1.5, duration=0.3, classifications={}, metadata={}, origin="test"),
-                Event(id="b3", time=2.5, duration=0.2, classifications={}, metadata={}, origin="test"),
-            )),
-        ))
+        event_data = EventData(
+            layers=(
+                Layer(
+                    id="bursts",
+                    name="Bursts",
+                    events=(
+                        Event(
+                            id="b1",
+                            time=0.5,
+                            duration=0.2,
+                            classifications={},
+                            metadata={},
+                            origin="test",
+                        ),
+                        Event(
+                            id="b2",
+                            time=1.5,
+                            duration=0.3,
+                            classifications={},
+                            metadata={},
+                            origin="test",
+                        ),
+                        Event(
+                            id="b3",
+                            time=2.5,
+                            duration=0.2,
+                            classifications={},
+                            metadata={},
+                            origin="test",
+                        ),
+                    ),
+                ),
+            )
+        )
 
         class EventSource:
             def execute(self, block_id, context):
@@ -541,6 +639,7 @@ class TestAudioNegateReal:
         assert os.path.isfile(audio_out.file_path)
 
         import soundfile as sf
+
         data, sr = sf.read(audio_out.file_path)
         if data.ndim > 1:
             data = data[:, 0]
@@ -552,14 +651,15 @@ class TestAudioNegateReal:
             center_end = int((start + dur - 0.02) * sr)
             if center_start < center_end:
                 region_rms = np.sqrt(np.mean(data[center_start:center_end] ** 2))
-                assert region_rms < 0.05, (
-                    f"Region {start}-{start+dur}s not silenced: RMS={region_rms:.4f}"
-                )
+                assert (
+                    region_rms < 0.05
+                ), f"Region {start}-{start+dur}s not silenced: RMS={region_rms:.4f}"
 
 
 # ---------------------------------------------------------------------------
 # 6. ExportAudio — real file copy
 # ---------------------------------------------------------------------------
+
 
 class TestExportAudioReal:
     def test_exports_wav_to_directory(self, sine_wav, tmp_dir):
@@ -567,24 +667,33 @@ class TestExportAudioReal:
         output_dir = os.path.join(tmp_dir, "export_out")
 
         graph = Graph()
-        graph.add_block(Block(
-            id="load", name="Load", block_type="LoadAudio",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(), output_ports=(
-                Port("audio_out", PortType.AUDIO, Direction.OUTPUT),
-            ),
-            settings=BlockSettings({"file_path": sine_wav}),
-        ))
-        graph.add_block(Block(
-            id="export", name="Export", block_type="ExportAudio",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
-            output_ports=(),
-            settings=BlockSettings({
-                "output_dir": output_dir,
-                "format": "wav",
-            }),
-        ))
+        graph.add_block(
+            Block(
+                id="load",
+                name="Load",
+                block_type="LoadAudio",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(),
+                output_ports=(Port("audio_out", PortType.AUDIO, Direction.OUTPUT),),
+                settings=BlockSettings({"file_path": sine_wav}),
+            )
+        )
+        graph.add_block(
+            Block(
+                id="export",
+                name="Export",
+                block_type="ExportAudio",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(Port("audio_in", PortType.AUDIO, Direction.INPUT),),
+                output_ports=(),
+                settings=BlockSettings(
+                    {
+                        "output_dir": output_dir,
+                        "format": "wav",
+                    }
+                ),
+            )
+        )
         graph.add_connection(Connection("load", "audio_out", "export", "audio_in"))
 
         bus = RuntimeBus()
@@ -599,6 +708,7 @@ class TestExportAudioReal:
 
         # Verify it's a valid WAV
         import soundfile as sf
+
         data, sr = sf.read(exported_path)
         assert sr == 44100
         assert len(data) > 0
@@ -608,43 +718,71 @@ class TestExportAudioReal:
 # 7. ExportMA2 — real XML file write
 # ---------------------------------------------------------------------------
 
+
 class TestExportMA2Real:
     def test_writes_ma2_xml(self, tmp_dir):
         """ExportMA2 should write a valid MA2 timecode XML file."""
         output_path = os.path.join(tmp_dir, "output.xml")
 
-        event_data = EventData(layers=(
-            Layer(id="drums", name="Drums", events=(
-                Event(id="e1", time=0.5, duration=0.1,
-                      classifications={"class": "kick"}, metadata={}, origin="test"),
-                Event(id="e2", time=1.0, duration=0.1,
-                      classifications={"class": "snare"}, metadata={}, origin="test"),
-            )),
-        ))
+        event_data = EventData(
+            layers=(
+                Layer(
+                    id="drums",
+                    name="Drums",
+                    events=(
+                        Event(
+                            id="e1",
+                            time=0.5,
+                            duration=0.1,
+                            classifications={"class": "kick"},
+                            metadata={},
+                            origin="test",
+                        ),
+                        Event(
+                            id="e2",
+                            time=1.0,
+                            duration=0.1,
+                            classifications={"class": "snare"},
+                            metadata={},
+                            origin="test",
+                        ),
+                    ),
+                ),
+            )
+        )
 
         class EventSource:
             def execute(self, block_id, context):
                 return Ok(event_data)
 
         graph = Graph()
-        graph.add_block(Block(
-            id="src", name="Source", block_type="EventSource",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(), output_ports=(
-                Port("events_out", PortType.EVENT, Direction.OUTPUT),
-            ),
-        ))
-        graph.add_block(Block(
-            id="export", name="Export", block_type="ExportMA2",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(Port("events_in", PortType.EVENT, Direction.INPUT),),
-            output_ports=(),
-            settings=BlockSettings({
-                "output_path": output_path,
-                "frame_rate": 30,
-                "track_name": "TestSong",
-            }),
-        ))
+        graph.add_block(
+            Block(
+                id="src",
+                name="Source",
+                block_type="EventSource",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(),
+                output_ports=(Port("events_out", PortType.EVENT, Direction.OUTPUT),),
+            )
+        )
+        graph.add_block(
+            Block(
+                id="export",
+                name="Export",
+                block_type="ExportMA2",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(Port("events_in", PortType.EVENT, Direction.INPUT),),
+                output_ports=(),
+                settings=BlockSettings(
+                    {
+                        "output_path": output_path,
+                        "frame_rate": 30,
+                        "track_name": "TestSong",
+                    }
+                ),
+            )
+        )
         graph.add_connection(Connection("src", "events_out", "export", "events_in"))
 
         bus = RuntimeBus()
@@ -657,17 +795,18 @@ class TestExportMA2Real:
         assert os.path.isfile(output_path)
 
         content = Path(output_path).read_text()
-        assert '<?xml' in content
-        assert 'MA2Timecode' in content
+        assert "<?xml" in content
+        assert "MA2Timecode" in content
         assert 'trackName="TestSong"' in content
-        assert 'kick' in content
-        assert 'snare' in content
-        assert content.count('<Event ') == 2
+        assert "kick" in content
+        assert "snare" in content
+        assert content.count("<Event ") == 2
 
 
 # ---------------------------------------------------------------------------
 # 8. DatasetViewer — real directory scan
 # ---------------------------------------------------------------------------
+
 
 class TestDatasetViewerReal:
     def test_scans_real_directory(self, tmp_dir):
@@ -685,20 +824,27 @@ class TestDatasetViewerReal:
             _write_wav(os.path.join(snare_dir, f"snare_{i}.wav"), _clicks_at([0.1], duration=0.3))
 
         graph = Graph()
-        graph.add_block(Block(
-            id="viewer", name="Viewer", block_type="DatasetViewer",
-            category=BlockCategory.WORKSPACE,
-            input_ports=(), output_ports=(),
-            settings=BlockSettings({"dataset_dir": tmp_dir}),
-        ))
+        graph.add_block(
+            Block(
+                id="viewer",
+                name="Viewer",
+                block_type="DatasetViewer",
+                category=BlockCategory.WORKSPACE,
+                input_ports=(),
+                output_ports=(),
+                settings=BlockSettings({"dataset_dir": tmp_dir}),
+            )
+        )
 
         bus = RuntimeBus()
         engine = ExecutionEngine(graph, bus)
         engine.register_executor("DatasetViewer", DatasetViewerProcessor())
-        result = engine.run(ExecutionPlan(
-            execution_id=uuid4().hex,
-            ordered_block_ids=("viewer",),
-        ))
+        result = engine.run(
+            ExecutionPlan(
+                execution_id=uuid4().hex,
+                ordered_block_ids=("viewer",),
+            )
+        )
 
         assert is_ok(result)
         stats = unwrap(result)["viewer"]["out"]
@@ -712,10 +858,14 @@ class TestDatasetViewerReal:
 # 9. Full pipeline: LoadAudio → DetectOnsets (real end-to-end)
 # ---------------------------------------------------------------------------
 
+
 class TestFullPipelineReal:
     def test_load_then_detect(self, click_wav):
         """Full pipeline: load a real WAV, detect onsets with real librosa."""
-        from echozero.pipelines.block_specs import DetectOnsets as DetectOnsetsSpec, LoadAudio as LoadAudioSpec
+        from echozero.pipelines.block_specs import (
+            DetectOnsets as DetectOnsetsSpec,
+            LoadAudio as LoadAudioSpec,
+        )
         from echozero.pipelines.pipeline import Pipeline
 
         p = Pipeline("test_real", name="Real Test")
@@ -818,6 +968,5 @@ class TestFullPipelineReal:
         assert os.path.isfile(output_xml)
 
         content = Path(output_xml).read_text()
-        assert 'ClickTrack' in content
-        assert content.count('<Event ') >= 2
-
+        assert "ClickTrack" in content
+        assert content.count("<Event ") >= 2

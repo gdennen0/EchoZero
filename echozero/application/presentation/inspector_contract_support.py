@@ -49,7 +49,10 @@ def selected_identity_label(presentation: TimelinePresentation) -> str:
             layer, take = take_match
             return f"Take {take.name} ({take.take_id}) on {layer.title}"
         selected_layer = find_layer(presentation, presentation.selected_layer_id)
-        if selected_layer is not None and presentation.selected_take_id == selected_layer.main_take_id:
+        if (
+            selected_layer is not None
+            and presentation.selected_take_id == selected_layer.main_take_id
+        ):
             return f"Take Main take ({selected_layer.main_take_id}) on {selected_layer.title}"
     if presentation.selected_layer_id is not None:
         selected_layer = find_layer(presentation, presentation.selected_layer_id)

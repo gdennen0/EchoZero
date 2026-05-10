@@ -41,10 +41,14 @@ def _select_queue_run(window: FoundryWindow, run_id: str) -> None:
     raise AssertionError(f"Queue run not found: {run_id}")
 
 
-def _prepare_dataset(app: FoundryApp, samples: Path, *, name: str = "Desktop Drums") -> tuple[object, object]:
+def _prepare_dataset(
+    app: FoundryApp, samples: Path, *, name: str = "Desktop Drums"
+) -> tuple[object, object]:
     dataset = app.datasets.create_dataset(name, source_ref=str(samples))
     version = app.datasets.ingest_from_folder(dataset.id, samples)
-    app.plan_version(version.id, validation_split=0.25, test_split=0.25, seed=11, balance_strategy="none")
+    app.plan_version(
+        version.id, validation_split=0.25, test_split=0.25, seed=11, balance_strategy="none"
+    )
     return dataset, version
 
 
@@ -76,7 +80,9 @@ def _prepare_completed_run(root: Path) -> tuple[FoundryWindow, QApplication]:
     return window, qt_app
 
 
-def test_foundry_window_create_and_start_runs_in_background_with_live_updates(tmp_path: Path, monkeypatch):
+def test_foundry_window_create_and_start_runs_in_background_with_live_updates(
+    tmp_path: Path, monkeypatch
+):
     samples = tmp_path / "samples"
     write_percussion_dataset(samples)
 
@@ -100,7 +106,9 @@ def test_foundry_window_create_and_start_runs_in_background_with_live_updates(tm
     assert window._run_thread is not None
     assert window.create_run_btn.isEnabled() is False
     assert "background" in window.status_line.text().lower()
-    assert _wait_until(qt_app, lambda: "RUN_PREPARING" in window.activity.toPlainText(), timeout=5.0)
+    assert _wait_until(
+        qt_app, lambda: "RUN_PREPARING" in window.activity.toPlainText(), timeout=5.0
+    )
     assert _wait_until(qt_app, lambda: window._run_thread is None, timeout=30.0)
     assert window.create_run_btn.isEnabled() is True
     assert "Status: completed" in window.run_summary.toPlainText()
@@ -110,7 +118,9 @@ def test_foundry_window_create_and_start_runs_in_background_with_live_updates(tm
     qt_app.processEvents()
 
 
-def test_foundry_window_background_start_handles_failed_run_gracefully(tmp_path: Path, monkeypatch):
+def test_foundry_window_background_start_handles_failed_run_gracefully(
+    tmp_path: Path, monkeypatch
+):
     samples = tmp_path / "samples"
     write_percussion_dataset(samples)
 
@@ -139,7 +149,9 @@ def test_foundry_window_background_start_handles_failed_run_gracefully(tmp_path:
     qt_app.processEvents()
 
 
-def test_foundry_window_opens_exports_and_artifact_outputs_and_reports_missing_files(tmp_path: Path, monkeypatch):
+def test_foundry_window_opens_exports_and_artifact_outputs_and_reports_missing_files(
+    tmp_path: Path, monkeypatch
+):
     window, qt_app = _prepare_completed_run(tmp_path)
     opened_paths: list[str] = []
 
@@ -147,7 +159,9 @@ def test_foundry_window_opens_exports_and_artifact_outputs_and_reports_missing_f
         opened_paths.append(url.toLocalFile())
         return True
 
-    monkeypatch.setattr("echozero.foundry.ui.main_window.QDesktopServices.openUrl", staticmethod(fake_open))
+    monkeypatch.setattr(
+        "echozero.foundry.ui.main_window.QDesktopServices.openUrl", staticmethod(fake_open)
+    )
 
     window._open_exports_dir()
     window._open_metrics_json()
@@ -168,41 +182,49 @@ def test_foundry_window_opens_exports_and_artifact_outputs_and_reports_missing_f
     qt_app.processEvents()
 
 
-def test_foundry_window_opens_latest_artifact_package_from_persisted_state(tmp_path: Path, monkeypatch):
+def test_foundry_window_opens_latest_artifact_package_from_persisted_state(
+    tmp_path: Path, monkeypatch
+):
     samples = tmp_path / "samples"
     write_percussion_dataset(samples)
 
     foundry = FoundryApp(tmp_path)
     _, version = _prepare_dataset(foundry, samples, name="Queued Drums")
-    first_run = foundry.create_run(version.id, {
-        "schema": "foundry.train_run_spec.v1",
-        "classificationMode": "multiclass",
-        "data": {
-            "datasetVersionId": version.id,
-            "sampleRate": 22050,
-            "maxLength": 22050,
-            "nFft": 2048,
-            "hopLength": 512,
-            "nMels": 128,
-            "fmax": 8000,
+    first_run = foundry.create_run(
+        version.id,
+        {
+            "schema": "foundry.train_run_spec.v1",
+            "classificationMode": "multiclass",
+            "data": {
+                "datasetVersionId": version.id,
+                "sampleRate": 22050,
+                "maxLength": 22050,
+                "nFft": 2048,
+                "hopLength": 512,
+                "nMels": 128,
+                "fmax": 8000,
+            },
+            "training": {"epochs": 1, "batchSize": 2, "learningRate": 0.01, "seed": 3},
         },
-        "training": {"epochs": 1, "batchSize": 2, "learningRate": 0.01, "seed": 3},
-    })
+    )
     foundry.start_run(first_run.id)
-    second_run = foundry.create_run(version.id, {
-        "schema": "foundry.train_run_spec.v1",
-        "classificationMode": "multiclass",
-        "data": {
-            "datasetVersionId": version.id,
-            "sampleRate": 22050,
-            "maxLength": 22050,
-            "nFft": 2048,
-            "hopLength": 512,
-            "nMels": 128,
-            "fmax": 8000,
+    second_run = foundry.create_run(
+        version.id,
+        {
+            "schema": "foundry.train_run_spec.v1",
+            "classificationMode": "multiclass",
+            "data": {
+                "datasetVersionId": version.id,
+                "sampleRate": 22050,
+                "maxLength": 22050,
+                "nFft": 2048,
+                "hopLength": 512,
+                "nMels": 128,
+                "fmax": 8000,
+            },
+            "training": {"epochs": 1, "batchSize": 2, "learningRate": 0.01, "seed": 5},
         },
-        "training": {"epochs": 1, "batchSize": 2, "learningRate": 0.01, "seed": 5},
-    })
+    )
     foundry.start_run(second_run.id)
 
     qt_app = _qt_app()
@@ -213,9 +235,13 @@ def test_foundry_window_opens_latest_artifact_package_from_persisted_state(tmp_p
         opened_paths.append(url.toLocalFile())
         return True
 
-    monkeypatch.setattr("echozero.foundry.ui.main_window.QDesktopServices.openUrl", staticmethod(fake_open))
+    monkeypatch.setattr(
+        "echozero.foundry.ui.main_window.QDesktopServices.openUrl", staticmethod(fake_open)
+    )
 
-    latest_artifact = sorted(foundry.artifacts._artifact_repo.list(), key=lambda item: (item.created_at, item.id))[-1]
+    latest_artifact = sorted(
+        foundry.artifacts._artifact_repo.list(), key=lambda item: (item.created_at, item.id)
+    )[-1]
     window._open_latest_artifact_package()
 
     assert [Path(path) for path in opened_paths] == [latest_artifact.path.parent]
@@ -265,7 +291,9 @@ def test_foundry_window_opens_active_live_review(tmp_path: Path, monkeypatch):
     qt_app.processEvents()
 
 
-def test_foundry_window_artifact_summary_surfaces_structured_compatibility_diagnostics(tmp_path: Path):
+def test_foundry_window_artifact_summary_surfaces_structured_compatibility_diagnostics(
+    tmp_path: Path,
+):
     window, qt_app = _prepare_completed_run(tmp_path)
 
     artifact_id = window._artifact_id
@@ -302,7 +330,9 @@ def test_foundry_window_artifact_summary_surfaces_structured_compatibility_diagn
     qt_app.processEvents()
 
 
-def test_foundry_window_dataset_and_version_selectors_support_multi_dataset_workspaces(tmp_path: Path):
+def test_foundry_window_dataset_and_version_selectors_support_multi_dataset_workspaces(
+    tmp_path: Path,
+):
     samples_a = tmp_path / "samples_a"
     samples_b = tmp_path / "samples_b"
     write_percussion_dataset(samples_a)
@@ -312,7 +342,9 @@ def test_foundry_window_dataset_and_version_selectors_support_multi_dataset_work
     dataset_a, version_a = _prepare_dataset(app, samples_a, name="Alpha Drums")
     dataset_b, version_b1 = _prepare_dataset(app, samples_b, name="Beta Drums")
     version_b2 = app.datasets.ingest_from_folder(dataset_b.id, samples_b)
-    app.plan_version(version_b2.id, validation_split=0.2, test_split=0.2, seed=17, balance_strategy="none")
+    app.plan_version(
+        version_b2.id, validation_split=0.2, test_split=0.2, seed=17, balance_strategy="none"
+    )
 
     qt_app = _qt_app()
     window = FoundryWindow(tmp_path)
@@ -350,49 +382,62 @@ def test_foundry_window_queue_panel_populates_with_queued_and_recent_runs(tmp_pa
 
     foundry = FoundryApp(tmp_path)
     _, version = _prepare_dataset(foundry, samples, name="Queue Drums")
-    completed_run = foundry.create_run(version.id, {
-        "schema": "foundry.train_run_spec.v1",
-        "classificationMode": "multiclass",
-        "data": {
-            "datasetVersionId": version.id,
-            "sampleRate": 22050,
-            "maxLength": 22050,
-            "nFft": 2048,
-            "hopLength": 512,
-            "nMels": 128,
-            "fmax": 8000,
+    completed_run = foundry.create_run(
+        version.id,
+        {
+            "schema": "foundry.train_run_spec.v1",
+            "classificationMode": "multiclass",
+            "data": {
+                "datasetVersionId": version.id,
+                "sampleRate": 22050,
+                "maxLength": 22050,
+                "nFft": 2048,
+                "hopLength": 512,
+                "nMels": 128,
+                "fmax": 8000,
+            },
+            "training": {"epochs": 1, "batchSize": 2, "learningRate": 0.01, "seed": 13},
         },
-        "training": {"epochs": 1, "batchSize": 2, "learningRate": 0.01, "seed": 13},
-    })
+    )
     foundry.start_run(completed_run.id)
-    queued_run = foundry.create_run(version.id, {
-        "schema": "foundry.train_run_spec.v1",
-        "classificationMode": "multiclass",
-        "data": {
-            "datasetVersionId": version.id,
-            "sampleRate": 22050,
-            "maxLength": 22050,
-            "nFft": 2048,
-            "hopLength": 512,
-            "nMels": 128,
-            "fmax": 8000,
+    queued_run = foundry.create_run(
+        version.id,
+        {
+            "schema": "foundry.train_run_spec.v1",
+            "classificationMode": "multiclass",
+            "data": {
+                "datasetVersionId": version.id,
+                "sampleRate": 22050,
+                "maxLength": 22050,
+                "nFft": 2048,
+                "hopLength": 512,
+                "nMels": 128,
+                "fmax": 8000,
+            },
+            "training": {"epochs": 1, "batchSize": 2, "learningRate": 0.01, "seed": 17},
         },
-        "training": {"epochs": 1, "batchSize": 2, "learningRate": 0.01, "seed": 17},
-    })
+    )
 
     qt_app = _qt_app()
     window = FoundryWindow(tmp_path)
 
-    queue_entries = [window.queue_list.item(index).text() for index in range(window.queue_list.count())]
+    queue_entries = [
+        window.queue_list.item(index).text() for index in range(window.queue_list.count())
+    ]
 
-    assert any(queued_run.id in entry and "[queued]" in entry and "ACTIVE " in entry for entry in queue_entries)
+    assert any(
+        queued_run.id in entry and "[queued]" in entry and "ACTIVE " in entry
+        for entry in queue_entries
+    )
     assert any(completed_run.id in entry and "[completed]" in entry for entry in queue_entries)
 
     window.close()
     qt_app.processEvents()
 
 
-def test_foundry_window_queue_panel_updates_active_run_status_during_background_run(tmp_path: Path, monkeypatch):
+def test_foundry_window_queue_panel_updates_active_run_status_during_background_run(
+    tmp_path: Path, monkeypatch
+):
     samples = tmp_path / "samples"
     write_percussion_dataset(samples)
 
@@ -416,14 +461,16 @@ def test_foundry_window_queue_panel_updates_active_run_status_during_background_
     assert _wait_until(
         qt_app,
         lambda: any(
-            "ACTIVE " in window.queue_list.item(index).text() and "[running]" in window.queue_list.item(index).text()
+            "ACTIVE " in window.queue_list.item(index).text()
+            and "[running]" in window.queue_list.item(index).text()
             for index in range(window.queue_list.count())
         ),
         timeout=5.0,
     )
     assert _wait_until(qt_app, lambda: window._run_thread is None, timeout=30.0)
     assert any(
-        window._run_id in window.queue_list.item(index).text() and "[completed]" in window.queue_list.item(index).text()
+        window._run_id in window.queue_list.item(index).text()
+        and "[completed]" in window.queue_list.item(index).text()
         for index in range(window.queue_list.count())
     )
 
@@ -437,20 +484,23 @@ def test_foundry_window_queue_cancel_marks_selected_run_canceled_with_feedback(t
 
     foundry = FoundryApp(tmp_path)
     _, version = _prepare_dataset(foundry, samples, name="Cancel Queue")
-    queued_run = foundry.create_run(version.id, {
-        "schema": "foundry.train_run_spec.v1",
-        "classificationMode": "multiclass",
-        "data": {
-            "datasetVersionId": version.id,
-            "sampleRate": 22050,
-            "maxLength": 22050,
-            "nFft": 2048,
-            "hopLength": 512,
-            "nMels": 128,
-            "fmax": 8000,
+    queued_run = foundry.create_run(
+        version.id,
+        {
+            "schema": "foundry.train_run_spec.v1",
+            "classificationMode": "multiclass",
+            "data": {
+                "datasetVersionId": version.id,
+                "sampleRate": 22050,
+                "maxLength": 22050,
+                "nFft": 2048,
+                "hopLength": 512,
+                "nMels": 128,
+                "fmax": 8000,
+            },
+            "training": {"epochs": 1, "batchSize": 2, "learningRate": 0.01, "seed": 19},
         },
-        "training": {"epochs": 1, "batchSize": 2, "learningRate": 0.01, "seed": 19},
-    })
+    )
 
     qt_app = _qt_app()
     window = FoundryWindow(tmp_path)
@@ -463,32 +513,39 @@ def test_foundry_window_queue_cancel_marks_selected_run_canceled_with_feedback(t
     assert reloaded.status == TrainRunStatus.CANCELED
     assert window.cancel_queue_run_btn.isEnabled() is False
     assert "Canceled run" in window.status_line.text()
-    assert "RUN_CANCELED" in (tmp_path / "foundry" / "runs" / queued_run.id / "events.jsonl").read_text(encoding="utf-8")
+    assert "RUN_CANCELED" in (
+        tmp_path / "foundry" / "runs" / queued_run.id / "events.jsonl"
+    ).read_text(encoding="utf-8")
 
     window.close()
     qt_app.processEvents()
 
 
-def test_foundry_window_queue_requeue_moves_canceled_run_back_to_queued_with_feedback(tmp_path: Path):
+def test_foundry_window_queue_requeue_moves_canceled_run_back_to_queued_with_feedback(
+    tmp_path: Path,
+):
     samples = tmp_path / "samples"
     write_percussion_dataset(samples)
 
     foundry = FoundryApp(tmp_path)
     _, version = _prepare_dataset(foundry, samples, name="Retry Queue")
-    run = foundry.create_run(version.id, {
-        "schema": "foundry.train_run_spec.v1",
-        "classificationMode": "multiclass",
-        "data": {
-            "datasetVersionId": version.id,
-            "sampleRate": 22050,
-            "maxLength": 22050,
-            "nFft": 2048,
-            "hopLength": 512,
-            "nMels": 128,
-            "fmax": 8000,
+    run = foundry.create_run(
+        version.id,
+        {
+            "schema": "foundry.train_run_spec.v1",
+            "classificationMode": "multiclass",
+            "data": {
+                "datasetVersionId": version.id,
+                "sampleRate": 22050,
+                "maxLength": 22050,
+                "nFft": 2048,
+                "hopLength": 512,
+                "nMels": 128,
+                "fmax": 8000,
+            },
+            "training": {"epochs": 1, "batchSize": 2, "learningRate": 0.01, "seed": 23},
         },
-        "training": {"epochs": 1, "batchSize": 2, "learningRate": 0.01, "seed": 23},
-    })
+    )
     foundry.runs.cancel_run(run.id, reason="fixture")
 
     qt_app = _qt_app()
@@ -502,13 +559,17 @@ def test_foundry_window_queue_requeue_moves_canceled_run_back_to_queued_with_fee
     assert reloaded.status == TrainRunStatus.QUEUED
     assert window.retry_queue_run_btn.isEnabled() is False
     assert "Requeued run" in window.status_line.text()
-    assert "RUN_RESUMED" in (tmp_path / "foundry" / "runs" / run.id / "events.jsonl").read_text(encoding="utf-8")
+    assert "RUN_RESUMED" in (tmp_path / "foundry" / "runs" / run.id / "events.jsonl").read_text(
+        encoding="utf-8"
+    )
 
     window.close()
     qt_app.processEvents()
 
 
-def test_foundry_window_queue_cancel_stops_active_background_run_with_feedback(tmp_path: Path, monkeypatch):
+def test_foundry_window_queue_cancel_stops_active_background_run_with_feedback(
+    tmp_path: Path, monkeypatch
+):
     samples = tmp_path / "samples"
     write_percussion_dataset(samples)
 

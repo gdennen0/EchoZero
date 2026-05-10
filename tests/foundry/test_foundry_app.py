@@ -17,7 +17,9 @@ def test_foundry_app_end_to_end_run_to_artifact(tmp_path: Path):
     app = FoundryApp(tmp_path)
     dataset = app.datasets.create_dataset("Drums")
     version = app.datasets.ingest_from_folder(dataset.id, samples)
-    app.plan_version(version.id, validation_split=0.25, test_split=0.25, seed=9, balance_strategy="none")
+    app.plan_version(
+        version.id, validation_split=0.25, test_split=0.25, seed=9, balance_strategy="none"
+    )
 
     run_spec = {
         "schema": "foundry.train_run_spec.v1",

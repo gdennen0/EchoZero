@@ -65,9 +65,7 @@ class PlaybackSyncTakeProjection:
             take_id=str(take.take_id),
             name=str(take.name),
             source_audio_path=(
-                str(take.source_audio_path)
-                if getattr(take, "source_audio_path", None)
-                else None
+                str(take.source_audio_path) if getattr(take, "source_audio_path", None) else None
             ),
             playback_source_ref=(
                 str(take.playback_source_ref)
@@ -84,9 +82,7 @@ class PlaybackSyncTakeProjection:
             take_id=str(payload.get("take_id", "") or ""),
             name=str(payload.get("name", "") or ""),
             source_audio_path=(
-                str(payload.get("source_audio_path"))
-                if payload.get("source_audio_path")
-                else None
+                str(payload.get("source_audio_path")) if payload.get("source_audio_path") else None
             ),
             playback_source_ref=(
                 str(payload.get("playback_source_ref"))
@@ -142,7 +138,9 @@ class PlaybackSyncLayerProjection:
             output_bus=str(layer.output_bus) if layer.output_bus else None,
             source_audio_path=str(layer.source_audio_path) if layer.source_audio_path else None,
             playback_enabled=bool(layer.playback_enabled),
-            playback_mode=_coerce_playback_mode(getattr(layer, "playback_mode", PlaybackMode.NONE)),
+            playback_mode=_coerce_playback_mode(
+                getattr(layer, "playback_mode", PlaybackMode.NONE)
+            ),
             playback_source_ref=(
                 str(layer.playback_source_ref) if layer.playback_source_ref else None
             ),
@@ -164,12 +162,12 @@ class PlaybackSyncLayerProjection:
             gain_db=float(payload.get("gain_db", 0.0) or 0.0),
             output_bus=str(payload.get("output_bus")) if payload.get("output_bus") else None,
             source_audio_path=(
-                str(payload.get("source_audio_path"))
-                if payload.get("source_audio_path")
-                else None
+                str(payload.get("source_audio_path")) if payload.get("source_audio_path") else None
             ),
             playback_enabled=bool(payload.get("playback_enabled", False)),
-            playback_mode=_coerce_playback_mode(payload.get("playback_mode", PlaybackMode.NONE.value)),
+            playback_mode=_coerce_playback_mode(
+                payload.get("playback_mode", PlaybackMode.NONE.value)
+            ),
             playback_source_ref=(
                 str(payload.get("playback_source_ref"))
                 if payload.get("playback_source_ref")
@@ -236,7 +234,9 @@ class PlaybackSyncPayload:
     @classmethod
     def from_presentation(cls, presentation: TimelinePresentation) -> "PlaybackSyncPayload":
         return cls(
-            layers=tuple(PlaybackSyncLayerProjection.from_layer(layer) for layer in presentation.layers),
+            layers=tuple(
+                PlaybackSyncLayerProjection.from_layer(layer) for layer in presentation.layers
+            ),
             selected_layer_id=(
                 str(presentation.selected_layer_id)
                 if presentation.selected_layer_id is not None
@@ -247,7 +247,9 @@ class PlaybackSyncPayload:
                 if presentation.selected_take_id is not None
                 else None
             ),
-            playback_output_channels=max(0, int(getattr(presentation, "playback_output_channels", 0) or 0)),
+            playback_output_channels=max(
+                0, int(getattr(presentation, "playback_output_channels", 0) or 0)
+            ),
         )
 
     @classmethod
@@ -260,14 +262,10 @@ class PlaybackSyncPayload:
                 if isinstance(item, dict)
             ),
             selected_layer_id=(
-                str(payload.get("selected_layer_id"))
-                if payload.get("selected_layer_id")
-                else None
+                str(payload.get("selected_layer_id")) if payload.get("selected_layer_id") else None
             ),
             selected_take_id=(
-                str(payload.get("selected_take_id"))
-                if payload.get("selected_take_id")
-                else None
+                str(payload.get("selected_take_id")) if payload.get("selected_take_id") else None
             ),
             playback_output_channels=max(0, int(payload.get("playback_output_channels", 0) or 0)),
         )

@@ -42,7 +42,8 @@ def coerce_review_decision(
     training_payload = payload.get("training_eligibility", payload.get("trainingEligibility"))
     return build_review_decision(
         outcome,
-        corrected_label=_first_text(payload, "corrected_label", "correctedLabel") or corrected_label,
+        corrected_label=_first_text(payload, "corrected_label", "correctedLabel")
+        or corrected_label,
         review_note=_first_text(payload, "review_note", "reviewNote") or review_note,
         decision_kind=_first_text(payload, "kind"),
         original_start_ms=_first_float(payload, "original_start_ms", "originalStartMs"),

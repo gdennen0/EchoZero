@@ -180,8 +180,7 @@ class DatasetService:
             "real_sample_count": sum(1 for s in samples if not s.is_synthetic),
             "synthetic_sample_count": sum(1 for s in samples if s.is_synthetic),
             "class_counts": {
-                label: sum(1 for s in samples if s.label == label)
-                for label in class_map
+                label: sum(1 for s in samples if s.label == label) for label in class_map
             },
             "duplicate_content_hashes": sum(1 for ids in content_groups.values() if len(ids) > 1),
             "skipped_invalid_count": len(skipped_sources),
@@ -316,7 +315,8 @@ class DatasetService:
         dataset = self._get_or_create_project_review_export_dataset(
             queue_source_kind=queue_source_kind,
             project_ref=normalized_project_ref,
-            project_name=str(queue.metadata.get("project_name", queue.project_name)).strip() or queue.project_name,
+            project_name=str(queue.metadata.get("project_name", queue.project_name)).strip()
+            or queue.project_name,
             source_ref=str(Path(project_path).expanduser().resolve()),
             song_id=song_id,
             song_version_id=song_version_id,
@@ -529,7 +529,9 @@ class DatasetService:
             ),
         }
 
-    def update_version_plans(self, version_id: str, *, split_plan: dict, balance_plan: dict) -> DatasetVersion:
+    def update_version_plans(
+        self, version_id: str, *, split_plan: dict, balance_plan: dict
+    ) -> DatasetVersion:
         version = self._versions.get(version_id)
         if version is None:
             raise ValueError(f"DatasetVersion not found: {version_id}")
@@ -555,7 +557,9 @@ class DatasetService:
         version.balance_plan = balance_plan
         return self._versions.save(version)
 
-    def apply_curation(self, version_id: str, decisions: dict[str, CurationState]) -> DatasetVersion:
+    def apply_curation(
+        self, version_id: str, decisions: dict[str, CurationState]
+    ) -> DatasetVersion:
         version = self._versions.get(version_id)
         if version is None:
             raise ValueError(f"DatasetVersion not found: {version_id}")
@@ -644,7 +648,9 @@ class DatasetService:
                 f"Source dataset version '{source_version_id}' does not contain label '{normalized_positive}'."
             )
         if source_labels == {normalized_positive}:
-            raise ValueError("Binary dataset derivation requires at least one non-positive sample.")
+            raise ValueError(
+                "Binary dataset derivation requires at least one non-positive sample."
+            )
 
         target_dataset = self._get_or_create_binary_dataset(
             source_dataset=source_dataset,
@@ -668,7 +674,9 @@ class DatasetService:
                 f"Source dataset version '{source_version_id}' does not contain any positive training samples for '{normalized_positive}'."
             )
         if derived_labels == {normalized_positive}:
-            raise ValueError("Binary dataset derivation requires at least one non-positive sample.")
+            raise ValueError(
+                "Binary dataset derivation requires at least one non-positive sample."
+            )
         manifest_hash = self.compute_manifest_hash(derived_samples)
         next_version = DatasetVersion(
             id=f"dsv_{uuid4().hex[:12]}",
@@ -727,9 +735,15 @@ class DatasetService:
         }
         filtered = dict(split_plan)
         filtered["assignments"] = assignments
-        filtered["train_ids"] = [sample_id for sample_id in split_plan.get("train_ids", []) if sample_id in accepted_ids]
-        filtered["val_ids"] = [sample_id for sample_id in split_plan.get("val_ids", []) if sample_id in accepted_ids]
-        filtered["test_ids"] = [sample_id for sample_id in split_plan.get("test_ids", []) if sample_id in accepted_ids]
+        filtered["train_ids"] = [
+            sample_id for sample_id in split_plan.get("train_ids", []) if sample_id in accepted_ids
+        ]
+        filtered["val_ids"] = [
+            sample_id for sample_id in split_plan.get("val_ids", []) if sample_id in accepted_ids
+        ]
+        filtered["test_ids"] = [
+            sample_id for sample_id in split_plan.get("test_ids", []) if sample_id in accepted_ids
+        ]
         return filtered
 
     @staticmethod
@@ -737,18 +751,28 @@ class DatasetService:
         if not manifest:
             return {}
         curated_manifest = dict(manifest)
-        deterministic_order = [sample_id for sample_id in manifest.get("deterministic_order", []) if sample_id in accepted_ids]
+        deterministic_order = [
+            sample_id
+            for sample_id in manifest.get("deterministic_order", [])
+            if sample_id in accepted_ids
+        ]
         content_groups = {
             key: [sample_id for sample_id in sample_ids if sample_id in accepted_ids]
             for key, sample_ids in manifest.get("content_groups", {}).items()
         }
         curated_manifest["deterministic_order"] = deterministic_order
-        curated_manifest["content_groups"] = {key: ids for key, ids in content_groups.items() if ids}
+        curated_manifest["content_groups"] = {
+            key: ids for key, ids in content_groups.items() if ids
+        }
         curated_manifest["synthetic_sample_ids"] = [
-            sample_id for sample_id in manifest.get("synthetic_sample_ids", []) if sample_id in accepted_ids
+            sample_id
+            for sample_id in manifest.get("synthetic_sample_ids", [])
+            if sample_id in accepted_ids
         ]
         curated_manifest["real_sample_ids"] = [
-            sample_id for sample_id in manifest.get("real_sample_ids", []) if sample_id in accepted_ids
+            sample_id
+            for sample_id in manifest.get("real_sample_ids", [])
+            if sample_id in accepted_ids
         ]
         return curated_manifest
 
@@ -1173,7 +1197,10 @@ class DatasetService:
         session: ReviewSession,
         signal: ReviewSignal,
     ) -> str:
-        queue_kind = str(session.metadata.get("queue_source_kind", "manual_review")).strip() or "manual_review"
+        queue_kind = (
+            str(session.metadata.get("queue_source_kind", "manual_review")).strip()
+            or "manual_review"
+        )
         project_ref = str(signal.source_provenance.get("project_ref", "")).strip()
         if project_ref:
             return f"{queue_kind}:{project_ref}"
@@ -1242,7 +1269,9 @@ class DatasetService:
 
     def _refresh_project_review_export(self, project_dir: Path) -> dict[str, object]:
         try:
-            version = self.export_project_review_dataset(project_dir, queue_source_kind="ez_project")
+            version = self.export_project_review_dataset(
+                project_dir, queue_source_kind="ez_project"
+            )
         except ValueError:
             return {
                 "status": "deferred",
@@ -1259,7 +1288,9 @@ class DatasetService:
             "sample_count": int(version.stats.get("sample_count", len(version.samples))),
             "review_positive_count": int(version.stats.get("review_positive_count", 0)),
             "review_negative_count": int(version.stats.get("review_negative_count", 0)),
-            "reviewed_item_count": int(version.stats.get("reviewed_item_count", len(version.samples))),
+            "reviewed_item_count": int(
+                version.stats.get("reviewed_item_count", len(version.samples))
+            ),
             "source_ref": str(project_dir.resolve()),
         }
 
@@ -1294,7 +1325,9 @@ class DatasetService:
         }
 
     @staticmethod
-    def _serialize_materialization_details(details: list[dict[str, object]]) -> list[dict[str, object]]:
+    def _serialize_materialization_details(
+        details: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
         serialized: list[dict[str, object]] = []
         for detail in details:
             row = dict(detail)
@@ -1337,13 +1370,23 @@ class DatasetService:
             "namespace": "percussion.one_shot",
             "version": 1,
             "labels": [
-                {"id": positive_label, "display_name": positive_label.replace("_", " "), "aliases": []},
-                {"id": negative_label, "display_name": negative_label.replace("_", " "), "aliases": []},
+                {
+                    "id": positive_label,
+                    "display_name": positive_label.replace("_", " "),
+                    "aliases": [],
+                },
+                {
+                    "id": negative_label,
+                    "display_name": negative_label.replace("_", " "),
+                    "aliases": [],
+                },
             ],
         }
 
     @staticmethod
-    def _build_binary_label_policy(*, positive_label: str, negative_label: str) -> dict[str, object]:
+    def _build_binary_label_policy(
+        *, positive_label: str, negative_label: str
+    ) -> dict[str, object]:
         return {
             "schema": "foundry.label_policy.v1",
             "classification_mode": "binary",
@@ -1417,7 +1460,9 @@ class DatasetService:
         manifest = version.manifest or {}
         if manifest:
             if manifest.get("deterministic_order") not in (None, sample_ids):
-                errors.append("dataset manifest deterministic_order does not match sample ordering")
+                errors.append(
+                    "dataset manifest deterministic_order does not match sample ordering"
+                )
             declared_content_groups = {
                 key: sorted(ids) for key, ids in manifest.get("content_groups", {}).items()
             }
@@ -1426,7 +1471,9 @@ class DatasetService:
                 if not sample.content_hash:
                     continue
                 actual_content_groups.setdefault(sample.content_hash, []).append(sample.sample_id)
-            actual_content_groups = {key: sorted(ids) for key, ids in sorted(actual_content_groups.items())}
+            actual_content_groups = {
+                key: sorted(ids) for key, ids in sorted(actual_content_groups.items())
+            }
             if declared_content_groups and declared_content_groups != actual_content_groups:
                 errors.append("dataset manifest content_groups do not match samples")
             for field in ("synthetic_sample_ids", "real_sample_ids"):
@@ -1435,7 +1482,11 @@ class DatasetService:
                     errors.append(f"dataset manifest {field} references unknown sample ids")
 
         split_plan = version.split_plan or {}
-        split_validation = SplitBalanceService.validate_split_plan(version, split_plan) if split_plan else {"ok": True, "errors": [], "warnings": []}
+        split_validation = (
+            SplitBalanceService.validate_split_plan(version, split_plan)
+            if split_plan
+            else {"ok": True, "errors": [], "warnings": []}
+        )
         if not split_validation["ok"]:
             errors.extend(split_validation["errors"])
         warnings.extend(split_validation.get("warnings", []))

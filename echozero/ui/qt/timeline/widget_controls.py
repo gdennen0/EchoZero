@@ -176,7 +176,9 @@ class TimelineEditorModeBar(QWidget):
         self._add_event_at_playhead_button.clicked.connect(
             self.add_event_at_playhead_requested.emit
         )
-        assist_layout.addWidget(self._add_event_at_playhead_button, 0, Qt.AlignmentFlag.AlignVCenter)
+        assist_layout.addWidget(
+            self._add_event_at_playhead_button, 0, Qt.AlignmentFlag.AlignVCenter
+        )
 
         self._fix_remove_button = QPushButton("−", assist_group)
         self._fix_remove_button.setObjectName("timelineEditorFixRemoveButton")
@@ -205,9 +207,7 @@ class TimelineEditorModeBar(QWidget):
         self._fix_promote_button = QPushButton("+", assist_group)
         self._fix_promote_button.setObjectName("timelineEditorFixPromoteButton")
         self._fix_promote_button.setCheckable(True)
-        self._fix_promote_button.setToolTip(
-            "Fix mode tool: promote missing event (shortcut: X)"
-        )
+        self._fix_promote_button.setToolTip("Fix mode tool: promote missing event (shortcut: X)")
         self._fix_promote_button.clicked.connect(
             lambda _checked=False: self.fix_action_changed.emit("promote")
         )
@@ -458,9 +458,7 @@ class TimelineEditorModeBar(QWidget):
         if self._compact_mode:
             self._fix_include_demoted_button.setText(f"D {'On' if enabled else 'Off'}")
             return
-        self._fix_include_demoted_button.setText(
-            f"D Demoted {'On' if enabled else 'Off'}"
-        )
+        self._fix_include_demoted_button.setText(f"D Demoted {'On' if enabled else 'Off'}")
 
     def _sync_add_at_playhead_button_label(self) -> None:
         self._add_event_at_playhead_button.setText("+@" if self._compact_mode else "+ Playhead")
@@ -520,9 +518,7 @@ class TimelineEditorModeBar(QWidget):
         self._grid_button.setText(f"▦ Grid: {mode_label}")
 
     def _sync_grid_button_tooltip(self) -> None:
-        self._grid_button.setToolTip(
-            f"Cycle grid mode (current: {self._grid_mode.value.title()})"
-        )
+        self._grid_button.setToolTip(f"Cycle grid mode (current: {self._grid_mode.value.title()})")
 
     def _create_group_layout(self, parent: QWidget) -> QHBoxLayout:
         layout = QHBoxLayout(parent)
@@ -688,5 +684,6 @@ class TimelineRuler(QWidget):
             pixels_per_second=self.presentation.pixels_per_second,
             content_start_x=self._header_width,
         )
+
 
 __all__ = ["TimelineEditorModeBar", "TimelineRuler", "TransportBar"]

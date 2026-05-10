@@ -29,7 +29,6 @@ from echozero.ui.qt.project_settings_dialog import ProjectSettingsDialog
 from echozero.ui.qt.timeline.widget import TimelineWidget
 from echozero.ui.qt.window_geometry import resolve_initial_window_size
 
-
 PROJECT_FILE_FILTER = "EchoZero Project (*.ez);;All Files (*)"
 MAX_RECENT_PROJECTS = 10
 
@@ -55,9 +54,8 @@ class LauncherController:
     ) -> None:
         self.runtime = runtime
         self.widget = widget
-        self._app_settings_service = (
-            app_settings_service
-            or getattr(runtime, "app_settings_service", None)
+        self._app_settings_service = app_settings_service or getattr(
+            runtime, "app_settings_service", None
         )
         self.actions: dict[str, QAction] = {}
         self._recent_menu_actions: dict[str, QAction] = {}
@@ -497,9 +495,7 @@ class LauncherController:
     def new_project(self) -> bool:
         if not self._has_lifecycle("new_project"):
             return False
-        if not self._confirm_unsaved_changes(
-            "Save changes before creating a new project?"
-        ):
+        if not self._confirm_unsaved_changes("Save changes before creating a new project?"):
             return False
         if not self._run_action("New Project", self.runtime.new_project):
             return False
@@ -512,9 +508,7 @@ class LauncherController:
         path = self._choose_open_path()
         if path is None:
             return False
-        if not self._confirm_unsaved_changes(
-            "Save changes before opening another project?"
-        ):
+        if not self._confirm_unsaved_changes("Save changes before opening another project?"):
             return False
         open_result = self._open_project_path(path)
         if open_result != "opened":
@@ -528,9 +522,7 @@ class LauncherController:
         if not self._has_lifecycle("open_project"):
             return False
         target_path = Path(path)
-        if not self._confirm_unsaved_changes(
-            "Save changes before opening another project?"
-        ):
+        if not self._confirm_unsaved_changes("Save changes before opening another project?"):
             return False
         open_result = self._open_project_path(target_path)
         if open_result == "failed":
@@ -723,9 +715,8 @@ def build_launcher_surface(
     if not isinstance(runtime, AppShellRuntime):
         raise TypeError("build_launcher_surface requires canonical AppShellRuntime")
 
-    resolved_app_settings_service = (
-        app_settings_service
-        or getattr(runtime, "app_settings_service", None)
+    resolved_app_settings_service = app_settings_service or getattr(
+        runtime, "app_settings_service", None
     )
     runtime_state = load_project_runtime_state(runtime.project_storage)
     widget_kwargs = {

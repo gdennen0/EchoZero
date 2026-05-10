@@ -135,7 +135,9 @@ def resolve_snap_time(
         candidates.append(SnapResolution(time_seconds=max(0.0, float(event_time)), kind="event"))
 
     if playhead_time is not None:
-        candidates.append(SnapResolution(time_seconds=max(0.0, float(playhead_time)), kind="playhead"))
+        candidates.append(
+            SnapResolution(time_seconds=max(0.0, float(playhead_time)), kind="playhead")
+        )
 
     best_candidate: SnapResolution | None = None
     best_distance = threshold_seconds + 1e-9

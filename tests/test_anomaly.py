@@ -58,15 +58,15 @@ from echozero.takes import (
     merge_take_into,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
 def _evt(time: float) -> Event:
-    return Event(id=f"e-{time}", time=time, duration=0.1,
-                 classifications={}, metadata={}, origin="test")
+    return Event(
+        id=f"e-{time}", time=time, duration=0.1, classifications={}, metadata={}, origin="test"
+    )
 
 
 def _event_data(*times: float) -> EventData:
@@ -89,7 +89,9 @@ def _take(label: str = "T", *times) -> Take:
 
 def _make_root_block(bid: str) -> Block:
     return Block(
-        id=bid, name=bid, block_type="source",
+        id=bid,
+        name=bid,
+        block_type="source",
         category=BlockCategory.PROCESSOR,
         input_ports=(),
         output_ports=(Port(name="out", port_type=PortType.EVENT, direction=Direction.OUTPUT),),
@@ -98,7 +100,9 @@ def _make_root_block(bid: str) -> Block:
 
 def _make_block(bid: str, btype: str = "proc") -> Block:
     return Block(
-        id=bid, name=bid, block_type=btype,
+        id=bid,
+        name=bid,
+        block_type=btype,
         category=BlockCategory.PROCESSOR,
         input_ports=(Port(name="in", port_type=PortType.EVENT, direction=Direction.INPUT),),
         output_ports=(Port(name="out", port_type=PortType.EVENT, direction=Direction.OUTPUT),),
@@ -107,6 +111,7 @@ def _make_block(bid: str, btype: str = "proc") -> Block:
 
 class OkExecutor:
     """Always returns Ok with a value."""
+
     def __init__(self, value="output"):
         self._value = value
 
@@ -116,6 +121,7 @@ class OkExecutor:
 
 class ErrExecutor:
     """Always returns an Err."""
+
     def __init__(self, msg="executor failed"):
         self._msg = msg
 
@@ -125,12 +131,14 @@ class ErrExecutor:
 
 class BoomExecutor:
     """Raises an exception (simulates unexpected crash)."""
+
     def execute(self, block_id, context):
         raise RuntimeError("unexpected executor crash")
 
 
 class SlowCancelExecutor:
     """Checks cancel_event mid-execution."""
+
     def __init__(self, cancel_event: threading.Event):
         self._cancel = cancel_event
 
@@ -212,10 +220,14 @@ class TestExecutionEngineAnomalies:
         g = Graph()
         g.add_block(_make_root_block("b1"))
         g.add_block(_make_block("b2"))
-        g.add_connection(Connection(
-            source_block_id="b1", source_output_name="out",
-            target_block_id="b2", target_input_name="in",
-        ))
+        g.add_connection(
+            Connection(
+                source_block_id="b1",
+                source_output_name="out",
+                target_block_id="b2",
+                target_input_name="in",
+            )
+        )
 
         cancel = threading.Event()
         executed = []
@@ -223,6 +235,7 @@ class TestExecutionEngineAnomalies:
         class RecordingExecutor:
             def __init__(self, bid):
                 self._bid = bid
+
             def execute(self, block_id, context):
                 executed.append(self._bid)
                 if self._bid == "b1":
@@ -247,10 +260,14 @@ class TestExecutionEngineAnomalies:
         g = Graph()
         g.add_block(_make_root_block("b1"))
         g.add_block(_make_block("b2"))
-        g.add_connection(Connection(
-            source_block_id="b1", source_output_name="out",
-            target_block_id="b2", target_input_name="in",
-        ))
+        g.add_connection(
+            Connection(
+                source_block_id="b1",
+                source_output_name="out",
+                target_block_id="b2",
+                target_input_name="in",
+            )
+        )
 
         executed = []
 
@@ -258,6 +275,7 @@ class TestExecutionEngineAnomalies:
             def __init__(self, bid, should_fail=False):
                 self._bid = bid
                 self._fail = should_fail
+
             def execute(self, block_id, context):
                 executed.append(self._bid)
                 if self._fail:
@@ -338,10 +356,14 @@ class TestCoordinatorAnomalies:
         g = Graph()
         g.add_block(_make_root_block("root"))
         g.add_block(_make_block("leaf"))
-        g.add_connection(Connection(
-            source_block_id="root", source_output_name="out",
-            target_block_id="leaf", target_input_name="in",
-        ))
+        g.add_connection(
+            Connection(
+                source_block_id="root",
+                source_output_name="out",
+                target_block_id="leaf",
+                target_input_name="in",
+            )
+        )
         coord = self._make_coordinator(g)
         # Manually set leaf to FRESH
         g.set_block_state("leaf", BlockState.FRESH)
@@ -409,69 +431,103 @@ class TestGraphAnomalies:
         g = Graph()
         # Need a block that has both in and out ports
         b = Block(
-            id="b1", name="B1", block_type="proc",
+            id="b1",
+            name="B1",
+            block_type="proc",
             category=BlockCategory.PROCESSOR,
             input_ports=(Port(name="in", port_type=PortType.EVENT, direction=Direction.INPUT),),
             output_ports=(Port(name="out", port_type=PortType.EVENT, direction=Direction.OUTPUT),),
         )
         g.add_block(b)
         with pytest.raises(ValidationError, match="Self-connections"):
-            g.add_connection(Connection(
-                source_block_id="b1", source_output_name="out",
-                target_block_id="b1", target_input_name="in",
-            ))
+            g.add_connection(
+                Connection(
+                    source_block_id="b1",
+                    source_output_name="out",
+                    target_block_id="b1",
+                    target_input_name="in",
+                )
+            )
 
     def test_cycle_detection_raises(self):
         """A → B → C → A should be rejected."""
         g = Graph()
+
         # Make blocks with both in and out ports
         def _bidir_block(bid):
             return Block(
-                id=bid, name=bid, block_type="proc",
+                id=bid,
+                name=bid,
+                block_type="proc",
                 category=BlockCategory.PROCESSOR,
-                input_ports=(Port(name="in", port_type=PortType.EVENT, direction=Direction.INPUT),),
-                output_ports=(Port(name="out", port_type=PortType.EVENT, direction=Direction.OUTPUT),),
+                input_ports=(
+                    Port(name="in", port_type=PortType.EVENT, direction=Direction.INPUT),
+                ),
+                output_ports=(
+                    Port(name="out", port_type=PortType.EVENT, direction=Direction.OUTPUT),
+                ),
             )
+
         g.add_block(_bidir_block("a"))
         g.add_block(_bidir_block("b"))
-        g.add_connection(Connection(
-            source_block_id="a", source_output_name="out",
-            target_block_id="b", target_input_name="in",
-        ))
+        g.add_connection(
+            Connection(
+                source_block_id="a",
+                source_output_name="out",
+                target_block_id="b",
+                target_input_name="in",
+            )
+        )
         with pytest.raises(ValidationError, match="cycle"):
-            g.add_connection(Connection(
-                source_block_id="b", source_output_name="out",
-                target_block_id="a", target_input_name="in",
-            ))
+            g.add_connection(
+                Connection(
+                    source_block_id="b",
+                    source_output_name="out",
+                    target_block_id="a",
+                    target_input_name="in",
+                )
+            )
 
     def test_connection_missing_source_block_raises(self):
         g = Graph()
         g.add_block(_make_block("b2"))
         with pytest.raises(ValidationError, match="Source block not found"):
-            g.add_connection(Connection(
-                source_block_id="ghost", source_output_name="out",
-                target_block_id="b2", target_input_name="in",
-            ))
+            g.add_connection(
+                Connection(
+                    source_block_id="ghost",
+                    source_output_name="out",
+                    target_block_id="b2",
+                    target_input_name="in",
+                )
+            )
 
     def test_connection_missing_target_block_raises(self):
         g = Graph()
         g.add_block(_make_root_block("b1"))
         with pytest.raises(ValidationError, match="Target block not found"):
-            g.add_connection(Connection(
-                source_block_id="b1", source_output_name="out",
-                target_block_id="ghost", target_input_name="in",
-            ))
+            g.add_connection(
+                Connection(
+                    source_block_id="b1",
+                    source_output_name="out",
+                    target_block_id="ghost",
+                    target_input_name="in",
+                )
+            )
 
     def test_port_type_mismatch_raises(self):
         """EVENT output → AUDIO input should be rejected."""
         event_out_block = Block(
-            id="event_src", name="EventSrc", block_type="src",
+            id="event_src",
+            name="EventSrc",
+            block_type="src",
             category=BlockCategory.PROCESSOR,
             input_ports=(),
             output_ports=(Port(name="out", port_type=PortType.EVENT, direction=Direction.OUTPUT),),
         )
         audio_in_block = Block(
-            id="audio_sink", name="AudioSink", block_type="sink",
+            id="audio_sink",
+            name="AudioSink",
+            block_type="sink",
             category=BlockCategory.PROCESSOR,
             input_ports=(Port(name="in", port_type=PortType.AUDIO, direction=Direction.INPUT),),
             output_ports=(),
@@ -480,10 +536,14 @@ class TestGraphAnomalies:
         g.add_block(event_out_block)
         g.add_block(audio_in_block)
         with pytest.raises(ValidationError, match="Port type mismatch"):
-            g.add_connection(Connection(
-                source_block_id="event_src", source_output_name="out",
-                target_block_id="audio_sink", target_input_name="in",
-            ))
+            g.add_connection(
+                Connection(
+                    source_block_id="event_src",
+                    source_output_name="out",
+                    target_block_id="audio_sink",
+                    target_input_name="in",
+                )
+            )
 
     def test_set_state_unknown_block_raises(self):
         g = Graph()
@@ -505,8 +565,10 @@ class TestGraphAnomalies:
         g.add_block(_make_root_block("b1"))
         g.add_block(_make_block("b2"))
         conn = Connection(
-            source_block_id="b1", source_output_name="out",
-            target_block_id="b2", target_input_name="in",
+            source_block_id="b1",
+            source_output_name="out",
+            target_block_id="b2",
+            target_input_name="in",
         )
         with pytest.raises(ValidationError, match="Connection not found"):
             g.remove_connection(conn)
@@ -556,17 +618,19 @@ class TestSerializationAnomalies:
     def test_deserialize_graph_unknown_enum_raises(self):
         """Unknown BlockCategory → KeyError."""
         data = {
-            "blocks": [{
-                "id": "b1",
-                "name": "B",
-                "block_type": "x",
-                "category": "INVALID_CATEGORY",
-                "state": "FRESH",
-                "input_ports": [],
-                "output_ports": [],
-                "control_ports": [],
-                "settings": {},
-            }],
+            "blocks": [
+                {
+                    "id": "b1",
+                    "name": "B",
+                    "block_type": "x",
+                    "category": "INVALID_CATEGORY",
+                    "state": "FRESH",
+                    "input_ports": [],
+                    "output_ports": [],
+                    "control_ports": [],
+                    "settings": {},
+                }
+            ],
             "connections": [],
         }
         with pytest.raises(KeyError):
@@ -595,16 +659,18 @@ class TestSerializationAnomalies:
         """Deserializing a TakeLayer with no main take → TakeLayerError."""
         data = {
             "layer_id": "l1",
-            "takes": [{
-                "id": "t1",
-                "label": "Take",
-                "origin": "pipeline",
-                "created_at": "2024-01-01T00:00:00+00:00",
-                "is_main": False,  # ← no main!
-                "notes": "",
-                "source": None,
-                "data": {"type": "EventData", "layers": []},
-            }],
+            "takes": [
+                {
+                    "id": "t1",
+                    "label": "Take",
+                    "origin": "pipeline",
+                    "created_at": "2024-01-01T00:00:00+00:00",
+                    "is_main": False,  # ← no main!
+                    "notes": "",
+                    "source": None,
+                    "data": {"type": "EventData", "layers": []},
+                }
+            ],
         }
         with pytest.raises(TakeLayerError, match="0 main takes"):
             deserialize_take_layer(data)
@@ -632,6 +698,7 @@ class TestTakeLayerAnomalies:
     def test_restore_corrupt_snapshot_two_mains_raises(self):
         """Restoring a snapshot with two mains violates invariant."""
         from dataclasses import replace
+
         layer = TakeLayer(layer_id="l", takes=[_main_take("M")])
         m1 = _main_take("M1")
         m2 = _main_take("M2")
@@ -724,4 +791,3 @@ class TestPipelineAnomalies:
         pipe.register(BoomCommand, boom_handler)
         result = pipe.dispatch(BoomCommand())
         assert is_err(result)
-

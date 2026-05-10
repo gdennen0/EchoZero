@@ -85,13 +85,9 @@ class ObjectContentRepository(BaseRepository[ObjectContentRecord]):
             revision_id=row["revision_id"],
             content_kind=row["content_kind"],
             payload=json.loads(row["payload_json"] or "{}"),
-            source_ref=(
-                json.loads(row["source_ref_json"]) if row["source_ref_json"] else None
-            ),
+            source_ref=(json.loads(row["source_ref_json"]) if row["source_ref_json"] else None),
             analysis_build=(
-                json.loads(row["analysis_build_json"])
-                if row["analysis_build_json"]
-                else None
+                json.loads(row["analysis_build_json"]) if row["analysis_build_json"] else None
             ),
             created_at=datetime.fromisoformat(row["created_at"]),
         )
@@ -164,7 +160,9 @@ class ObjectContentRepository(BaseRepository[ObjectContentRecord]):
         content_id = str(source_ref.get("content_id") or "").strip()
         revision_id = str(source_ref.get("revision_id") or "").strip()
         if not object_id or not content_id or not revision_id:
-            raise PersistenceError("Object content source_ref must include object_id, content_id, and revision_id.")
+            raise PersistenceError(
+                "Object content source_ref must include object_id, content_id, and revision_id."
+            )
         row = self._fetchone(
             "SELECT object_id, revision_id FROM object_contents WHERE id = ?",
             (content_id,),
@@ -175,8 +173,7 @@ class ObjectContentRepository(BaseRepository[ObjectContentRecord]):
             )
         if row["object_id"] != object_id or row["revision_id"] != revision_id:
             raise PersistenceError(
-                "Object content source_ref points at inconsistent content "
-                f"{content_id!r}."
+                "Object content source_ref points at inconsistent content " f"{content_id!r}."
             )
 
 

@@ -72,7 +72,10 @@ _LAZY_EXPORTS = {
     ),
     "CrnnTrainer": ("echozero.foundry.services.crnn_trainer", "CrnnTrainer"),
     "FoundryQueryService": ("echozero.foundry.services.query_service", "FoundryQueryService"),
-    "ReviewSessionService": ("echozero.foundry.services.review_session_service", "ReviewSessionService"),
+    "ReviewSessionService": (
+        "echozero.foundry.services.review_session_service",
+        "ReviewSessionService",
+    ),
     "ReviewExtractionService": (
         "echozero.foundry.services.review_extraction_service",
         "ReviewExtractionService",
@@ -97,7 +100,10 @@ _LAZY_EXPORTS = {
         "echozero.foundry.services.review_pipeline_controller",
         "ReviewPipelineController",
     ),
-    "ReviewSignalService": ("echozero.foundry.services.review_signal_service", "ReviewSignalService"),
+    "ReviewSignalService": (
+        "echozero.foundry.services.review_signal_service",
+        "ReviewSignalService",
+    ),
     "RuntimeBundleInstallService": (
         "echozero.foundry.services.runtime_bundle_install_service",
         "RuntimeBundleInstallService",
@@ -106,14 +112,32 @@ _LAZY_EXPORTS = {
         "echozero.foundry.services.sample_library_service",
         "SampleLibraryService",
     ),
-    "RunNotificationService": ("echozero.foundry.services.run_notification_service", "RunNotificationService"),
+    "RunNotificationService": (
+        "echozero.foundry.services.run_notification_service",
+        "RunNotificationService",
+    ),
     "RunSpecValidator": ("echozero.foundry.services.run_spec_validator", "RunSpecValidator"),
-    "RunTelemetryService": ("echozero.foundry.services.run_telemetry_service", "RunTelemetryService"),
-    "SplitBalanceService": ("echozero.foundry.services.split_balance_service", "SplitBalanceService"),
+    "RunTelemetryService": (
+        "echozero.foundry.services.run_telemetry_service",
+        "RunTelemetryService",
+    ),
+    "SplitBalanceService": (
+        "echozero.foundry.services.split_balance_service",
+        "SplitBalanceService",
+    ),
     "TrainRunService": ("echozero.foundry.services.train_run_service", "TrainRunService"),
-    "TrainingOrchestrator": ("echozero.foundry.services.training_orchestrator", "TrainingOrchestrator"),
-    "TrainerBackendFactory": ("echozero.foundry.services.trainer_backend_factory", "TrainerBackendFactory"),
-    "TrainingNumericsError": ("echozero.foundry.services.training_runtime", "TrainingNumericsError"),
+    "TrainingOrchestrator": (
+        "echozero.foundry.services.training_orchestrator",
+        "TrainingOrchestrator",
+    ),
+    "TrainerBackendFactory": (
+        "echozero.foundry.services.trainer_backend_factory",
+        "TrainerBackendFactory",
+    ),
+    "TrainingNumericsError": (
+        "echozero.foundry.services.training_runtime",
+        "TrainingNumericsError",
+    ),
 }
 
 

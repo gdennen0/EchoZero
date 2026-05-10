@@ -127,7 +127,9 @@ class HuggingFaceSource:
         updates = self.check_available(org, model_type)
         if not updates:
             return None
-        versions = sorted(updates, key=lambda update: parse_version(update.available_version), reverse=True)
+        versions = sorted(
+            updates, key=lambda update: parse_version(update.available_version), reverse=True
+        )
         return versions[0].available_version
 
 

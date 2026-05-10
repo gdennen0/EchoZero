@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 REQUIRED_PREPROCESSING_KEYS = {
     "sampleRate",
     "maxLength",

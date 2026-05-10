@@ -31,7 +31,9 @@ def test_export_dev_state_writes_manifest_and_selected_payloads(tmp_path: Path) 
     models_dir = tmp_path / "models"
     bundle_dir = models_dir / "snare-v1"
     bundle_dir.mkdir(parents=True)
-    (bundle_dir / "snare.manifest.json").write_text('{"classes":["snare","other"]}\n', encoding="utf-8")
+    (bundle_dir / "snare.manifest.json").write_text(
+        '{"classes":["snare","other"]}\n', encoding="utf-8"
+    )
     (bundle_dir / "weights.pt").write_text("weights\n", encoding="utf-8")
 
     archive_path = tmp_path / "handoff" / "echozero-dev-state.zip"
@@ -54,7 +56,9 @@ def test_export_dev_state_writes_manifest_and_selected_payloads(tmp_path: Path) 
         assert "models/snare-v1/weights.pt" in names
 
 
-def test_import_dev_state_restores_settings_and_models_into_requested_paths(tmp_path: Path) -> None:
+def test_import_dev_state_restores_settings_and_models_into_requested_paths(
+    tmp_path: Path,
+) -> None:
     export_module = _load_script_module("export_dev_state")
     import_module = _load_script_module("import_dev_state")
 
@@ -64,7 +68,9 @@ def test_import_dev_state_restores_settings_and_models_into_requested_paths(tmp_
     source_models = tmp_path / "source-models"
     source_bundle = source_models / "kick-v1"
     source_bundle.mkdir(parents=True)
-    (source_bundle / "kick.manifest.json").write_text('{"classes":["kick","other"]}\n', encoding="utf-8")
+    (source_bundle / "kick.manifest.json").write_text(
+        '{"classes":["kick","other"]}\n', encoding="utf-8"
+    )
     (source_bundle / "weights.pt").write_text("kick\n", encoding="utf-8")
 
     archive_path = tmp_path / "export" / "echozero-dev-state.zip"
@@ -90,7 +96,9 @@ def test_import_dev_state_restores_settings_and_models_into_requested_paths(tmp_
 
     assert result["imported_settings"] is True
     assert result["imported_models"] is True
-    assert target_settings.read_text(encoding="utf-8") == source_settings.read_text(encoding="utf-8")
+    assert target_settings.read_text(encoding="utf-8") == source_settings.read_text(
+        encoding="utf-8"
+    )
     assert (target_models / "kick-v1" / "kick.manifest.json").read_text(encoding="utf-8") == (
         source_bundle / "kick.manifest.json"
     ).read_text(encoding="utf-8")

@@ -12,13 +12,21 @@ from typing import Callable
 import librosa
 import numpy as np
 import torch
-from sklearn.metrics import accuracy_score, confusion_matrix, log_loss, precision_recall_fscore_support
+from sklearn.metrics import (
+    accuracy_score,
+    confusion_matrix,
+    log_loss,
+    precision_recall_fscore_support,
+)
 
 from echozero.foundry.domain import DatasetSample, DatasetVersion, TrainRun
 from echozero.runtime_models.architectures import CrnnRuntimeModel
-from echozero.foundry.services.baseline_trainer import BaselineTrainer, BaselineTrainingResult, RunCanceledError
+from echozero.foundry.services.baseline_trainer import (
+    BaselineTrainer,
+    BaselineTrainingResult,
+    RunCanceledError,
+)
 from echozero.foundry.services.audio_source_validation import InvalidAudioSourceError
-
 
 _Crnn = CrnnRuntimeModel
 
@@ -64,16 +72,36 @@ class CrnnTrainer:
         sample_by_id = {sample.sample_id: sample for sample in dataset_version.samples}
         split_plan = dataset_version.split_plan or {}
         train_samples = [sample_by_id[sample_id] for sample_id in split_plan.get("train_ids", [])]
-        val_samples = [sample_by_id[sample_id] for sample_id in split_plan.get("val_ids", []) if sample_id in sample_by_id]
-        test_samples = [sample_by_id[sample_id] for sample_id in split_plan.get("test_ids", []) if sample_id in sample_by_id]
-        train_samples, synthetic_mix = BaselineTrainer._resolve_train_samples(train_samples, synthetic_mix_spec, rng=rng)
+        val_samples = [
+            sample_by_id[sample_id]
+            for sample_id in split_plan.get("val_ids", [])
+            if sample_id in sample_by_id
+        ]
+        test_samples = [
+            sample_by_id[sample_id]
+            for sample_id in split_plan.get("test_ids", [])
+            if sample_id in sample_by_id
+        ]
+        train_samples, synthetic_mix = BaselineTrainer._resolve_train_samples(
+            train_samples, synthetic_mix_spec, rng=rng
+        )
         val_samples = [sample for sample in val_samples if not sample.is_synthetic]
         test_samples = [sample for sample in test_samples if not sample.is_synthetic]
-        synthetic_eval_samples = [sample_by_id[sample_id] for sample_id in split_plan.get("val_ids", []) if sample_id in sample_by_id]
+        synthetic_eval_samples = [
+            sample_by_id[sample_id]
+            for sample_id in split_plan.get("val_ids", [])
+            if sample_id in sample_by_id
+        ]
         synthetic_eval_samples.extend(
-            [sample_by_id[sample_id] for sample_id in split_plan.get("test_ids", []) if sample_id in sample_by_id]
+            [
+                sample_by_id[sample_id]
+                for sample_id in split_plan.get("test_ids", [])
+                if sample_id in sample_by_id
+            ]
         )
-        synthetic_eval_samples = [sample for sample in synthetic_eval_samples if sample.is_synthetic]
+        synthetic_eval_samples = [
+            sample for sample in synthetic_eval_samples if sample.is_synthetic
+        ]
 
         if len(train_samples) < 2:
             raise ValueError("crnn trainer requires at least two training samples")
@@ -83,7 +111,9 @@ class CrnnTrainer:
         train_label_ids = {sample.label for sample in train_samples}
         if train_label_ids != set(class_names):
             missing = sorted(set(class_names) - train_label_ids)
-            raise ValueError(f"training split is missing classes required for crnn training: {', '.join(missing)}")
+            raise ValueError(
+                f"training split is missing classes required for crnn training: {', '.join(missing)}"
+            )
 
         train_ds = self._build_dataset(
             train_samples,
@@ -97,7 +127,9 @@ class CrnnTrainer:
             cancel_event=cancel_event,
         )
         if len(train_ds.y) < 2:
-            raise ValueError("crnn trainer has fewer than two usable training samples after skipping invalid source audio")
+            raise ValueError(
+                "crnn trainer has fewer than two usable training samples after skipping invalid source audio"
+            )
         observed_train_labels = {class_names[index] for index in np.unique(train_ds.y)}
         if observed_train_labels != set(class_names):
             missing = sorted(set(class_names) - observed_train_labels)
@@ -130,7 +162,9 @@ class CrnnTrainer:
             cancel_event=cancel_event,
         )
         if eval_samples and len(eval_ds.y) == 0:
-            raise ValueError("crnn trainer has no usable evaluation samples after skipping invalid source audio")
+            raise ValueError(
+                "crnn trainer has no usable evaluation samples after skipping invalid source audio"
+            )
         synthetic_eval_ds = self._build_dataset(
             synthetic_eval_samples,
             sample_rate=sample_rate,
@@ -144,7 +178,9 @@ class CrnnTrainer:
         )
 
         model = _Crnn(num_classes=len(class_names), mel_bins=n_mels)
-        optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+        optimizer = torch.optim.AdamW(
+            model.parameters(), lr=learning_rate, weight_decay=weight_decay
+        )
         criterion = torch.nn.CrossEntropyLoss()
 
         checkpoint_metrics: list[dict[str, float | int | None]] = []
@@ -181,7 +217,9 @@ class CrnnTrainer:
             val_epoch = self._evaluate_split(model, val_ds, class_names) if len(val_ds.y) else {}
             train_metrics = train_epoch.get("metrics", {})
             val_metrics = val_epoch.get("metrics", {})
-            avg_loss = total_loss / max(1, sample_count) if sample_count else train_metrics.get("loss")
+            avg_loss = (
+                total_loss / max(1, sample_count) if sample_count else train_metrics.get("loss")
+            )
             elapsed = max(1e-6, time.perf_counter() - start)
             eta_seconds = max(0.0, (epochs - epoch) * (elapsed / epoch))
             checkpoint = {
@@ -196,7 +234,9 @@ class CrnnTrainer:
             }
             checkpoint_metrics.append(checkpoint)
             if progress_callback is not None:
-                progress_callback({"epoch": epoch, "total_epochs": epochs, "checkpoint": checkpoint})
+                progress_callback(
+                    {"epoch": epoch, "total_epochs": epochs, "checkpoint": checkpoint}
+                )
 
             monitor_metrics = val_metrics if val_metrics else train_metrics
             current_primary_metric = float(monitor_metrics.get("macro_f1", float("-inf")))
@@ -277,7 +317,9 @@ class CrnnTrainer:
             "trainerOptions": {
                 "trainerProfile": "crnn_v1",
                 "optimizer": "adamw",
-                "earlyStoppingPatience": None if early_stopping_patience is None else int(early_stopping_patience),
+                "earlyStoppingPatience": (
+                    None if early_stopping_patience is None else int(early_stopping_patience)
+                ),
                 "minEpochs": max(1, min_epochs),
                 "syntheticMix": synthetic_mix,
                 "gradientClipNorm": gradient_clip_norm,
@@ -289,7 +331,9 @@ class CrnnTrainer:
 
         metrics_path = run.exports_dir(self._root) / "metrics.json"
         self._ensure_not_canceled(cancel_event)
-        metrics_path.write_text(json.dumps(metrics_payload, indent=2, sort_keys=True), encoding="utf-8")
+        metrics_path.write_text(
+            json.dumps(metrics_payload, indent=2, sort_keys=True), encoding="utf-8"
+        )
 
         run_summary_payload = {
             "runId": run.id,
@@ -316,7 +360,9 @@ class CrnnTrainer:
 
         run_summary_path = run.exports_dir(self._root) / "run_summary.json"
         self._ensure_not_canceled(cancel_event)
-        run_summary_path.write_text(json.dumps(run_summary_payload, indent=2, sort_keys=True), encoding="utf-8")
+        run_summary_path.write_text(
+            json.dumps(run_summary_payload, indent=2, sort_keys=True), encoding="utf-8"
+        )
 
         return BaselineTrainingResult(
             checkpoint_metrics=checkpoint_metrics,
@@ -399,7 +445,9 @@ class CrnnTrainer:
         for sample in samples:
             self._ensure_not_canceled(cancel_event)
             try:
-                audio = BaselineTrainer._load_audio(Path(sample.audio_ref), sample_rate=sample_rate, max_length=max_length)
+                audio = BaselineTrainer._load_audio(
+                    Path(sample.audio_ref), sample_rate=sample_rate, max_length=max_length
+                )
             except InvalidAudioSourceError as exc:
                 warnings.warn(
                     f"Skipping invalid dataset sample {sample.sample_id} ({sample.audio_ref}): {exc}",
@@ -448,7 +496,9 @@ class CrnnTrainer:
             raise RunCanceledError("run canceled")
 
     @staticmethod
-    def _evaluate_split(model: _Crnn, dataset: _TensorDataset, class_names: list[str]) -> dict[str, object]:
+    def _evaluate_split(
+        model: _Crnn, dataset: _TensorDataset, class_names: list[str]
+    ) -> dict[str, object]:
         if len(dataset.y) == 0:
             return {}
 

@@ -50,7 +50,9 @@ class RunTelemetryService:
             json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8"
         )
 
-    def append_run_telemetry(self, run: TrainRun, *, epoch: int, metric_snapshot: dict[str, Any]) -> None:
+    def append_run_telemetry(
+        self, run: TrainRun, *, epoch: int, metric_snapshot: dict[str, Any]
+    ) -> None:
         run_dir = run.run_dir(self._root)
         telemetry_path = run_dir / "telemetry.jsonl"
         latest_path = run_dir / "telemetry.latest.json"
@@ -97,7 +99,9 @@ class RunTelemetryService:
                 if torch.cuda.is_available():
                     device = torch.cuda.current_device()
                     used = float(torch.cuda.memory_allocated(device)) / (1024 * 1024)
-                    total = float(torch.cuda.get_device_properties(device).total_memory) / (1024 * 1024)
+                    total = float(torch.cuda.get_device_properties(device).total_memory) / (
+                        1024 * 1024
+                    )
                     stats["gpu_vram_used_mb"] = round(used, 2)
                     stats["gpu_vram_total_mb"] = round(total, 2)
             except Exception:

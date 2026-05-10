@@ -13,7 +13,10 @@ from echozero.foundry.services.project_specialized_model_service import (
     ProjectSpecializedModelResult,
     SpecializedModelPromotion,
 )
-from echozero.models.runtime_bundle_index import IndexedBinaryDrumBundle, save_binary_drum_bundle_index
+from echozero.models.runtime_bundle_index import (
+    IndexedBinaryDrumBundle,
+    save_binary_drum_bundle_index,
+)
 from echozero.testing.analysis_mocks import build_mock_analysis_service, write_test_wav
 from echozero.ui.qt.app_shell import build_app_shell
 
@@ -85,8 +88,12 @@ def test_app_shell_runtime_create_project_specialized_drum_models_updates_pendin
         ) -> ProjectSpecializedModelResult:
             captured["project_ref"] = project_ref
             captured["labels"] = labels
-            promoted_kick_manifest = _write_bundle(global_models_root, "binary-drum-kick-art-kick", "kick")
-            promoted_snare_manifest = _write_bundle(global_models_root, "binary-drum-snare-art-snare", "snare")
+            promoted_kick_manifest = _write_bundle(
+                global_models_root, "binary-drum-kick-art-kick", "kick"
+            )
+            promoted_snare_manifest = _write_bundle(
+                global_models_root, "binary-drum-snare-art-snare", "snare"
+            )
             promoted_paths["kick"] = promoted_kick_manifest
             promoted_paths["snare"] = promoted_snare_manifest
             save_binary_drum_bundle_index(
@@ -169,7 +176,9 @@ def test_app_shell_runtime_create_project_specialized_drum_models_updates_pendin
         song_version_id = str(runtime.session.active_song_version_id)
         config = next(
             candidate
-            for candidate in runtime.project_storage.pipeline_configs.list_by_version(song_version_id)
+            for candidate in runtime.project_storage.pipeline_configs.list_by_version(
+                song_version_id
+            )
             if candidate.template_id == "extract_song_drum_events"
         )
         assert config.knob_values["kick_model_path"] == str(promoted_paths["kick"])
@@ -192,7 +201,9 @@ def test_app_shell_runtime_create_project_specialized_drum_models_handles_first_
     )
     global_models_root = temp_root / "global-models"
     promoted_kick_manifest = _write_bundle(global_models_root, "binary-drum-kick-art-kick", "kick")
-    promoted_snare_manifest = _write_bundle(global_models_root, "binary-drum-snare-art-snare", "snare")
+    promoted_snare_manifest = _write_bundle(
+        global_models_root, "binary-drum-snare-art-snare", "snare"
+    )
     monkeypatch.setattr(
         "echozero.application.timeline.object_action_settings_service.ensure_installed_models_dir",
         lambda: global_models_root,
@@ -249,7 +260,9 @@ def test_app_shell_runtime_create_project_specialized_drum_models_handles_first_
         song_version_id = str(runtime.session.active_song_version_id)
         config = next(
             candidate
-            for candidate in runtime.project_storage.pipeline_configs.list_by_version(song_version_id)
+            for candidate in runtime.project_storage.pipeline_configs.list_by_version(
+                song_version_id
+            )
             if candidate.template_id == "extract_song_drum_events"
         )
         assert config.knob_values["kick_model_path"] == str(promoted_kick_manifest)
@@ -289,7 +302,9 @@ def test_app_shell_runtime_create_project_specialized_snare_model_updates_only_s
         ) -> ProjectSpecializedModelResult:
             assert project_ref.startswith("project:")
             assert labels == ("snare",)
-            promoted_snare_manifest = _write_bundle(global_models_root, "binary-drum-snare-art-snare", "snare")
+            promoted_snare_manifest = _write_bundle(
+                global_models_root, "binary-drum-snare-art-snare", "snare"
+            )
             promoted_paths["snare"] = promoted_snare_manifest
             return ProjectSpecializedModelResult(
                 project_ref=project_ref,
@@ -332,7 +347,9 @@ def test_app_shell_runtime_create_project_specialized_snare_model_updates_only_s
         song_version_id = str(runtime.session.active_song_version_id)
         config = next(
             candidate
-            for candidate in runtime.project_storage.pipeline_configs.list_by_version(song_version_id)
+            for candidate in runtime.project_storage.pipeline_configs.list_by_version(
+                song_version_id
+            )
             if candidate.template_id == "extract_song_drum_events"
         )
         assert str(config.knob_values.get("kick_model_path", "")).strip() == ""
@@ -376,8 +393,12 @@ def test_app_shell_runtime_create_project_specialized_drum_models_preserves_cust
             labels: tuple[str, ...] = ("kick", "snare"),
         ) -> ProjectSpecializedModelResult:
             assert labels == ("kick", "snare")
-            promoted_kick_manifest = _write_bundle(global_models_root, "binary-drum-kick-art-kick", "kick")
-            promoted_snare_manifest = _write_bundle(global_models_root, "binary-drum-snare-art-snare", "snare")
+            promoted_kick_manifest = _write_bundle(
+                global_models_root, "binary-drum-kick-art-kick", "kick"
+            )
+            promoted_snare_manifest = _write_bundle(
+                global_models_root, "binary-drum-snare-art-snare", "snare"
+            )
             promoted_paths["kick"] = promoted_kick_manifest
             promoted_paths["snare"] = promoted_snare_manifest
             save_binary_drum_bundle_index(
@@ -446,7 +467,9 @@ def test_app_shell_runtime_create_project_specialized_drum_models_preserves_cust
         song_version_id = str(runtime.session.active_song_version_id)
         config = next(
             candidate
-            for candidate in runtime.project_storage.pipeline_configs.list_by_version(song_version_id)
+            for candidate in runtime.project_storage.pipeline_configs.list_by_version(
+                song_version_id
+            )
             if candidate.template_id == "extract_song_drum_events"
         )
         assert promoted_paths["kick"].exists()

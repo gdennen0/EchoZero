@@ -36,25 +36,55 @@ class TakeRowBlock:
         options_open: bool,
         dimmed: bool = False,
     ) -> TakeRowHitTargets:
-        row_fill_hex = self.style.dimmed_row_fill_hex if dimmed else (
-            self.style.selected_row_fill_hex if take.is_selected else self.style.row_fill_hex
+        row_fill_hex = (
+            self.style.dimmed_row_fill_hex
+            if dimmed
+            else (
+                self.style.selected_row_fill_hex if take.is_selected else self.style.row_fill_hex
+            )
         )
-        header_fill_hex = self.style.dimmed_header_fill_hex if dimmed else (
-            self.style.selected_header_fill_hex if take.is_selected else self.style.header_fill_hex
+        header_fill_hex = (
+            self.style.dimmed_header_fill_hex
+            if dimmed
+            else (
+                self.style.selected_header_fill_hex
+                if take.is_selected
+                else self.style.header_fill_hex
+            )
         )
         painter.fillRect(layout.row_rect, QColor(row_fill_hex))
         painter.fillRect(layout.header_rect, QColor(header_fill_hex))
-        painter.fillRect(0, int(layout.row_rect.bottom()), int(layout.row_rect.width()), 1, QColor(self.style.divider_hex))
+        painter.fillRect(
+            0,
+            int(layout.row_rect.bottom()),
+            int(layout.row_rect.width()),
+            1,
+            QColor(self.style.divider_hex),
+        )
 
         painter.setPen(QColor(self.style.dimmed_label_hex if dimmed else self.style.label_hex))
-        painter.drawText(layout.label_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, take.name)
+        painter.drawText(
+            layout.label_rect,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            take.name,
+        )
 
-        button_bg_hex = self.style.options_button_open_fill_hex if options_open else self.style.options_button_closed_fill_hex
+        button_bg_hex = (
+            self.style.options_button_open_fill_hex
+            if options_open
+            else self.style.options_button_closed_fill_hex
+        )
         if dimmed:
             button_bg_hex = self.style.options_button_dimmed_fill_hex
         painter.fillRect(layout.options_button_rect, QColor(button_bg_hex))
-        painter.setPen(QColor(self.style.options_button_open_text_hex if options_open else self.style.options_button_closed_text_hex))
-        button_text = 'Options \u25be' if options_open else 'Options \u25b8'
+        painter.setPen(
+            QColor(
+                self.style.options_button_open_text_hex
+                if options_open
+                else self.style.options_button_closed_text_hex
+            )
+        )
+        button_text = "Options \u25be" if options_open else "Options \u25b8"
         prior_font = painter.font()
         button_font = QFont(prior_font)
         button_font.setPointSize(self.style.options_button_font.point_size)

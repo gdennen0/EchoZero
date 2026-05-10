@@ -24,7 +24,6 @@ from echozero.execution import ExecutionContext
 from echozero.progress import ProgressReport
 from echozero.result import Result, err, ok
 
-
 # ---------------------------------------------------------------------------
 # MA2 timecode helpers
 # ---------------------------------------------------------------------------
@@ -42,9 +41,7 @@ def _coerce_frame_rate(frame_rate: object) -> float:
     for candidate in VALID_FRAME_RATES:
         if abs(resolved - candidate) <= 1e-6:
             return float(candidate)
-    raise ValueError(
-        f"Invalid frame_rate {frame_rate}. Valid: {VALID_FRAME_RATES}"
-    )
+    raise ValueError(f"Invalid frame_rate {frame_rate}. Valid: {VALID_FRAME_RATES}")
 
 
 def _timecode_codec_for_frame_rate(
@@ -111,10 +108,7 @@ def build_ma2_xml(
         )
         label = evt.get("label", f"Event {i}")
         cue = evt.get("cue", str(i + 1))
-        lines.append(
-            f'  <Event index="{i}" timecode="{tc}" '
-            f'label="{label}" cue="{cue}" />'
-        )
+        lines.append(f'  <Event index="{i}" timecode="{tc}" ' f'label="{label}" cue="{cue}" />')
 
     lines.append("</MA2Timecode>")
     return "\n".join(lines)
@@ -146,6 +140,7 @@ def _default_export(xml_content: str, output_path: str) -> str:
 # ---------------------------------------------------------------------------
 # Processor
 # ---------------------------------------------------------------------------
+
 
 class ExportMA2Processor:
     """Exports event data to grandMA2 timecode XML format."""
@@ -190,9 +185,9 @@ class ExportMA2Processor:
 
         # Validate
         if not output_path:
-            return err(ValidationError(
-                f"Block '{block_id}' is missing required setting 'output_path'"
-            ))
+            return err(
+                ValidationError(f"Block '{block_id}' is missing required setting 'output_path'")
+            )
         try:
             resolved_frame_rate = _coerce_frame_rate(frame_rate)
             _timecode_codec_for_frame_rate(
@@ -210,18 +205,18 @@ class ExportMA2Processor:
                     "class",
                     event.classifications.get("note", layer.name),
                 )
-                all_events.append({
-                    "time": event.time,
-                    "label": f"{layer.name}: {label}",
-                    "cue": event.id,
-                })
+                all_events.append(
+                    {
+                        "time": event.time,
+                        "label": f"{layer.name}: {label}",
+                        "cue": event.id,
+                    }
+                )
 
         all_events.sort(key=lambda e: e["time"])
 
         if not all_events:
-            return err(ExecutionError(
-                f"No events to export for block '{block_id}'"
-            ))
+            return err(ExecutionError(f"No events to export for block '{block_id}'"))
 
         context.progress_bus.publish(
             ProgressReport(
@@ -244,9 +239,7 @@ class ExportMA2Processor:
         try:
             written_path = self._export_fn(xml_content, output_path)
         except Exception as exc:
-            return err(ExecutionError(
-                f"Failed to write MA2 file for block '{block_id}': {exc}"
-            ))
+            return err(ExecutionError(f"Failed to write MA2 file for block '{block_id}': {exc}"))
 
         context.progress_bus.publish(
             ProgressReport(

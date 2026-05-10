@@ -313,7 +313,9 @@ class Project:
     def foundry_fail_run(self, run_id: str, error: str):
         return self._foundry.fail_run(run_id, error=error)
 
-    def foundry_save_checkpoint(self, run_id: str, epoch: int, metric_snapshot: dict[str, Any] | None = None):
+    def foundry_save_checkpoint(
+        self, run_id: str, epoch: int, metric_snapshot: dict[str, Any] | None = None
+    ):
         return self._foundry.save_checkpoint(run_id, epoch=epoch, metric_snapshot=metric_snapshot)
 
     def foundry_get_run(self, run_id: str):

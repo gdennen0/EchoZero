@@ -35,7 +35,12 @@ def test_project_review_queue_builder_reads_archive_with_deterministic_order(tmp
         item.audio_path for item in second_queue.items
     ]
     assert [item.target_class for item in first_queue.items] == ["kick", "kick", "snare", "kick"]
-    assert [item.predicted_label for item in first_queue.items] == ["kick", "kick", "snare", "kick"]
+    assert [item.predicted_label for item in first_queue.items] == [
+        "kick",
+        "kick",
+        "snare",
+        "kick",
+    ]
     assert [item.source_provenance["event_ref"] for item in first_queue.items] == [
         "event:evt_alpha_kick_01",
         "event:evt_alpha_kick_02",
@@ -96,10 +101,18 @@ def test_review_session_service_creates_project_backed_session_from_working_dir(
     assert snapshot["currentItem"]["sourceProvenance"]["song_ref"] == refs["alpha_song_ref"]
     assert snapshot["currentItem"]["sourceProvenance"]["version_ref"] == refs["alpha_version_ref"]
     assert snapshot["currentItem"]["sourceProvenance"]["layer_ref"] == "layer:layer_alpha_kick"
-    assert snapshot["currentItem"]["sourceProvenance"]["audio_ref"] == snapshot["currentItem"]["audioPath"]
-    assert snapshot["currentItem"]["sourceProvenance"]["source_audio_ref"] == refs["alpha_source_audio_ref"]
+    assert (
+        snapshot["currentItem"]["sourceProvenance"]["audio_ref"]
+        == snapshot["currentItem"]["audioPath"]
+    )
+    assert (
+        snapshot["currentItem"]["sourceProvenance"]["source_audio_ref"]
+        == refs["alpha_source_audio_ref"]
+    )
     assert snapshot["currentItem"]["sourceProvenance"]["audio_ref"].endswith(".wav")
-    assert snapshot["currentItem"]["sourceProvenance"]["audio_ref"] != refs["alpha_source_audio_ref"]
+    assert (
+        snapshot["currentItem"]["sourceProvenance"]["audio_ref"] != refs["alpha_source_audio_ref"]
+    )
     assert 0.045 <= sf.info(snapshot["currentItem"]["audioPath"]).duration <= 0.055
 
 
@@ -372,7 +385,9 @@ def _build_project_review_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str,
             "alpha_song_id": alpha_song.id,
             "alpha_song_ref": f"song:{alpha_song.id}",
             "alpha_version_ref": f"version:{alpha_version.id}",
-            "alpha_source_audio_ref": str((session.working_dir / alpha_version.audio_file).resolve()),
+            "alpha_source_audio_ref": str(
+                (session.working_dir / alpha_version.audio_file).resolve()
+            ),
             "bravo_song_id": bravo_song.id,
             "bravo_song_ref": f"song:{bravo_song.id}",
         }
@@ -390,7 +405,9 @@ def _write_review_source_audio(
     audio, sample_rate = sf.read(str(source_path), dtype="float32", always_2d=False)
     target_frames = max(1, int(round(duration_seconds * sample_rate)))
     if getattr(audio, "ndim", 0) == 1:
-        repeated = np.tile(audio, max(1, int(np.ceil(target_frames / audio.shape[0]))))[:target_frames]
+        repeated = np.tile(audio, max(1, int(np.ceil(target_frames / audio.shape[0]))))[
+            :target_frames
+        ]
     else:
         repeated = np.tile(
             audio,
@@ -441,9 +458,7 @@ def _create_analysis_layer(
         },
     )
     take = Take.create(
-        data=EventData(
-            layers=(DomainLayer(id=f"domain_{layer_id}", name=name, events=events),)
-        ),
+        data=EventData(layers=(DomainLayer(id=f"domain_{layer_id}", name=name, events=events),)),
         label="Main",
         source=TakeSource(
             block_id="binary_drum_classify",

@@ -103,7 +103,9 @@ class ProjectSpecializedModelService:
 
                 artifacts = app.list_artifacts_for_run(completed_run.id)
                 if not artifacts:
-                    raise RuntimeError(f"No artifact was finalized for specialized run '{completed_run.id}'.")
+                    raise RuntimeError(
+                        f"No artifact was finalized for specialized run '{completed_run.id}'."
+                    )
                 artifact = sorted(artifacts, key=lambda candidate: candidate.created_at)[-1]
                 compatibility = app.validate_artifact(artifact.id)
                 if not compatibility.ok:

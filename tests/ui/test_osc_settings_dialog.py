@@ -62,9 +62,7 @@ def test_osc_settings_dialog_restore_defaults_resets_form_values() -> None:
 
         restored = dialog._form.values()
         expected = {
-            key: value
-            for key, value in service.default_values().items()
-            if key.startswith("osc_")
+            key: value for key, value in service.default_values().items() if key.startswith("osc_")
         }
         assert restored == expected
     finally:

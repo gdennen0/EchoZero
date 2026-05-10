@@ -16,7 +16,6 @@ from echozero.application.timeline.object_actions.descriptors import (
     descriptor_for_action,
 )
 
-
 _LEGACY_IMPORT_ACTION_IDS: tuple[tuple[str, str], ...] = (
     ("run_extract_stems", "timeline.extract_stems"),
     ("run_extract_song_drum_events", "timeline.extract_song_drum_events"),
@@ -56,8 +55,7 @@ def canonical_import_pipeline_action_ids(
     if action_ids is None:
         return ()
     allowed_action_ids = {
-        descriptor.action_id
-        for descriptor in import_safe_pipeline_action_descriptors()
+        descriptor.action_id for descriptor in import_safe_pipeline_action_descriptors()
     }
     resolved: list[str] = []
     seen: set[str] = set()
@@ -290,18 +288,14 @@ def app_preferences_from_dict(payload: dict[str, Any] | None) -> AppPreferences:
                     send.get("host", osc.get("command_host")),
                     default="127.0.0.1",
                 ),
-                port=_coerce_optional_positive_int(
-                    send.get("port", osc.get("command_port"))
-                ),
+                port=_coerce_optional_positive_int(send.get("port", osc.get("command_port"))),
             ),
         ),
         song_import=SongImportPreferences(
             strip_ltc_timecode=bool(song_import.get("strip_ltc_timecode", True)),
             pipeline_action_ids=pipeline_action_ids,
         ),
-        recent_project_paths=_coerce_recent_project_paths(
-            data.get("recent_project_paths")
-        ),
+        recent_project_paths=_coerce_recent_project_paths(data.get("recent_project_paths")),
     )
 
 

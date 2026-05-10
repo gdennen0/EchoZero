@@ -119,7 +119,9 @@ class ContinuousTrainingService:
         )
 
     @staticmethod
-    def _build_run_spec(dataset_version_id: str, *, sample_rate: int, epochs: int) -> dict[str, object]:
+    def _build_run_spec(
+        dataset_version_id: str, *, sample_rate: int, epochs: int
+    ) -> dict[str, object]:
         return {
             "schema": "foundry.train_run_spec.v1",
             "classificationMode": "multiclass",

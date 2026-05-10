@@ -7,7 +7,19 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QPointF, QRectF, Qt, QSignalBlocker, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPen, QPolygonF, QWheelEvent
-from PyQt6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QMessageBox, QPushButton, QScrollArea, QScrollBar, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QScrollBar,
+    QVBoxLayout,
+    QWidget,
+)
 
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import LayerId
@@ -50,7 +62,9 @@ class ManualPullTimelineCanvas(QWidget):
         super().__init__(parent)
         self._events = list(events)
         self._selected_event_ids = list(selected_event_ids or [])
-        self._anchor_index: int | None = self._selected_index() if self._selected_event_ids else None
+        self._anchor_index: int | None = (
+            self._selected_index() if self._selected_event_ids else None
+        )
         self._rects: list[QRectF] = []
         self._left_padding = 16.0
         self._right_padding = 16.0
@@ -87,7 +101,9 @@ class ManualPullTimelineCanvas(QWidget):
         self.zoom_changed.emit(self._zoom_factor)
 
     def selected_event_ids(self) -> list[str]:
-        ordered_ids = [event.event_id for event in self._events if event.event_id in self._selected_event_ids]
+        ordered_ids = [
+            event.event_id for event in self._events if event.event_id in self._selected_event_ids
+        ]
         return ordered_ids
 
     def set_selected_event_ids(self, event_ids: list[str]) -> None:
@@ -114,14 +130,18 @@ class ManualPullTimelineCanvas(QWidget):
             return
 
         modifiers = event.modifiers()
-        has_toggle = bool(modifiers & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier))
+        has_toggle = bool(
+            modifiers & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier)
+        )
         has_shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
         event_id = self._events[index].event_id
 
         if has_shift and self._anchor_index is not None:
             start_index = min(self._anchor_index, index)
             end_index = max(self._anchor_index, index)
-            self._selected_event_ids = [candidate.event_id for candidate in self._events[start_index : end_index + 1]]
+            self._selected_event_ids = [
+                candidate.event_id for candidate in self._events[start_index : end_index + 1]
+            ]
         elif has_toggle:
             selected = list(self._selected_event_ids)
             if event_id in selected:
@@ -144,7 +164,10 @@ class ManualPullTimelineCanvas(QWidget):
             super().wheelEvent(event)
             return
 
-        has_primary = bool(event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier))
+        has_primary = bool(
+            event.modifiers()
+            & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier)
+        )
         if has_primary:
             if delta > 0:
                 self.zoom_in()
@@ -171,7 +194,12 @@ class ManualPullTimelineCanvas(QWidget):
         track_pen.setWidth(1)
         painter.setPen(track_pen)
         baseline_y = self.height() * 0.5
-        painter.drawLine(int(self._left_padding), int(baseline_y), max(int(self._left_padding), self.width() - int(self._right_padding)), int(baseline_y))
+        painter.drawLine(
+            int(self._left_padding),
+            int(baseline_y),
+            max(int(self._left_padding), self.width() - int(self._right_padding)),
+            int(baseline_y),
+        )
 
         self._rects = self._compute_event_rects()
         metrics = painter.fontMetrics()
@@ -183,7 +211,11 @@ class ManualPullTimelineCanvas(QWidget):
             painter.setBrush(fill)
             painter.drawPolygon(self._diamond_polygon(rect))
 
-            next_left = self._rects[index + 1].left() if index + 1 < len(self._rects) else self.width() - self._right_padding
+            next_left = (
+                self._rects[index + 1].left()
+                if index + 1 < len(self._rects)
+                else self.width() - self._right_padding
+            )
             label_left = rect.center().x() + (min(rect.width() - 6.0, rect.height()) * 0.5) + 8.0
             label_width = max(72.0, next_left - label_left - 8.0)
             label_rect = QRectF(
@@ -196,7 +228,9 @@ class ManualPullTimelineCanvas(QWidget):
             painter.drawText(
                 label_rect,
                 Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
-                metrics.elidedText(event_model.label, Qt.TextElideMode.ElideRight, int(label_rect.width())),
+                metrics.elidedText(
+                    event_model.label, Qt.TextElideMode.ElideRight, int(label_rect.width())
+                ),
             )
 
             if event_model.start is not None:
@@ -259,13 +293,20 @@ class ManualPullTimelineCanvas(QWidget):
             count = max(1, len(self._events))
             return 0.0, max(1.0, count * 0.75)
         one_shot_seconds = self._one_shot_seconds()
-        max_end = max(max(event.end if event.end is not None else event.start, event.start + one_shot_seconds) for event in timed)
+        max_end = max(
+            max(
+                event.end if event.end is not None else event.start, event.start + one_shot_seconds
+            )
+            for event in timed
+        )
         return min_start, max(max_end, min_start + one_shot_seconds)
 
     def _sync_timeline_geometry(self) -> None:
         start, end = self._timeline_bounds()
         span = max(1.0, end - start)
-        content_width = int((span * self.pixels_per_second) + self._left_padding + self._right_padding + 80.0)
+        content_width = int(
+            (span * self.pixels_per_second) + self._left_padding + self._right_padding + 80.0
+        )
         self.setMinimumWidth(max(640, content_width))
         self.updateGeometry()
         self.update()
@@ -332,7 +373,9 @@ class ManualPullTimelineRuler(QWidget):
         painter = QPainter(self)
         rect = QRectF(0, 0, self.width(), self.height())
         painter.fillRect(rect, QColor(TIMELINE_STYLE.ruler.background_hex))
-        painter.fillRect(QRectF(0, rect.bottom() - 1, rect.width(), 1), QColor(TIMELINE_STYLE.ruler.divider_hex))
+        painter.fillRect(
+            QRectF(0, rect.bottom() - 1, rect.width(), 1), QColor(TIMELINE_STYLE.ruler.divider_hex)
+        )
 
         scroll_x = float(self._scroll_bar.value())
         marks = visible_ruler_seconds(
@@ -655,11 +698,7 @@ class ManualPullWorkspaceDialog(QDialog):
                 self._source_summary.setText(f"Source: {source_label}")
         target_label = self._target_combo.currentText().strip()
         target_value = self.selected_target_layer_id()
-        import_mode_label = (
-            "main"
-            if self.selected_import_mode() == "main"
-            else "a new take"
-        )
+        import_mode_label = "main" if self.selected_import_mode() == "main" else "a new take"
         if target_value is None:
             self._destination_summary.setText("Destination: Select an EZ target")
         elif _is_new_layer_pull_target(target_value):

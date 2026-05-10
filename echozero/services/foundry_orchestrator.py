@@ -18,7 +18,14 @@ from echozero.domain.events import (
 )
 from echozero.errors import ValidationError
 from echozero.event_bus import EventBus
-from echozero.foundry.domain import CompatibilityReport, Dataset, DatasetVersion, EvalReport, ModelArtifact, TrainRun
+from echozero.foundry.domain import (
+    CompatibilityReport,
+    Dataset,
+    DatasetVersion,
+    EvalReport,
+    ModelArtifact,
+    TrainRun,
+)
 from echozero.foundry.persistence import EvalReportRepository
 from echozero.foundry.services import (
     ArtifactService,
@@ -47,7 +54,9 @@ class FoundryOrchestrator:
         except Exception as exc:
             return err(exc)
 
-    def ingest_dataset_folder(self, dataset_id: str, folder_path: str | Path) -> Result[DatasetVersion]:
+    def ingest_dataset_folder(
+        self, dataset_id: str, folder_path: str | Path
+    ) -> Result[DatasetVersion]:
         try:
             return ok(self._datasets.ingest_from_folder(dataset_id, folder_path))
         except Exception as exc:
@@ -154,9 +163,15 @@ class FoundryOrchestrator:
         except Exception as exc:
             return err(exc)
 
-    def save_checkpoint(self, run_id: str, epoch: int, metric_snapshot: dict | None = None) -> Result[Path]:
+    def save_checkpoint(
+        self, run_id: str, epoch: int, metric_snapshot: dict | None = None
+    ) -> Result[Path]:
         try:
-            return ok(self._train_runs.save_checkpoint(run_id, epoch=epoch, metric_snapshot=metric_snapshot))
+            return ok(
+                self._train_runs.save_checkpoint(
+                    run_id, epoch=epoch, metric_snapshot=metric_snapshot
+                )
+            )
         except Exception as exc:
             return err(exc)
 
@@ -252,9 +267,7 @@ class FoundryOrchestrator:
         report = report_result.value
         if not report.ok:
             return err(
-                ValidationError(
-                    "Artifact compatibility gate failed: " + "; ".join(report.errors)
-                )
+                ValidationError("Artifact compatibility gate failed: " + "; ".join(report.errors))
             )
         return ok(artifact)
 

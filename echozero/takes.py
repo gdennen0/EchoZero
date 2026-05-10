@@ -21,7 +21,6 @@ from typing import Any, Literal, Union
 
 from echozero.domain.types import AudioData, EventData, Event
 
-
 # ---------------------------------------------------------------------------
 # Take source / provenance
 # ---------------------------------------------------------------------------
@@ -120,8 +119,7 @@ class TakeAnalysisBuild:
                 or _optional_text(run_id)
             ),
             execution_id=(
-                _optional_text(settings_snapshot.get("execution_id"))
-                or _optional_text(run_id)
+                _optional_text(settings_snapshot.get("execution_id")) or _optional_text(run_id)
             ),
             pipeline_id=_optional_text(settings_snapshot.get("pipeline_id")),
             pipeline_config_id=_optional_text(settings_snapshot.get("pipeline_config_id")),
@@ -302,18 +300,14 @@ class TakeLayer:
         for t in self.takes:
             if t.is_main:
                 return t
-        raise TakeLayerError(
-            f"TakeLayer '{self.layer_id}' has no main take"
-        )
+        raise TakeLayerError(f"TakeLayer '{self.layer_id}' has no main take")
 
     def get_take(self, take_id: str) -> Take:
         """Return a take by ID. Raises if not found."""
         for t in self.takes:
             if t.id == take_id:
                 return t
-        raise TakeLayerError(
-            f"Take '{take_id}' not found in layer '{self.layer_id}'"
-        )
+        raise TakeLayerError(f"Take '{take_id}' not found in layer '{self.layer_id}'")
 
     @property
     def take_count(self) -> int:
@@ -324,9 +318,7 @@ class TakeLayer:
     def add_take(self, take: Take) -> None:
         """Append a take. Must not be main (new takes never auto-promote)."""
         if take.is_main:
-            raise TakeLayerError(
-                "New takes must not be main. Use promote_to_main() instead."
-            )
+            raise TakeLayerError("New takes must not be main. Use promote_to_main() instead.")
         self.takes.append(take)
 
     def promote_to_main(self, take_id: str) -> None:
@@ -338,13 +330,9 @@ class TakeLayer:
                 target_take = t
                 break
         if target_take is None:
-            raise TakeLayerError(
-                f"Take '{take_id}' not found in layer '{self.layer_id}'"
-            )
+            raise TakeLayerError(f"Take '{take_id}' not found in layer '{self.layer_id}'")
         if target_take.is_archived:
-            raise TakeLayerError(
-                f"Cannot promote archived take '{take_id}'. Unarchive it first."
-            )
+            raise TakeLayerError(f"Cannot promote archived take '{take_id}'. Unarchive it first.")
 
         new_takes: list[Take] = []
         for t in self.takes:
@@ -363,9 +351,7 @@ class TakeLayer:
                 self.takes[i] = new_take
                 self._validate_main_invariant()
                 return
-        raise TakeLayerError(
-            f"Take '{take_id}' not found in layer '{self.layer_id}'"
-        )
+        raise TakeLayerError(f"Take '{take_id}' not found in layer '{self.layer_id}'")
 
     def remove_take(self, take_id: str) -> Take:
         """Remove a take by ID. Cannot remove the main take."""
@@ -374,9 +360,7 @@ class TakeLayer:
                 if t.is_main:
                     raise TakeLayerError("Cannot remove the main take")
                 return self.takes.pop(i)
-        raise TakeLayerError(
-            f"Take '{take_id}' not found in layer '{self.layer_id}'"
-        )
+        raise TakeLayerError(f"Take '{take_id}' not found in layer '{self.layer_id}'")
 
     def reorder_takes(self, take_ids: list[str]) -> None:
         """Reorder takes by ID list. All IDs must be present."""
@@ -405,8 +389,7 @@ class TakeLayer:
         main_count = sum(1 for t in self.takes if t.is_main)
         if len(self.takes) > 0 and main_count != 1:
             raise TakeLayerError(
-                f"TakeLayer '{self.layer_id}' has {main_count} main takes "
-                f"(expected exactly 1)"
+                f"TakeLayer '{self.layer_id}' has {main_count} main takes " f"(expected exactly 1)"
             )
 
 
@@ -462,15 +445,13 @@ def merge_events(
     elif strategy == "subtract":
         source_times = sorted(e.time for e in source_events)
         return tuple(
-            e for e in target_events
-            if not _has_time_match(e.time, source_times, time_epsilon)
+            e for e in target_events if not _has_time_match(e.time, source_times, time_epsilon)
         )
 
     elif strategy == "intersect":
         source_times = sorted(e.time for e in source_events)
         return tuple(
-            e for e in target_events
-            if _has_time_match(e.time, source_times, time_epsilon)
+            e for e in target_events if _has_time_match(e.time, source_times, time_epsilon)
         )
 
     elif strategy == "replace_range":
@@ -488,14 +469,13 @@ def merge_events(
         raise ValueError(f"Unknown merge strategy: {strategy}")
 
 
-def _has_time_match(
-    time: float, candidates: list[float], epsilon: float
-) -> bool:
+def _has_time_match(time: float, candidates: list[float], epsilon: float) -> bool:
     """Check if any candidate is within epsilon of the given time.
 
     Assumes candidates is sorted — uses bisect for O(log n) lookup.
     """
     import bisect
+
     pos = bisect.bisect_left(candidates, time - epsilon)
     # Check the insertion point and neighbours
     for i in range(pos, min(pos + 2, len(candidates))):

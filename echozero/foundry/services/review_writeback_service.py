@@ -25,7 +25,9 @@ from .review_event_state import normalize_review_label, updated_review_metadata
 class ReviewWritebackService:
     """Mutates project-backed events from explicit review signals when safe."""
 
-    def apply_review_signal(self, session: ReviewSession, signal: ReviewSignal) -> dict[str, object]:
+    def apply_review_signal(
+        self, session: ReviewSession, signal: ReviewSignal
+    ) -> dict[str, object]:
         """Write reviewed truth back into project data when provenance and access are sufficient."""
         if signal.review_outcome == ReviewOutcome.PENDING or signal.review_decision is None:
             return {"status": "skipped", "reason": "pending_review"}
@@ -147,7 +149,9 @@ class ReviewWritebackService:
             classifications["label"] = normalized_label
         metadata = dict(event.metadata or {})
         promotion_state = "promoted"
-        review_state = "signed_off" if signal.review_outcome == ReviewOutcome.CORRECT else "corrected"
+        review_state = (
+            "signed_off" if signal.review_outcome == ReviewOutcome.CORRECT else "corrected"
+        )
         corrected_label = None
         next_origin = event.origin
         if decision.kind == ReviewDecisionKind.REJECTED:
@@ -171,13 +175,16 @@ class ReviewWritebackService:
             review_note=decision.review_note or signal.review_note,
             reviewed_at=signal.reviewed_at,
             original_start_ms=decision.original_start_ms or (float(event.time) * 1000.0),
-            original_end_ms=decision.original_end_ms or ((float(event.time) + float(event.duration)) * 1000.0),
+            original_end_ms=decision.original_end_ms
+            or ((float(event.time) + float(event.duration)) * 1000.0),
             corrected_start_ms=decision.corrected_start_ms,
             corrected_end_ms=decision.corrected_end_ms,
             created_event_ref=decision.created_event_ref,
             surface=decision.provenance.surface if decision.provenance is not None else None,
             workflow=decision.provenance.workflow if decision.provenance is not None else None,
-            operator_action=decision.provenance.operator_action if decision.provenance is not None else None,
+            operator_action=(
+                decision.provenance.operator_action if decision.provenance is not None else None
+            ),
         )
         metadata["foundry_review"] = {
             "review_outcome": signal.review_outcome.value,
@@ -215,7 +222,9 @@ class ReviewWritebackService:
             return None
         if decision.kind == ReviewDecisionKind.MISSED_EVENT_ADDED and decision.created_event_ref:
             return ReviewWritebackService._ref_id(decision.created_event_ref, prefix="event")
-        return ReviewWritebackService._ref_id(signal.source_provenance.get("event_ref"), prefix="event")
+        return ReviewWritebackService._ref_id(
+            signal.source_provenance.get("event_ref"), prefix="event"
+        )
 
     @staticmethod
     def _resolve_project_dir(source_ref: str | None) -> Path | None:

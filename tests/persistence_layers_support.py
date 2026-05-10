@@ -5,6 +5,7 @@ Connects the compatibility wrapper to the bounded persistence layers slice.
 
 from tests.persistence_shared_support import *  # noqa: F401,F403
 
+
 class TestLayerRepository:
     def _setup(self, conn) -> tuple[LayerRepository, str]:
         pr = ProjectRepository(conn)
@@ -211,8 +212,10 @@ class TestTakeRepository:
     def test_take_source_round_trip(self, conn):
         tr, lid = self._setup(conn)
         source = TakeSource(
-            block_id="blk1", block_type="onset_detector",
-            settings_snapshot={"threshold": 0.3}, run_id="run_abc",
+            block_id="blk1",
+            block_type="onset_detector",
+            settings_snapshot={"threshold": 0.3},
+            run_id="run_abc",
         )
         t = _make_take(is_main=True, source=source)
         tr.create(lid, t)
@@ -621,7 +624,6 @@ class TestTakeMainInvariant:
 # ---------------------------------------------------------------------------
 # Full round-trip
 # ---------------------------------------------------------------------------
-
 
 
 __all__ = [name for name in globals() if name.startswith("Test")]

@@ -55,8 +55,12 @@ class _MainThreadExecutor(QObject):
 class AutomationBridgeServer:
     """Local HTTP bridge for attaching to the live EchoZero launcher process."""
 
-    def __init__(self, *, runtime, widget, launcher, app, host: str = "127.0.0.1", port: int = 0) -> None:
-        self._backend = create_backend_for_surface(runtime=runtime, widget=widget, launcher=launcher, app=app)
+    def __init__(
+        self, *, runtime, widget, launcher, app, host: str = "127.0.0.1", port: int = 0
+    ) -> None:
+        self._backend = create_backend_for_surface(
+            runtime=runtime, widget=widget, launcher=launcher, app=app
+        )
         self._executor = _MainThreadExecutor()
         self._server = ThreadingHTTPServer((host, port), self._build_handler())
         self._thread: threading.Thread | None = None
@@ -69,7 +73,9 @@ class AutomationBridgeServer:
     def start(self) -> None:
         if self._thread is not None:
             return
-        self._thread = threading.Thread(target=self._server.serve_forever, name="echozero-automation-bridge", daemon=True)
+        self._thread = threading.Thread(
+            target=self._server.serve_forever, name="echozero-automation-bridge", daemon=True
+        )
         self._thread.start()
 
     def stop(self) -> None:
@@ -86,10 +92,18 @@ class AutomationBridgeServer:
             def do_GET(self) -> None:  # noqa: N802
                 try:
                     if self.path == "/health":
-                        self._send_json(200, {"ok": True, "address": {"host": bridge.address[0], "port": bridge.address[1]}})
+                        self._send_json(
+                            200,
+                            {
+                                "ok": True,
+                                "address": {"host": bridge.address[0], "port": bridge.address[1]},
+                            },
+                        )
                         return
                     if self.path == "/snapshot":
-                        payload = bridge._executor.run_sync(lambda: _to_jsonable(bridge._backend.snapshot()))
+                        payload = bridge._executor.run_sync(
+                            lambda: _to_jsonable(bridge._backend.snapshot())
+                        )
                         self._send_json(200, payload)
                         return
                     self._send_json(404, {"error": f"unknown path: {self.path}"})
@@ -103,12 +117,16 @@ class AutomationBridgeServer:
                     payload = json.loads(raw.decode("utf-8"))
 
                     if self.path == "/action":
-                        result = bridge._executor.run_sync(lambda: bridge._dispatch_action(payload))
+                        result = bridge._executor.run_sync(
+                            lambda: bridge._dispatch_action(payload)
+                        )
                         self._send_json(200, _to_jsonable(result))
                         return
                     if self.path == "/screenshot":
                         target_id = payload.get("target_id")
-                        png_bytes = bridge._executor.run_sync(lambda: bridge._backend.screenshot(target_id=target_id))
+                        png_bytes = bridge._executor.run_sync(
+                            lambda: bridge._backend.screenshot(target_id=target_id)
+                        )
                         self._send_json(
                             200,
                             {
@@ -153,7 +171,12 @@ class AutomationBridgeServer:
         if action == "drag":
             return self._backend.drag(str(target_id), payload["destination"], args=args)
         if action == "scroll":
-            return self._backend.scroll(str(target_id), dx=int(payload.get("dx", 0)), dy=int(payload.get("dy", 0)), args=args)
+            return self._backend.scroll(
+                str(target_id),
+                dx=int(payload.get("dx", 0)),
+                dy=int(payload.get("dy", 0)),
+                args=args,
+            )
         if action == "invoke":
             return self._backend.invoke(
                 str(payload["action_id"]),

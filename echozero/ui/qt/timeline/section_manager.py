@@ -171,7 +171,9 @@ class SectionManagerDialog(QDialog):
         quick_label_layout.setVerticalSpacing(6)
         for index, label in enumerate(self._QUICK_LABEL_OPTIONS):
             button = QPushButton(label, quick_label_box)
-            button.clicked.connect(lambda _checked=False, text=label: self._apply_quick_label(text))
+            button.clicked.connect(
+                lambda _checked=False, text=label: self._apply_quick_label(text)
+            )
             quick_label_layout.addWidget(button, index // 2, index % 2)
         side.addWidget(quick_label_box)
 
@@ -188,7 +190,9 @@ class SectionManagerDialog(QDialog):
 
         self._cue_number_input = QLineEdit(self)
         self._cue_number_input.setPlaceholderText("e.g. 7 or 7.5")
-        self._cue_number_input.editingFinished.connect(lambda: self._apply_editor_field("cue_number"))
+        self._cue_number_input.editingFinished.connect(
+            lambda: self._apply_editor_field("cue_number")
+        )
         form.addRow("Cue No", self._cue_number_input)
 
         self._name_input = QLineEdit(self)
@@ -224,11 +228,7 @@ class SectionManagerDialog(QDialog):
         initial_row = 0 if self._rows else None
         if selected_cue_id is not None and self._rows:
             initial_row = next(
-                (
-                    index
-                    for index, row in enumerate(self._rows)
-                    if row.cue_id == selected_cue_id
-                ),
+                (index for index, row in enumerate(self._rows) if row.cue_id == selected_cue_id),
                 initial_row,
             )
         self._refresh_table(select_row=initial_row)
@@ -365,11 +365,7 @@ class SectionManagerDialog(QDialog):
         next_selected_index = 0 if self._rows else None
         if selected_cue_id is not None:
             next_selected_index = next(
-                (
-                    index
-                    for index, row in enumerate(self._rows)
-                    if row.cue_id == selected_cue_id
-                ),
+                (index for index, row in enumerate(self._rows) if row.cue_id == selected_cue_id),
                 next_selected_index,
             )
         self._refresh_table(select_row=next_selected_index)
@@ -414,15 +410,23 @@ class SectionManagerDialog(QDialog):
         self._set_editors_enabled(True)
         self._loading_editors = True
         try:
-            self._cue_ref_input.setText(_common_text([candidate.cue_ref for candidate in row_values]))
+            self._cue_ref_input.setText(
+                _common_text([candidate.cue_ref for candidate in row_values])
+            )
             self._cue_number_input.setText(
-                _common_text([cue_number_text(candidate.cue_number) or "" for candidate in row_values])
+                _common_text(
+                    [cue_number_text(candidate.cue_number) or "" for candidate in row_values]
+                )
             )
             self._name_input.setText(_common_text([candidate.name for candidate in row_values]))
             start_values = [float(candidate.start) for candidate in row_values]
             self._start_input.setValue(start_values[0])
-            self._color_input.setText(_common_text([(candidate.color or "") for candidate in row_values]))
-            self._notes_input.setText(_common_text([(candidate.notes or "") for candidate in row_values]))
+            self._color_input.setText(
+                _common_text([(candidate.color or "") for candidate in row_values])
+            )
+            self._notes_input.setText(
+                _common_text([(candidate.notes or "") for candidate in row_values])
+            )
         finally:
             self._loading_editors = False
 

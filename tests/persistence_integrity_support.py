@@ -5,6 +5,7 @@ Connects the compatibility wrapper to the bounded persistence integrity slice.
 
 from tests.persistence_shared_support import *  # noqa: F401,F403
 
+
 class TestDuplicateIds:
     def _setup_version(self, conn) -> tuple[str, str, str]:
         """Create project -> song -> version and return (project_id, song_id, version_id)."""
@@ -94,14 +95,22 @@ class TestDataJsonNullGuard:
             "(id, layer_id, label, origin, is_main, is_archived, "
             "source_json, data_json, created_at, notes) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (corrupt_id, layer.id, "Bad Take", "pipeline", 0, 0,
-             None, None, _now().isoformat(), ""),
+            (
+                corrupt_id,
+                layer.id,
+                "Bad Take",
+                "pipeline",
+                0,
+                0,
+                None,
+                None,
+                _now().isoformat(),
+                "",
+            ),
         )
         conn.commit()
 
-        takes = conn.execute(
-            "SELECT id FROM takes WHERE layer_id = ?", (layer.id,)
-        ).fetchall()
+        takes = conn.execute("SELECT id FROM takes WHERE layer_id = ?", (layer.id,)).fetchall()
         assert len(takes) == 1
 
         # list_by_layer should skip the corrupt row and return an empty list,
@@ -168,15 +177,14 @@ class TestMigrationInfrastructure:
             get_schema_version,
             set_schema_version,
         )
+
         # Use a fresh in-memory DB
         conn = sqlite3.connect(":memory:")
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
 
         # Create minimal schema with just _meta at version 0
-        conn.executescript(
-            "CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT);"
-        )
+        conn.executescript("CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT);")
 
         # Set version to SCHEMA_VERSION - 1 to simulate needing one migration
         fake_old_version = SCHEMA_VERSION  # current version
@@ -189,13 +197,12 @@ class TestMigrationInfrastructure:
         migration_ran = []
 
         def mock_migration(c):
-            c.execute(
-                "CREATE TABLE IF NOT EXISTS _migration_test (id TEXT PRIMARY KEY)"
-            )
+            c.execute("CREATE TABLE IF NOT EXISTS _migration_test (id TEXT PRIMARY KEY)")
             migration_ran.append(True)
 
         # Temporarily patch _MIGRATIONS and SCHEMA_VERSION
         import echozero.persistence.schema as schema_mod
+
         original_version = schema_mod.SCHEMA_VERSION
         original_migrations = dict(_MIGRATIONS)
 
@@ -210,12 +217,12 @@ class TestMigrationInfrastructure:
 
             # Verify the migration actually created the table
             tables = {
-                row['name']
+                row["name"]
                 for row in conn.execute(
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 ).fetchall()
             }
-            assert '_migration_test' in tables
+            assert "_migration_test" in tables
         finally:
             # Restore
             schema_mod.SCHEMA_VERSION = original_version

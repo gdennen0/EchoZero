@@ -4,7 +4,6 @@ import importlib.util
 import json
 from pathlib import Path
 
-
 REPO_ROOT = Path("/Users/march/Documents/GitHub/EchoZero")
 
 
@@ -125,7 +124,9 @@ def test_pr_requirements_accept_valid_sync_contract_mapping(tmp_path: Path, monk
     assert result == 0
 
 
-def test_timeline_feel_guardrails_reject_numeric_default_in_changed_widget_file(tmp_path: Path, monkeypatch):
+def test_timeline_feel_guardrails_reject_numeric_default_in_changed_widget_file(
+    tmp_path: Path, monkeypatch
+):
     module = _load_script_module("check_timeline_feel_guardrails")
     guarded_file = tmp_path / "echozero" / "ui" / "qt" / "timeline" / "widget.py"
     guarded_file.parent.mkdir(parents=True)
@@ -146,7 +147,9 @@ def test_timeline_feel_guardrails_reject_numeric_default_in_changed_widget_file(
     assert result == 1
 
 
-def test_timeline_feel_guardrails_accept_feel_constant_in_changed_widget_file(tmp_path: Path, monkeypatch):
+def test_timeline_feel_guardrails_accept_feel_constant_in_changed_widget_file(
+    tmp_path: Path, monkeypatch
+):
     module = _load_script_module("check_timeline_feel_guardrails")
     guarded_file = tmp_path / "echozero" / "ui" / "qt" / "timeline" / "widget.py"
     guarded_file.parent.mkdir(parents=True)
@@ -224,7 +227,9 @@ def test_changed_python_style_ignores_preexisting_legacy_size_and_docstring_viol
     assert result == 0
 
 
-def test_changed_python_style_rejects_new_public_symbol_without_docstring(tmp_path: Path, monkeypatch):
+def test_changed_python_style_rejects_new_public_symbol_without_docstring(
+    tmp_path: Path, monkeypatch
+):
     """New public symbols must still carry docstrings under incremental enforcement."""
 
     module = _load_script_module("check_changed_python_style")
@@ -252,7 +257,9 @@ def test_changed_python_style_rejects_new_public_symbol_without_docstring(tmp_pa
     assert result == 1
 
 
-def test_changed_python_style_allows_new_test_functions_without_docstrings(tmp_path: Path, monkeypatch):
+def test_changed_python_style_allows_new_test_functions_without_docstrings(
+    tmp_path: Path, monkeypatch
+):
     """Test modules should not need per-test docstrings to satisfy the guardrail."""
 
     module = _load_script_module("check_changed_python_style")

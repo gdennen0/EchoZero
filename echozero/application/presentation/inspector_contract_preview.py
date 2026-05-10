@@ -60,7 +60,11 @@ def event_preview_params(
         "revision_id": take.revision_id if take is not None else layer.main_revision_id,
         "source_content_ref": (
             source_content_ref.to_dict()
-            if (source_content_ref := (take.source_content_ref if take is not None else layer.source_content_ref))
+            if (
+                source_content_ref := (
+                    take.source_content_ref if take is not None else layer.source_content_ref
+                )
+            )
             is not None
             else None
         ),

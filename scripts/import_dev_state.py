@@ -130,7 +130,9 @@ def main(argv: list[str] | None = None) -> int:
 
     result = import_dev_state(
         parsed.archive,
-        settings_path=None if parsed.skip_settings else (parsed.settings_path or default_app_settings_path()),
+        settings_path=(
+            None if parsed.skip_settings else (parsed.settings_path or default_app_settings_path())
+        ),
         models_dir=None if parsed.skip_models else (parsed.models_dir or installed_models_dir()),
         import_settings=not parsed.skip_settings,
         import_models=not parsed.skip_models,

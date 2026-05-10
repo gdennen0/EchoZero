@@ -183,9 +183,7 @@ class ManualPullSourceBrowser(QWidget):
                     QSizePolicy.Policy.Expanding,
                     QSizePolicy.Policy.Fixed,
                 )
-                track_button.setObjectName(
-                    "manualPullTrackButton_" + self._safe_name(track.coord)
-                )
+                track_button.setObjectName("manualPullTrackButton_" + self._safe_name(track.coord))
                 track_button.setStyleSheet(
                     "QPushButton { padding: 10px 12px; border-radius: 12px; text-align: left; }"
                 )

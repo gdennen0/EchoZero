@@ -53,9 +53,7 @@ def compute_peaks(samples: np.ndarray, window_size: int) -> np.ndarray:
     # Handle remainder samples (partial final window)
     if n_complete < n_samples:
         remainder = samples[n_complete:]
-        peaks_list.append(
-            np.array([[remainder.min(), remainder.max()]], dtype=np.float32)
-        )
+        peaks_list.append(np.array([[remainder.min(), remainder.max()]], dtype=np.float32))
 
     return np.vstack(peaks_list).astype(np.float32)
 
@@ -66,8 +64,7 @@ def _default_load_samples(file_path: str, sample_rate: int) -> np.ndarray:
         import librosa
     except ImportError:
         raise NotImplementedError(
-            "Default sample loading requires librosa. "
-            "Install with: pip install librosa"
+            "Default sample loading requires librosa. " "Install with: pip install librosa"
         )
     y, _ = librosa.load(file_path, sr=sample_rate, mono=True)
     return y
@@ -113,11 +110,7 @@ class GenerateWaveformProcessor:
         try:
             samples = self._load_samples_fn(audio.file_path, audio.sample_rate)
         except Exception as exc:
-            return err(
-                ExecutionError(
-                    f"Failed to load samples from '{audio.file_path}': {exc}"
-                )
-            )
+            return err(ExecutionError(f"Failed to load samples from '{audio.file_path}': {exc}"))
 
         context.progress_bus.publish(
             ProgressReport(

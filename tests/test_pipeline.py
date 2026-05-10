@@ -372,7 +372,10 @@ class TestCommandProperties:
         )
 
     def test_change_settings_command_is_undoable(self) -> None:
-        assert ChangeBlockSettingsCommand(block_id="b1", setting_key="x", new_value=1).is_undoable is True
+        assert (
+            ChangeBlockSettingsCommand(block_id="b1", setting_key="x", new_value=1).is_undoable
+            is True
+        )
 
     def test_command_ids_are_unique(self) -> None:
         cmd_a = AddBlockCommand(block_id="b1")
@@ -386,4 +389,3 @@ class TestCommandProperties:
 
         assert len(cmd.correlation_id) == 32
         assert cmd.correlation_id != cmd.command_id
-

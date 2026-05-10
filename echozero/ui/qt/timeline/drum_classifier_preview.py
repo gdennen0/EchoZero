@@ -59,7 +59,15 @@ def classify_drum_hits(
 
         # feature extraction
         rms = float(np.sqrt(np.mean(segment * segment)))
-        zcr = float(np.mean(librosa.feature.zero_crossing_rate(segment, frame_length=min(2048, segment.size), hop_length=max(1, segment.size // 4))))
+        zcr = float(
+            np.mean(
+                librosa.feature.zero_crossing_rate(
+                    segment,
+                    frame_length=min(2048, segment.size),
+                    hop_length=max(1, segment.size // 4),
+                )
+            )
+        )
         centroid = float(np.mean(librosa.feature.spectral_centroid(y=segment, sr=sr)))
 
         spec = np.abs(np.fft.rfft(segment * np.hanning(segment.size)))
@@ -73,7 +81,9 @@ def classify_drum_hits(
     return buckets
 
 
-def label_drum_hit(*, low_ratio: float, centroid_hz: float, zcr: float, rms: float) -> tuple[str, float]:
+def label_drum_hit(
+    *, low_ratio: float, centroid_hz: float, zcr: float, rms: float
+) -> tuple[str, float]:
     """Simple feature-threshold classifier for preview lanes."""
     if low_ratio > 0.34 and centroid_hz < 1700.0:
         return "kick", min(0.99, 0.55 + low_ratio)

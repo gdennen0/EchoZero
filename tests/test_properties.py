@@ -55,7 +55,6 @@ from echozero.takes import (
     merge_events,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -94,7 +93,9 @@ def _take(label: str = "Take", *times: float) -> Take:
 
 def _make_block(bid: str, btype: str = "processor") -> Block:
     return Block(
-        id=bid, name=bid, block_type=btype,
+        id=bid,
+        name=bid,
+        block_type=btype,
         category=BlockCategory.PROCESSOR,
         input_ports=(Port(name="in", port_type=PortType.EVENT, direction=Direction.INPUT),),
         output_ports=(Port(name="out", port_type=PortType.EVENT, direction=Direction.OUTPUT),),
@@ -103,7 +104,9 @@ def _make_block(bid: str, btype: str = "processor") -> Block:
 
 def _make_root_block(bid: str) -> Block:
     return Block(
-        id=bid, name=bid, block_type="source",
+        id=bid,
+        name=bid,
+        block_type="source",
         category=BlockCategory.PROCESSOR,
         input_ports=(),
         output_ports=(Port(name="out", port_type=PortType.EVENT, direction=Direction.OUTPUT),),
@@ -123,7 +126,8 @@ class TestTakeRoundTrip:
             label="Test Take",
             origin="pipeline",
             source=TakeSource(
-                block_id="b1", block_type="Detector",
+                block_id="b1",
+                block_type="Detector",
                 settings_snapshot={"threshold": 0.5, "window": 1024},
                 run_id="r1",
             ),
@@ -136,7 +140,9 @@ class TestTakeRoundTrip:
         assert s1 == s2
 
     def test_take_with_audio_data_round_trips(self):
-        audio = AudioData(sample_rate=44100, duration=30.5, file_path="/audio/file.wav", channel_count=2)
+        audio = AudioData(
+            sample_rate=44100, duration=30.5, file_path="/audio/file.wav", channel_count=2
+        )
         take = Take.create(data=audio, label="Audio Take", origin="sync", is_main=False)
         s1 = serialize_take(take)
         d = deserialize_take(s1)
@@ -153,7 +159,9 @@ class TestTakeRoundTrip:
 
     def test_take_empty_event_data_round_trips(self):
         """EventData with no layers."""
-        take = Take.create(data=EventData(layers=()), label="Empty", origin="pipeline", is_main=True)
+        take = Take.create(
+            data=EventData(layers=()), label="Empty", origin="pipeline", is_main=True
+        )
         s1 = serialize_take(take)
         d = deserialize_take(s1)
         s2 = serialize_take(d)
@@ -163,7 +171,9 @@ class TestTakeRoundTrip:
         """EventData with multiple layers."""
         l1 = Layer(id="l1", name="L1", events=(_evt(1.0), _evt(2.0)))
         l2 = Layer(id="l2", name="L2", events=(_evt(3.0),))
-        take = Take.create(data=EventData(layers=(l1, l2)), label="Multi", origin="merge", is_main=True)
+        take = Take.create(
+            data=EventData(layers=(l1, l2)), label="Multi", origin="merge", is_main=True
+        )
         s1 = serialize_take(take)
         d = deserialize_take(s1)
         s2 = serialize_take(d)
@@ -173,13 +183,17 @@ class TestTakeRoundTrip:
     def test_take_with_nested_metadata_round_trips(self):
         """Event with deeply nested metadata/classifications."""
         evt = Event(
-            id="e1", time=1.5, duration=0.2,
+            id="e1",
+            time=1.5,
+            duration=0.2,
             classifications={"nested": {"a": [1, 2, {"b": True}]}},
             metadata={"tags": ["kick", "transient"], "confidence": 0.95},
             origin="ml",
         )
         layer = Layer(id="l1", name="L", events=(evt,))
-        take = Take.create(data=EventData(layers=(layer,)), label="Complex", origin="pipeline", is_main=True)
+        take = Take.create(
+            data=EventData(layers=(layer,)), label="Complex", origin="pipeline", is_main=True
+        )
         s1 = serialize_take(take)
         d = deserialize_take(s1)
         s2 = serialize_take(d)
@@ -274,7 +288,7 @@ class TestGraphRoundTrip:
         g = Graph()
         g.add_block(_make_root_block("b1"))
         s1 = serialize_graph(g)
-        g2 = deserialize_graph(s1)   # blocks become STALE
+        g2 = deserialize_graph(s1)  # blocks become STALE
         s2 = serialize_graph(g2)
         g3 = deserialize_graph(s2)
         s3 = serialize_graph(g3)
@@ -287,14 +301,22 @@ class TestGraphRoundTrip:
         g.add_block(_make_root_block("root"))
         g.add_block(_make_block("mid"))
         g.add_block(_make_block("leaf"))
-        g.add_connection(Connection(
-            source_block_id="root", source_output_name="out",
-            target_block_id="mid", target_input_name="in",
-        ))
-        g.add_connection(Connection(
-            source_block_id="mid", source_output_name="out",
-            target_block_id="leaf", target_input_name="in",
-        ))
+        g.add_connection(
+            Connection(
+                source_block_id="root",
+                source_output_name="out",
+                target_block_id="mid",
+                target_input_name="in",
+            )
+        )
+        g.add_connection(
+            Connection(
+                source_block_id="mid",
+                source_output_name="out",
+                target_block_id="leaf",
+                target_input_name="in",
+            )
+        )
         s1 = serialize_graph(g)
         g2 = deserialize_graph(s1)
         s2 = serialize_graph(g2)
@@ -307,10 +329,14 @@ class TestGraphRoundTrip:
         g = Graph()
         for i, cat in enumerate(BlockCategory):
             b = Block(
-                id=f"b{i}", name=f"Block-{cat.name}", block_type="x",
+                id=f"b{i}",
+                name=f"Block-{cat.name}",
+                block_type="x",
                 category=cat,
                 input_ports=(),
-                output_ports=(Port(name="out", port_type=PortType.EVENT, direction=Direction.OUTPUT),),
+                output_ports=(
+                    Port(name="out", port_type=PortType.EVENT, direction=Direction.OUTPUT),
+                ),
             )
             g.add_block(b)
         s1 = serialize_graph(g)
@@ -322,7 +348,9 @@ class TestGraphRoundTrip:
 
     def test_block_with_settings_round_trips(self):
         b = Block(
-            id="b1", name="Settings Block", block_type="proc",
+            id="b1",
+            name="Settings Block",
+            block_type="proc",
             category=BlockCategory.PROCESSOR,
             input_ports=(),
             output_ports=(Port(name="out", port_type=PortType.EVENT, direction=Direction.OUTPUT),),
@@ -367,10 +395,14 @@ class TestProjectRoundTrip:
         g = Graph()
         g.add_block(_make_root_block("source"))
         g.add_block(_make_block("proc"))
-        g.add_connection(Connection(
-            source_block_id="source", source_output_name="out",
-            target_block_id="proc", target_input_name="in",
-        ))
+        g.add_connection(
+            Connection(
+                source_block_id="source",
+                source_output_name="out",
+                target_block_id="proc",
+                target_input_name="in",
+            )
+        )
         main = _main_take("Main", 1.0, 2.0)
         t1 = _take("T1", 3.0)
         layer = TakeLayer(layer_id="l1", takes=[main, t1])
@@ -398,10 +430,7 @@ class TestProjectRoundTrip:
     def test_save_load_multiple_take_layers(self, tmp_path):
         path = str(tmp_path / "project.json")
         g = Graph()
-        layers = [
-            TakeLayer(layer_id=f"l{i}", takes=[_main_take(f"Main-{i}")])
-            for i in range(5)
-        ]
+        layers = [TakeLayer(layer_id=f"l{i}", takes=[_main_take(f"Main-{i}")]) for i in range(5)]
         save_project(path, g, take_layers=layers)
         _, loaded = load_project(path)
         assert len(loaded) == 5
@@ -477,7 +506,8 @@ class TestMergeEventsProperties:
         target = tuple(_evt(float(rng.randint(0, 100))) for _ in range(rng.randint(0, 10)))
         source = tuple(_evt(float(rng.randint(20, 80))) for _ in range(rng.randint(0, 10)))
         result = merge_events(
-            target, source,
+            target,
+            source,
             strategy="replace_range",
             time_range=(20.0, 80.0),
         )
@@ -630,5 +660,3 @@ class TestReadyNodesProperty:
 
         result = ready_nodes(g, dirty=dirty, running=running, cache=cache)
         assert result.issubset(dirty), f"Ready contains non-dirty nodes: {result - dirty}"
-
-

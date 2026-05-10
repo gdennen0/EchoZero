@@ -12,6 +12,7 @@ vars in the environment before building; they are embedded in the bundle:
 Reads packaging_config.json for app name, version, and bundle identifier.
 Output: dist/EchoZero/ (all platforms); dist/EchoZero.app on macOS.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -19,7 +20,6 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-
 
 # Env vars that can be embedded for zero-config shipping
 # MEMBERSTACK_APP_SECRET must come from environment at build time (never in config)
@@ -34,6 +34,7 @@ def _load_bundled_defaults(project_root: Path) -> dict[str, str]:
         return {}
     try:
         import json
+
         data = json.loads(config_path.read_text(encoding="utf-8"))
         defaults = data.get("bundled_runtime_defaults") or {}
         return {k: str(v).strip() for k, v in defaults.items() if v}
@@ -48,6 +49,7 @@ def _load_local_env_values(project_root: Path) -> dict[str, str]:
         return {}
     try:
         from dotenv import dotenv_values
+
         values = dotenv_values(str(env_path))
         return {k: str(v).strip() for k, v in values.items() if v}
     except Exception:
@@ -104,11 +106,7 @@ def _write_bundled_config(project_root: Path) -> None:
     local_env = _load_local_env_values(project_root)
     lines = []
     for key in BUNDLED_ENV_VARS:
-        val = (
-            os.environ.get(key, "").strip()
-            or local_env.get(key, "")
-            or defaults.get(key, "")
-        )
+        val = os.environ.get(key, "").strip() or local_env.get(key, "") or defaults.get(key, "")
         if val:
             lines.append(f"{key}={val}")
     if not lines:
@@ -141,7 +139,9 @@ def _validate_production_template(project_root: Path) -> bool:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build EchoZero with PyInstaller")
-    parser.add_argument("--clean", action="store_true", help="Clean PyInstaller cache before build")
+    parser.add_argument(
+        "--clean", action="store_true", help="Clean PyInstaller cache before build"
+    )
     args = parser.parse_args()
 
     project_root = Path(__file__).resolve().parent.parent

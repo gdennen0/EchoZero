@@ -456,7 +456,9 @@ def fixture_take_action_label(action_id: str, style: TimelineShellStyle = TIMELI
     return style.fixture.take_action_labels[action_id]
 
 
-def build_object_palette_stylesheet(style: ObjectPaletteStyle = TIMELINE_STYLE.object_palette) -> str:
+def build_object_palette_stylesheet(
+    style: ObjectPaletteStyle = TIMELINE_STYLE.object_palette,
+) -> str:
     return f"""
         QFrame#{style.frame_object_name} {{
             background: {style.background_hex};

@@ -13,7 +13,7 @@ from echozero.services.provenance import mark_layer_manually_modified
 def mark_layer_as_manually_modified(session: ProjectStorage, *, layer_id: str):
     layer = session.layers.get(layer_id)
     if layer is None:
-        raise ValueError(f'Layer not found: {layer_id}')
+        raise ValueError(f"Layer not found: {layer_id}")
     updated = mark_layer_manually_modified(layer)
     session.layers.update(updated)
     session.commit()

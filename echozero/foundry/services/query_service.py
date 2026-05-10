@@ -179,7 +179,9 @@ def _resolve_root(*, root: Path | None, dataset_repo: DatasetRepository) -> Path
         return Path(root).resolve()
     dataset_state_path = getattr(dataset_repo, "_path", None)
     if dataset_state_path is None:
-        raise ValueError("FoundryQueryService requires a root path or a dataset repository with _path.")
+        raise ValueError(
+            "FoundryQueryService requires a root path or a dataset repository with _path."
+        )
     return Path(dataset_state_path).resolve().parents[2]
 
 

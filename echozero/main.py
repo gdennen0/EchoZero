@@ -41,10 +41,18 @@ def get_default_executors() -> dict[str, BlockExecutor]:
         ("EQBands", "echozero.processors.eq_bands", "EQBandsProcessor"),
         ("ExportAudio", "echozero.processors.export_audio", "ExportAudioProcessor"),
         ("ExportMA2", "echozero.processors.export_ma2", "ExportMA2Processor"),
-        ("ExportAudioDataset", "echozero.processors.export_audio_dataset", "ExportAudioDatasetProcessor"),
+        (
+            "ExportAudioDataset",
+            "echozero.processors.export_audio_dataset",
+            "ExportAudioDatasetProcessor",
+        ),
         ("GenerateWaveform", "echozero.processors.generate_waveform", "GenerateWaveformProcessor"),
         ("TranscribeNotes", "echozero.processors.transcribe_notes", "TranscribeNotesProcessor"),
-        ("PyTorchAudioClassify", "echozero.processors.pytorch_audio_classify", "PyTorchAudioClassifyProcessor"),
+        (
+            "PyTorchAudioClassify",
+            "echozero.processors.pytorch_audio_classify",
+            "PyTorchAudioClassifyProcessor",
+        ),
         ("DetectSongSections", "echozero.processors.song_sections", "SongSectionsProcessor"),
         ("DatasetViewer", "echozero.processors.dataset_viewer", "DatasetViewerProcessor"),
     ]

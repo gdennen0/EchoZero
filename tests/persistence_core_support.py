@@ -5,13 +5,12 @@ Connects the compatibility wrapper to the bounded core persistence slice.
 
 from tests.persistence_shared_support import *  # noqa: F401,F403
 
+
 class TestSchema:
     def test_init_db_creates_tables(self, conn):
         tables = {
             row[0]
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         }
         assert "_meta" in tables
         assert "projects" in tables
@@ -39,11 +38,8 @@ class TestSchema:
 
     def test_projects_table_has_graph_json_column(self, conn):
         """Verify graph_json is in the DDL, not added via ALTER TABLE."""
-        columns = {
-            row['name']
-            for row in conn.execute("PRAGMA table_info(projects)").fetchall()
-        }
-        assert 'graph_json' in columns
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(projects)").fetchall()}
+        assert "graph_json" in columns
 
 
 # ---------------------------------------------------------------------------
@@ -60,12 +56,15 @@ class TestBaseRepository:
     def test_subclass_must_implement_from_row(self, conn):
         """Subclass without _from_row raises TypeError."""
         with pytest.raises(TypeError):
+
             class BadRepo(BaseRepository[str]):
                 pass
+
             BadRepo(conn)
 
     def test_subclass_with_from_row_works(self, conn):
         """Concrete subclass can use _execute, _fetchone, _fetchall."""
+
         class StringRepo(BaseRepository[str]):
             def _from_row(self, row: sqlite3.Row) -> str:
                 return str(row[0])
@@ -163,7 +162,9 @@ class TestProjectRepository:
 
     def test_settings_round_trip(self, conn):
         repo = ProjectRepository(conn)
-        s = ProjectSettingsRecord(sample_rate=48000, bpm=140.5, bpm_confidence=0.95, timecode_fps=29.97)
+        s = ProjectSettingsRecord(
+            sample_rate=48000, bpm=140.5, bpm_confidence=0.95, timecode_fps=29.97
+        )
         p = _make_project(settings=s)
         repo.create(p)
         conn.commit()
@@ -286,8 +287,11 @@ class TestSongVersionRepository:
     def test_fields_round_trip(self, conn):
         vr, song_id = self._setup(conn)
         v = _make_version(
-            song_id, label="Master", audio_file="audio/master.wav",
-            duration_seconds=245.7, original_sample_rate=96000,
+            song_id,
+            label="Master",
+            audio_file="audio/master.wav",
+            duration_seconds=245.7,
+            original_sample_rate=96000,
             audio_hash="deadbeef1234",
         )
         vr.create(v)
@@ -302,7 +306,6 @@ class TestSongVersionRepository:
 # ---------------------------------------------------------------------------
 # Layer CRUD
 # ---------------------------------------------------------------------------
-
 
 
 __all__ = [name for name in globals() if name.startswith("Test")]

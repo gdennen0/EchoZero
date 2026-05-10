@@ -44,7 +44,9 @@ def test_layer_sync_state_accepts_supported_live_sync_values(raw_value, expected
 
 
 def test_layer_sync_state_rejects_unknown_live_sync_state():
-    with pytest.raises(ValueError, match="live_sync_state must be one of: off, observe, armed_write, paused"):
+    with pytest.raises(
+        ValueError, match="live_sync_state must be one of: off, observe, armed_write, paused"
+    ):
         LayerSyncState(live_sync_state="invalid")
 
 
@@ -76,7 +78,9 @@ def test_set_layer_live_sync_state_requires_non_empty_layer_id(layer_id):
 
 
 def test_set_layer_live_sync_state_rejects_unknown_state():
-    with pytest.raises(ValueError, match="live_sync_state must be one of: off, observe, armed_write, paused"):
+    with pytest.raises(
+        ValueError, match="live_sync_state must be one of: off, observe, armed_write, paused"
+    ):
         SetLayerLiveSyncState(
             layer_id=LayerId("layer_live_sync"),
             live_sync_state="invalid",
@@ -94,7 +98,9 @@ def test_set_layer_live_sync_pause_reason_trims_whitespace():
 
 @pytest.mark.parametrize("pause_reason", ["", "   "])
 def test_set_layer_live_sync_pause_reason_requires_non_empty_value(pause_reason):
-    with pytest.raises(ValueError, match="SetLayerLiveSyncPauseReason requires a non-empty pause_reason"):
+    with pytest.raises(
+        ValueError, match="SetLayerLiveSyncPauseReason requires a non-empty pause_reason"
+    ):
         SetLayerLiveSyncPauseReason(
             layer_id=LayerId("layer_live_sync"),
             pause_reason=pause_reason,
@@ -103,6 +109,7 @@ def test_set_layer_live_sync_pause_reason_requires_non_empty_value(pause_reason)
 
 @pytest.mark.parametrize("layer_id", [None, "", "   "])
 def test_clear_layer_live_sync_pause_reason_requires_non_empty_layer_id(layer_id):
-    with pytest.raises(ValueError, match="ClearLayerLiveSyncPauseReason requires a non-empty layer_id"):
+    with pytest.raises(
+        ValueError, match="ClearLayerLiveSyncPauseReason requires a non-empty layer_id"
+    ):
         ClearLayerLiveSyncPauseReason(layer_id=layer_id)
-

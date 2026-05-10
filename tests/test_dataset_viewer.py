@@ -37,12 +37,17 @@ def _empty_scan(dataset_dir, audio_extensions):
 
 def _build_graph(dataset_dir="/tmp/dataset") -> Graph:
     g = Graph()
-    g.add_block(Block(
-        id="viewer", name="Viewer", block_type="DatasetViewer",
-        category=BlockCategory.WORKSPACE,
-        input_ports=(), output_ports=(),
-        settings=BlockSettings({"dataset_dir": dataset_dir}),
-    ))
+    g.add_block(
+        Block(
+            id="viewer",
+            name="Viewer",
+            block_type="DatasetViewer",
+            category=BlockCategory.WORKSPACE,
+            input_ports=(),
+            output_ports=(),
+            settings=BlockSettings({"dataset_dir": dataset_dir}),
+        )
+    )
     return g
 
 
@@ -54,6 +59,7 @@ def _run(graph, scan_fn=_fake_scan):
     # so these tests exercise the executor directly, bypassing category filtering.
     from echozero.execution import ExecutionPlan
     import uuid
+
     plan = ExecutionPlan(
         execution_id=uuid.uuid4().hex,
         ordered_block_ids=tuple(graph.topological_sort()),
@@ -90,18 +96,24 @@ class TestDatasetViewerProcessor:
 
     def test_missing_dataset_dir_returns_error(self):
         g = Graph()
-        g.add_block(Block(
-            id="viewer", name="V", block_type="DatasetViewer",
-            category=BlockCategory.WORKSPACE,
-            input_ports=(), output_ports=(),
-            settings=BlockSettings({}),
-        ))
+        g.add_block(
+            Block(
+                id="viewer",
+                name="V",
+                block_type="DatasetViewer",
+                category=BlockCategory.WORKSPACE,
+                input_ports=(),
+                output_ports=(),
+                settings=BlockSettings({}),
+            )
+        )
         result = _run(g)
         assert is_err(result)
 
     def test_scan_failure_returns_error(self):
         def failing(*args, **kwargs):
             raise RuntimeError("permission denied")
+
         result = _run(_build_graph(), failing)
         assert is_err(result)
 
@@ -119,5 +131,3 @@ class TestDatasetViewerProcessor:
 
         _run(_build_graph(dataset_dir="/my/data"), spy_scan)
         assert called_with == ["/my/data"]
-
-

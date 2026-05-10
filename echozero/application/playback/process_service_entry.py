@@ -35,7 +35,9 @@ def _load_audio_config(config_path: Path | None) -> AudioOutputRuntimeConfig | N
         raise InfrastructureError("Invalid playback audio config payload")
     return AudioOutputRuntimeConfig(
         output_device=payload.get("output_device"),
-        sample_rate=(int(payload["sample_rate"]) if payload.get("sample_rate") is not None else None),
+        sample_rate=(
+            int(payload["sample_rate"]) if payload.get("sample_rate") is not None else None
+        ),
         channels=(int(payload["channels"]) if payload.get("channels") is not None else None),
         stream_latency=payload.get("stream_latency"),
         stream_blocksize=(

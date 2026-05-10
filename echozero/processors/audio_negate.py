@@ -31,12 +31,12 @@ VALID_MODES = {"silence", "attenuate", "subtract"}
 
 NegateFn = Callable[
     [
-        str,            # audio_file_path
-        int,            # sample_rate
+        str,  # audio_file_path
+        int,  # sample_rate
         list[tuple[float, float]],  # event regions: (start_time, end_time)
-        str,            # mode
-        float,          # fade_ms
-        float,          # attenuation_db (for attenuate mode)
+        str,  # mode
+        float,  # fade_ms
+        float,  # attenuation_db (for attenuate mode)
     ],
     tuple[str, int, float],  # (output_file_path, sample_rate, duration)
 ]
@@ -115,6 +115,7 @@ def _default_negate(
 # Processor
 # ---------------------------------------------------------------------------
 
+
 class AudioNegateProcessor:
     """Negates audio at event time regions via silence, attenuation, or subtraction."""
 
@@ -135,18 +136,22 @@ class AudioNegateProcessor:
         # Read audio input
         audio = context.get_input(block_id, "audio_in", AudioData)
         if audio is None:
-            return err(ExecutionError(
-                f"Block '{block_id}' has no audio input — "
-                f"connect an audio source to 'audio_in'"
-            ))
+            return err(
+                ExecutionError(
+                    f"Block '{block_id}' has no audio input — "
+                    f"connect an audio source to 'audio_in'"
+                )
+            )
 
         # Read event input
         event_data = context.get_input(block_id, "events_in", EventData)
         if event_data is None:
-            return err(ExecutionError(
-                f"Block '{block_id}' has no event input — "
-                f"connect an event source to 'events_in'"
-            ))
+            return err(
+                ExecutionError(
+                    f"Block '{block_id}' has no event input — "
+                    f"connect an event source to 'events_in'"
+                )
+            )
 
         # Read settings
         block = context.graph.blocks.get(block_id)
@@ -160,22 +165,18 @@ class AudioNegateProcessor:
 
         # Validate
         if mode not in VALID_MODES:
-            return err(ValidationError(
-                f"Invalid mode '{mode}'. Valid: {', '.join(VALID_MODES)}"
-            ))
+            return err(ValidationError(f"Invalid mode '{mode}'. Valid: {', '.join(VALID_MODES)}"))
         if mode == "subtract":
-            return err(ValidationError(
-                "Subtract mode requires a subtract_audio input — not yet supported in V1. "
-                "Use 'silence' or 'attenuate' mode."
-            ))
+            return err(
+                ValidationError(
+                    "Subtract mode requires a subtract_audio input — not yet supported in V1. "
+                    "Use 'silence' or 'attenuate' mode."
+                )
+            )
         if not isinstance(fade_ms, (int, float)) or fade_ms < 0 or fade_ms > 100:
-            return err(ValidationError(
-                f"fade_ms must be 0-100, got {fade_ms}"
-            ))
+            return err(ValidationError(f"fade_ms must be 0-100, got {fade_ms}"))
         if not isinstance(attenuation_db, (int, float)) or attenuation_db > 0:
-            return err(ValidationError(
-                f"attenuation_db must be <= 0, got {attenuation_db}"
-            ))
+            return err(ValidationError(f"attenuation_db must be <= 0, got {attenuation_db}"))
 
         # Extract event regions (start_time, end_time) from all layers
         regions: list[tuple[float, float]] = []
@@ -220,9 +221,7 @@ class AudioNegateProcessor:
         except (ValidationError, ExecutionError) as exc:
             return err(exc)
         except Exception as exc:
-            return err(ExecutionError(
-                f"Audio negation failed for block '{block_id}': {exc}"
-            ))
+            return err(ExecutionError(f"Audio negation failed for block '{block_id}': {exc}"))
 
         context.progress_bus.publish(
             ProgressReport(
@@ -233,11 +232,11 @@ class AudioNegateProcessor:
             )
         )
 
-        return ok(AudioData(
-            sample_rate=sr,
-            duration=duration,
-            file_path=output_file,
-            channel_count=audio.channel_count,
-        ))
-
-
+        return ok(
+            AudioData(
+                sample_rate=sr,
+                duration=duration,
+                file_path=output_file,
+                channel_count=audio.channel_count,
+            )
+        )

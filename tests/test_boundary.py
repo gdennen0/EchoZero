@@ -43,7 +43,6 @@ from echozero.takes import (
     merge_events,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -280,9 +279,7 @@ class TestMergeEventsBoundaries:
         """replace_range with a window containing no events."""
         target = (_evt(1.0), _evt(5.0))
         source = (_evt(3.0),)
-        result = merge_events(
-            target, source, strategy="replace_range", time_range=(2.0, 4.0)
-        )
+        result = merge_events(target, source, strategy="replace_range", time_range=(2.0, 4.0))
         # 3.0 inserted, 1.0 and 5.0 kept
         times = {e.time for e in result}
         assert 1.0 in times
@@ -302,28 +299,36 @@ class TestMergeEventsBoundaries:
 class TestDomainTypeBoundaries:
 
     def test_event_zero_time_zero_duration(self):
-        e = Event(id="e0", time=0.0, duration=0.0,
-                  classifications={}, metadata={}, origin="test")
+        e = Event(id="e0", time=0.0, duration=0.0, classifications={}, metadata={}, origin="test")
         assert e.time == 0.0
         assert e.duration == 0.0
 
     def test_event_negative_time(self):
         """Negative time is now rejected by domain validation (X1 audit fix)."""
         import pytest
+
         with pytest.raises(ValueError, match="time must be >= 0"):
-            Event(id="e-neg", time=-1.5, duration=0.1,
-                  classifications={}, metadata={}, origin="test")
+            Event(
+                id="e-neg", time=-1.5, duration=0.1, classifications={}, metadata={}, origin="test"
+            )
 
     def test_event_very_large_time(self):
-        e = Event(id="e-big", time=1e12, duration=0.0,
-                  classifications={}, metadata={}, origin="test")
+        e = Event(
+            id="e-big", time=1e12, duration=0.0, classifications={}, metadata={}, origin="test"
+        )
         assert e.time == 1e12
 
     def test_event_deeply_nested_classifications(self):
         """classifications is Any — nesting should be fine."""
         nested = {"level1": {"level2": {"level3": [1, 2, 3]}}}
-        e = Event(id="e-nested", time=1.0, duration=0.1,
-                  classifications=nested, metadata={}, origin="test")
+        e = Event(
+            id="e-nested",
+            time=1.0,
+            duration=0.1,
+            classifications=nested,
+            metadata={},
+            origin="test",
+        )
         assert e.classifications["level1"]["level2"]["level3"] == [1, 2, 3]
 
     def test_event_data_empty_layers(self):
@@ -414,10 +419,14 @@ class TestExecutionCacheBoundaries:
         leaf = _make_block("leaf")
         g.add_block(root)
         g.add_block(leaf)
-        g.add_connection(Connection(
-            source_block_id="root", source_output_name="out",
-            target_block_id="leaf", target_input_name="in",
-        ))
+        g.add_connection(
+            Connection(
+                source_block_id="root",
+                source_output_name="out",
+                target_block_id="leaf",
+                target_input_name="in",
+            )
+        )
         cache = ExecutionCache()
         cache.store("root", "out", "root_val", "exec-1")
         cache.store("leaf", "out", "leaf_val", "exec-1")
@@ -455,10 +464,14 @@ class TestGraphPlannerBoundaries:
         leaf = _make_block("leaf")
         g.add_block(root)
         g.add_block(leaf)
-        g.add_connection(Connection(
-            source_block_id="root", source_output_name="out",
-            target_block_id="leaf", target_input_name="in",
-        ))
+        g.add_connection(
+            Connection(
+                source_block_id="root",
+                source_output_name="out",
+                target_block_id="leaf",
+                target_input_name="in",
+            )
+        )
         planner = GraphPlanner()
         plan = planner.plan(g, target_block_id="leaf")
         assert "leaf" in plan.ordered_block_ids
@@ -481,10 +494,14 @@ class TestReadyNodesBoundaries:
                 g.add_block(_make_root_block(bid))
             else:
                 g.add_block(_make_block(bid))
-                g.add_connection(Connection(
-                    source_block_id=prev, source_output_name="out",
-                    target_block_id=bid, target_input_name="in",
-                ))
+                g.add_connection(
+                    Connection(
+                        source_block_id=prev,
+                        source_output_name="out",
+                        target_block_id=bid,
+                        target_input_name="in",
+                    )
+                )
             prev = bid
         return g
 
@@ -529,4 +546,3 @@ class TestReadyNodesBoundaries:
         cache = ExecutionCache()
         result = ready_nodes(g, dirty={"root", "leaf"}, running={"root", "leaf"}, cache=cache)
         assert result == set()
-

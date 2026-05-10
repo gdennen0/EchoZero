@@ -259,11 +259,16 @@ def commit_verified_review(
     else:
         target = resolved_target
     if resolved_review_context is None:
-        project, active_song_id, active_song_version_id, version, song = _require_review_context(shell)
+        project, active_song_id, active_song_version_id, version, song = _require_review_context(
+            shell
+        )
     else:
         project, active_song_id, active_song_version_id, version, song = resolved_review_context
     review_label = normalize_review_label(target.event.label)
-    review_note = intent.review_note or f"Operator verified the {target.event.label} event from timeline review."
+    review_note = (
+        intent.review_note
+        or f"Operator verified the {target.event.label} event from timeline review."
+    )
     source_provenance = _review_source_provenance(
         project=project,
         song=song,
@@ -373,11 +378,16 @@ def commit_rejected_review(
     else:
         target = resolved_target
     if resolved_review_context is None:
-        project, active_song_id, active_song_version_id, version, song = _require_review_context(shell)
+        project, active_song_id, active_song_version_id, version, song = _require_review_context(
+            shell
+        )
     else:
         project, active_song_id, active_song_version_id, version, song = resolved_review_context
     review_label = normalize_review_label(target.event.label)
-    review_note = intent.review_note or f"Operator rejected the {target.event.label} event from timeline review."
+    review_note = (
+        intent.review_note
+        or f"Operator rejected the {target.event.label} event from timeline review."
+    )
     source_provenance = _review_source_provenance(
         project=project,
         song=song,
@@ -592,7 +602,10 @@ def commit_relabel_review(
     corrected_label = str(intent.corrected_label).strip()
     original_label = normalize_review_label(target.event.label)
     normalized_corrected_label = normalize_review_label(corrected_label)
-    review_note = intent.review_note or f"Operator relabeled the {target.event.label} event as {corrected_label}."
+    review_note = (
+        intent.review_note
+        or f"Operator relabeled the {target.event.label} event as {corrected_label}."
+    )
     source_provenance = _review_source_provenance(
         project=project,
         song=song,
@@ -700,13 +713,10 @@ def commit_boundary_corrected_review(
     review_label = normalize_review_label(target.event.label)
     corrected_start_ms = float(intent.corrected_range.start) * 1000.0
     corrected_end_ms = float(intent.corrected_range.end) * 1000.0
-    review_note = (
-        intent.review_note
-        or (
-            "Operator corrected the "
-            f"{target.event.label} boundary to "
-            f"{float(intent.corrected_range.start):.2f}s-{float(intent.corrected_range.end):.2f}s."
-        )
+    review_note = intent.review_note or (
+        "Operator corrected the "
+        f"{target.event.label} boundary to "
+        f"{float(intent.corrected_range.start):.2f}s-{float(intent.corrected_range.end):.2f}s."
     )
     source_provenance = _review_source_provenance(
         project=project,
@@ -849,7 +859,9 @@ def apply_review_signal_to_runtime(
     )
 
     if decision.kind == ReviewDecisionKind.RELABELED:
-        corrected_display = decision.corrected_label or signal.corrected_label or runtime_event.label
+        corrected_display = (
+            decision.corrected_label or signal.corrected_label or runtime_event.label
+        )
         shell._app.dispatch(
             UpdateEventLabel(
                 event_id=event_id,
@@ -1189,9 +1201,7 @@ def _require_event_on_layer(
             for event in take.events:
                 if str(event.event_id) == target_event_id:
                     return take, event
-            raise ValueError(
-                f"Timeline review event not found on take {take_id}: {event_id}"
-            )
+            raise ValueError(f"Timeline review event not found on take {take_id}: {event_id}")
     for take in layer.takes:
         for event in take.events:
             if str(event.event_id) == target_event_id:

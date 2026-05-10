@@ -20,7 +20,9 @@ from echozero.application.shared.enums import FollowMode, LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId, TimelineId
 from echozero.ui.qt.timeline.style import TIMELINE_STYLE, fixture_color, fixture_take_action_label
 
-_DEFAULT_FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "realistic_timeline_fixture.json"
+_DEFAULT_FIXTURE_PATH = (
+    Path(__file__).resolve().parent / "fixtures" / "realistic_timeline_fixture.json"
+)
 
 
 def fixture_path() -> Path:
@@ -45,7 +47,9 @@ def load_realistic_timeline_fixture(path: str | Path | None = None) -> TimelineP
         follow_mode=FollowMode(timeline_data.get("follow_mode", FollowMode.CENTER.value)),
         selected_layer_id=_layer_id_or_none(timeline_data.get("selected_layer_id")),
         selected_take_id=_take_id_or_none(timeline_data.get("selected_take_id")),
-        selected_event_ids=[EventId(event_id) for event_id in timeline_data.get("selected_event_ids", [])],
+        selected_event_ids=[
+            EventId(event_id) for event_id in timeline_data.get("selected_event_ids", [])
+        ],
         pixels_per_second=float(timeline_data.get("pixels_per_second", 100.0)),
         scroll_x=float(timeline_data.get("scroll_x", 0.0)),
         scroll_y=float(timeline_data.get("scroll_y", 0.0)),
@@ -64,7 +68,9 @@ def _parse_layer(data: dict) -> LayerPresentation:
         kind=LayerKind(data.get("kind", LayerKind.EVENT.value)),
         is_selected=bool(data.get("is_selected", False)),
         is_expanded=bool(data.get("is_expanded", False)),
-        events=[_parse_event(event, default_color=resolved_color) for event in data.get("events", [])],
+        events=[
+            _parse_event(event, default_color=resolved_color) for event in data.get("events", [])
+        ],
         takes=[_parse_take(take, default_color=resolved_color) for take in data.get("takes", [])],
         visible=bool(data.get("visible", True)),
         locked=bool(data.get("locked", False)),
@@ -89,7 +95,9 @@ def _parse_take(data: dict, *, default_color: str | None) -> TakeLanePresentatio
         name=data["name"],
         is_main=bool(data.get("is_main", False)),
         kind=LayerKind(data.get("kind", LayerKind.EVENT.value)),
-        events=[_parse_event(event, default_color=default_color) for event in data.get("events", [])],
+        events=[
+            _parse_event(event, default_color=default_color) for event in data.get("events", [])
+        ],
         source_ref=data.get("source_ref"),
         waveform_key=data.get("waveform_key"),
         source_audio_path=data.get("source_audio_path"),

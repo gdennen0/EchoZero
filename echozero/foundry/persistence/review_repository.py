@@ -89,10 +89,14 @@ class ReviewSessionRepository:
                     polarity=ReviewPolarity(item["polarity"]),
                     score=item.get("score"),
                     source_provenance=item.get("source_provenance", {}),
-                    review_outcome=ReviewOutcome(item.get("review_outcome", ReviewOutcome.PENDING.value)),
+                    review_outcome=ReviewOutcome(
+                        item.get("review_outcome", ReviewOutcome.PENDING.value)
+                    ),
                     review_decision=deserialize_review_decision_state(
                         item.get("review_decision"),
-                        outcome=ReviewOutcome(item.get("review_outcome", ReviewOutcome.PENDING.value)),
+                        outcome=ReviewOutcome(
+                            item.get("review_outcome", ReviewOutcome.PENDING.value)
+                        ),
                         corrected_label=item.get("corrected_label"),
                         review_note=item.get("review_note"),
                         source_provenance=item.get("source_provenance", {}),
@@ -100,11 +104,16 @@ class ReviewSessionRepository:
                     ),
                     corrected_label=item.get("corrected_label"),
                     review_note=item.get("review_note"),
-                    reviewed_at=datetime.fromisoformat(item["reviewed_at"]) if item.get("reviewed_at") else None,
+                    reviewed_at=(
+                        datetime.fromisoformat(item["reviewed_at"])
+                        if item.get("reviewed_at")
+                        else None
+                    ),
                 )
                 for item in row.get("items", [])
             ],
         )
+
 
 def serialize_review_decision_state(decision: ReviewDecision | None) -> dict[str, Any] | None:
     """Persist one review decision in the Foundry state-file shape."""
@@ -202,7 +211,9 @@ def _deserialize_training_eligibility(
     return ReviewTrainingEligibility(
         allows_positive_signal=bool(payload.get("allows_positive_signal", False)),
         allows_negative_signal=bool(payload.get("allows_negative_signal", False)),
-        requires_materialized_correction=bool(payload.get("requires_materialized_correction", False)),
+        requires_materialized_correction=bool(
+            payload.get("requires_materialized_correction", False)
+        ),
     )
 
 

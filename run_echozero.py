@@ -29,7 +29,6 @@ from echozero.ui.qt.runtime_logging import install_runtime_logging
 from echozero.ui.qt.window_geometry import fit_window_to_available_screen
 from echozero.ui.style.qt import ensure_qt_theme_installed
 
-
 _REPO_UI_AUTOMATION_SRC = Path(__file__).resolve().parent / "packages" / "ui_automation" / "src"
 
 
@@ -60,7 +59,7 @@ def _build_automation_bridge_server(*, runtime, widget, launcher, app, port: int
             raise RuntimeError(
                 "Automation bridge requires the ui_automation source root. "
                 "Run `python3 scripts/dev_bootstrap.py` from the repo root or "
-                "install the project with `pip install -e \".[dev]\"`."
+                'install the project with `pip install -e ".[dev]"`.'
             ) from exc
         sys.modules.pop(module_name, None)
         automation_bridge = importlib.import_module(module_name)

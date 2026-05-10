@@ -130,7 +130,9 @@ class Runner:
         return {"actual": actual}
 
     def _execute_capture(self, step: CaptureStep, artifacts_dir: Path) -> dict[str, Any]:
-        output_path = artifacts_dir / (step.path or f"{step.name}.{_capture_extension(step.artifact)}")
+        output_path = artifacts_dir / (
+            step.path or f"{step.name}.{_capture_extension(step.artifact)}"
+        )
         if step.artifact == "screenshot":
             captured = capture_screenshot(self._driver, output_path)
             return {"path": str(captured)}

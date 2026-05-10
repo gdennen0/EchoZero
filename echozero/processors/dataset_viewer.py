@@ -20,7 +20,6 @@ from echozero.execution import ExecutionContext
 from echozero.progress import ProgressReport
 from echozero.result import Result, err, ok
 
-
 # ---------------------------------------------------------------------------
 # Scan function signature for DI
 # ---------------------------------------------------------------------------
@@ -52,10 +51,12 @@ def _default_scan(
             class_files = []
             for f in os.scandir(entry.path):
                 if f.is_file() and f.name.lower().endswith(audio_extensions):
-                    class_files.append({
-                        "name": f.name,
-                        "size_bytes": f.stat().st_size,
-                    })
+                    class_files.append(
+                        {
+                            "name": f.name,
+                            "size_bytes": f.stat().st_size,
+                        }
+                    )
             classes[class_name] = {
                 "count": len(class_files),
                 "total_bytes": sum(f["size_bytes"] for f in class_files),
@@ -66,10 +67,12 @@ def _default_scan(
             # Root-level files go into "unclassified"
             if "unclassified" not in classes:
                 classes["unclassified"] = {"count": 0, "total_bytes": 0, "files": []}
-            classes["unclassified"]["files"].append({
-                "name": entry.name,
-                "size_bytes": entry.stat().st_size,
-            })
+            classes["unclassified"]["files"].append(
+                {
+                    "name": entry.name,
+                    "size_bytes": entry.stat().st_size,
+                }
+            )
             classes["unclassified"]["count"] += 1
             classes["unclassified"]["total_bytes"] += entry.stat().st_size
             total_files += 1
@@ -124,9 +127,9 @@ class DatasetViewerProcessor:
         dataset_dir = settings.get("dataset_dir")
 
         if not dataset_dir:
-            return err(ValidationError(
-                f"Block '{block_id}' is missing required setting 'dataset_dir'"
-            ))
+            return err(
+                ValidationError(f"Block '{block_id}' is missing required setting 'dataset_dir'")
+            )
 
         context.progress_bus.publish(
             ProgressReport(
@@ -143,9 +146,7 @@ class DatasetViewerProcessor:
         except (ExecutionError, ValidationError) as exc:
             return err(exc)
         except Exception as exc:
-            return err(ExecutionError(
-                f"Dataset scan failed for block '{block_id}': {exc}"
-            ))
+            return err(ExecutionError(f"Dataset scan failed for block '{block_id}': {exc}"))
 
         context.progress_bus.publish(
             ProgressReport(
@@ -160,5 +161,3 @@ class DatasetViewerProcessor:
         )
 
         return ok(results)
-
-

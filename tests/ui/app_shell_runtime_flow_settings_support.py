@@ -5,6 +5,7 @@ Connects the compatibility wrapper to the bounded settings support slice.
 
 from tests.ui.app_shell_runtime_flow_shared_support import *  # noqa: F401,F403
 
+
 def test_app_shell_runtime_describes_stem_action_settings():
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(
@@ -699,7 +700,9 @@ def test_app_shell_runtime_object_action_session_classify_uses_descriptor_bound_
             field.key == "classify_model_path" and field.value == str(model_path)
             for field in plan.editable_fields
         )
-        model_field = next(field for field in plan.editable_fields if field.key == "classify_model_path")
+        model_field = next(
+            field for field in plan.editable_fields if field.key == "classify_model_path"
+        )
         assert model_field.widget == "dropdown"
         assert {option.value for option in model_field.options} >= {
             "",
@@ -791,8 +794,12 @@ def test_app_shell_runtime_extract_classified_drums_settings_expose_model_fields
             field.key == "snare_model_path" and field.value == str(snare_manifest)
             for field in plan.editable_fields
         )
-        kick_field = next(field for field in plan.editable_fields if field.key == "kick_model_path")
-        snare_field = next(field for field in plan.editable_fields if field.key == "snare_model_path")
+        kick_field = next(
+            field for field in plan.editable_fields if field.key == "kick_model_path"
+        )
+        snare_field = next(
+            field for field in plan.editable_fields if field.key == "snare_model_path"
+        )
         assert kick_field.widget == "dropdown"
         assert snare_field.widget == "dropdown"
         assert {option.value for option in kick_field.options} >= {
@@ -859,7 +866,9 @@ def test_app_shell_runtime_extract_classified_drums_hydrates_legacy_assignment_m
         song_version_id = str(runtime.session.active_song_version_id)
         config = next(
             candidate
-            for candidate in runtime.project_storage.pipeline_configs.list_by_version(song_version_id)
+            for candidate in runtime.project_storage.pipeline_configs.list_by_version(
+                song_version_id
+            )
             if candidate.template_id == "extract_classified_drums"
         )
 
@@ -899,7 +908,9 @@ def test_app_shell_runtime_extract_classified_drums_hydrates_legacy_assignment_m
 
         persisted = next(
             candidate
-            for candidate in runtime.project_storage.pipeline_configs.list_by_version(song_version_id)
+            for candidate in runtime.project_storage.pipeline_configs.list_by_version(
+                song_version_id
+            )
             if candidate.template_id == "extract_classified_drums"
         )
         assert persisted.knob_values.get("assignment_mode") == "independent"
@@ -998,8 +1009,12 @@ def test_app_shell_runtime_extract_song_drum_events_settings_expose_model_fields
             field.key == "snare_model_path" and field.value == str(snare_manifest)
             for field in plan.editable_fields
         )
-        kick_field = next(field for field in plan.editable_fields if field.key == "kick_model_path")
-        snare_field = next(field for field in plan.editable_fields if field.key == "snare_model_path")
+        kick_field = next(
+            field for field in plan.editable_fields if field.key == "kick_model_path"
+        )
+        snare_field = next(
+            field for field in plan.editable_fields if field.key == "snare_model_path"
+        )
         assert kick_field.widget == "dropdown"
         assert snare_field.widget == "dropdown"
         assert {option.value for option in kick_field.options} >= {
@@ -1088,7 +1103,9 @@ def test_app_shell_runtime_extract_song_drum_events_uses_current_global_runtime_
         song_version_id = str(runtime.session.active_song_version_id)
         config = next(
             candidate
-            for candidate in runtime.project_storage.pipeline_configs.list_by_version(song_version_id)
+            for candidate in runtime.project_storage.pipeline_configs.list_by_version(
+                song_version_id
+            )
             if candidate.template_id == "extract_song_drum_events"
         )
         assert config.knob_values["kick_model_path"] == str(global_kick_manifest)
@@ -1182,7 +1199,9 @@ def test_app_shell_runtime_extract_song_drum_events_ignores_stale_missing_index_
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
-def test_app_shell_runtime_extract_classified_drums_settings_accept_custom_model_selection(monkeypatch):
+def test_app_shell_runtime_extract_classified_drums_settings_accept_custom_model_selection(
+    monkeypatch,
+):
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(
         working_dir_root=temp_root / "working",
@@ -1398,7 +1417,6 @@ def test_app_shell_runtime_object_action_session_rejects_save_and_run_from_song_
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
-
 
 
 __all__ = [name for name in globals() if name.startswith("test_")]

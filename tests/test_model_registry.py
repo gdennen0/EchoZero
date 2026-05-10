@@ -19,7 +19,6 @@ from echozero.models.registry import (
     ModelType,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -105,14 +104,28 @@ class TestRegistration:
         reg = ModelRegistry(tmp_path / "models")
         reg.load()
         reg.register(_card("onset-v1", ModelType.ONSET_DETECTION))
-        reg.register(_card("class-v1", ModelType.CLASSIFICATION, name="Class v1", relative_path="class/v1/model.pt"))
+        reg.register(
+            _card(
+                "class-v1",
+                ModelType.CLASSIFICATION,
+                name="Class v1",
+                relative_path="class/v1/model.pt",
+            )
+        )
         assert len(reg.list_models()) == 2
 
     def test_list_by_type(self, tmp_path: Path) -> None:
         reg = ModelRegistry(tmp_path / "models")
         reg.load()
         reg.register(_card("onset-v1", ModelType.ONSET_DETECTION))
-        reg.register(_card("class-v1", ModelType.CLASSIFICATION, name="Class v1", relative_path="class/v1/model.pt"))
+        reg.register(
+            _card(
+                "class-v1",
+                ModelType.CLASSIFICATION,
+                name="Class v1",
+                relative_path="class/v1/model.pt",
+            )
+        )
         onset_models = reg.list_models(ModelType.ONSET_DETECTION)
         assert len(onset_models) == 1
         assert onset_models[0].id == "onset-v1"
@@ -218,7 +231,11 @@ class TestPersistence:
         reg = ModelRegistry(models_dir)
         reg.load()
         reg.register(_card("onset-v1"))
-        reg.register(_card("class-v1", ModelType.CLASSIFICATION, name="Class", relative_path="class/model.pt"))
+        reg.register(
+            _card(
+                "class-v1", ModelType.CLASSIFICATION, name="Class", relative_path="class/model.pt"
+            )
+        )
         reg.save()
 
         # New instance, same dir
@@ -438,10 +455,12 @@ class TestLocking:
         def register_many(start: int) -> None:
             for i in range(start, start + 20):
                 try:
-                    reg.register(_card(
-                        model_id=f"model-{i}",
-                        relative_path=f"models/model-{i}.pt",
-                    ))
+                    reg.register(
+                        _card(
+                            model_id=f"model-{i}",
+                            relative_path=f"models/model-{i}.pt",
+                        )
+                    )
                 except Exception as e:
                     errors.append(e)
 

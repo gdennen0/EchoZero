@@ -123,7 +123,9 @@ class ProjectStorageVersioningMixin:
             raise ValidationError(f"Invalid audio file '{audio_source.name}': {exc}") from exc
 
         try:
-            audio_rel_path, audio_hash = import_audio(prepared_source.source_path, host.working_dir)
+            audio_rel_path, audio_hash = import_audio(
+                prepared_source.source_path, host.working_dir
+            )
         finally:
             cleanup_prepared_audio(prepared_source)
 
@@ -325,7 +327,11 @@ class ProjectStorageVersioningMixin:
         if template_ids is None:
             templates = registry.list()
         else:
-            templates = [template for template_id in template_ids if (template := registry.get(template_id)) is not None]
+            templates = [
+                template
+                for template_id in template_ids
+                if (template := registry.get(template_id)) is not None
+            ]
 
         for template in templates:
             pipeline = template.build_pipeline()
@@ -360,7 +366,9 @@ class ProjectStorageVersioningMixin:
                 knob_values=dict(new_config.knob_values),
                 created_at=now,
                 updated_at=now,
-                block_overrides={key: list(values) for key, values in new_config.block_overrides.items()},
+                block_overrides={
+                    key: list(values) for key, values in new_config.block_overrides.items()
+                },
             )
             host.pipeline_configs.create(materialized)
             new_config_ids.append(materialized.id)
@@ -424,8 +432,7 @@ class ProjectStorageVersioningMixin:
         now = datetime.now(timezone.utc)
         copied_layer_ids: list[str] = []
         layer_id_map = {
-            source_layer.id: uuid.uuid4().hex
-            for source_layer in selected_source_layers
+            source_layer.id: uuid.uuid4().hex for source_layer in selected_source_layers
         }
         for order_index, source_layer in enumerate(selected_source_layers):
             new_layer_id = layer_id_map[source_layer.id]
@@ -545,13 +552,9 @@ class ProjectStorageVersioningMixin:
         host._check_closed()
 
         with host._lock:
-            existing_song_ids = [
-                song.id for song in host.songs.list_by_project(host.project.id)
-            ]
+            existing_song_ids = [song.id for song in host.songs.list_by_project(host.project.id)]
             if len(song_ids) != len(existing_song_ids):
-                raise ValueError(
-                    "reorder_songs requires one ID for every song in the setlist."
-                )
+                raise ValueError("reorder_songs requires one ID for every song in the setlist.")
             if set(song_ids) != set(existing_song_ids):
                 raise ValueError(
                     "reorder_songs requires the same song IDs currently in the setlist."
@@ -605,8 +608,7 @@ class ProjectStorageVersioningMixin:
 
             host.songs.delete(song_id)
             remaining_song_ids = [
-                remaining_song.id
-                for remaining_song in host.songs.list_by_project(host.project.id)
+                remaining_song.id for remaining_song in host.songs.list_by_project(host.project.id)
             ]
             host.songs.reorder(host.project.id, remaining_song_ids)
             host.db.commit()
@@ -642,27 +644,19 @@ class ProjectStorageVersioningMixin:
                 ]
                 host.songs.reorder(host.project.id, remaining_song_ids)
             elif song.active_version_id == song_version_id:
-                host.songs.update(
-                    dataclass_replace(song, active_version_id=next_active_version)
-                )
+                host.songs.update(dataclass_replace(song, active_version_id=next_active_version))
 
             host.db.commit()
             host.dirty_tracker.mark_dirty(song.id)
 
 
 def _adjacent_version_id(versions: list[SongVersionRecord], deleted_version_id: str) -> str | None:
-    remaining_versions = [
-        version for version in versions if version.id != deleted_version_id
-    ]
+    remaining_versions = [version for version in versions if version.id != deleted_version_id]
     if not remaining_versions:
         return None
 
     deleted_index = next(
-        (
-            index
-            for index, version in enumerate(versions)
-            if version.id == deleted_version_id
-        ),
+        (index for index, version in enumerate(versions) if version.id == deleted_version_id),
         len(versions) - 1,
     )
     if deleted_index < len(remaining_versions):

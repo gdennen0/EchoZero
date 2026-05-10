@@ -20,16 +20,16 @@ class PipelineConfigRepository(BaseRepository[PipelineConfigRecord]):
     def _from_row(self, row: sqlite3.Row) -> PipelineConfigRecord:
         """Convert a database row to a PipelineConfigRecord entity."""
         return PipelineConfigRecord(
-            id=row['id'],
-            song_version_id=row['song_version_id'],
-            template_id=row['template_id'],
-            name=row['name'],
-            graph_json=row['graph_json'],
-            outputs_json=row['outputs_json'],
-            knob_values=json.loads(row['knob_values_json']),
-            created_at=datetime.fromisoformat(row['created_at']),
-            updated_at=datetime.fromisoformat(row['updated_at']),
-            block_overrides=json.loads(row['block_overrides_json']),
+            id=row["id"],
+            song_version_id=row["song_version_id"],
+            template_id=row["template_id"],
+            name=row["name"],
+            graph_json=row["graph_json"],
+            outputs_json=row["outputs_json"],
+            knob_values=json.loads(row["knob_values_json"]),
+            created_at=datetime.fromisoformat(row["created_at"]),
+            updated_at=datetime.fromisoformat(row["updated_at"]),
+            block_overrides=json.loads(row["block_overrides_json"]),
         )
 
     def create(self, config: PipelineConfigRecord) -> None:
@@ -105,6 +105,4 @@ class PipelineConfigRepository(BaseRepository[PipelineConfigRecord]):
 
     def delete(self, config_id: str) -> None:
         """Delete a pipeline config by ID."""
-        self._execute(
-            "DELETE FROM pipeline_configs WHERE id = ?", (config_id,)
-        )
+        self._execute("DELETE FROM pipeline_configs WHERE id = ?", (config_id,))

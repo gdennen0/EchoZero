@@ -94,7 +94,9 @@ def test_section_manager_section_cue_drafts_preserve_explicit_cue_numbers() -> N
     dialog = SectionManagerDialog(
         _empty_presentation(),
         cues=[
-            SectionCueDraft(cue_id="cue_a", start=10.0, cue_ref="Cue 99", name="Verse", cue_number=7.5),
+            SectionCueDraft(
+                cue_id="cue_a", start=10.0, cue_ref="Cue 99", name="Verse", cue_number=7.5
+            ),
         ],
     )
     try:
@@ -111,8 +113,12 @@ def test_section_manager_add_after_selected_auto_numbers_between_neighbors() -> 
     dialog = SectionManagerDialog(
         _empty_presentation(),
         cues=[
-            SectionCueDraft(cue_id="cue_a", start=10.0, cue_ref="Cue 1", name="Verse", cue_number=1),
-            SectionCueDraft(cue_id="cue_b", start=20.0, cue_ref="Cue 2", name="Chorus", cue_number=2),
+            SectionCueDraft(
+                cue_id="cue_a", start=10.0, cue_ref="Cue 1", name="Verse", cue_number=1
+            ),
+            SectionCueDraft(
+                cue_id="cue_b", start=20.0, cue_ref="Cue 2", name="Chorus", cue_number=2
+            ),
         ],
     )
     try:
@@ -132,7 +138,9 @@ def test_section_manager_add_before_selected_auto_numbers_before_first() -> None
     dialog = SectionManagerDialog(
         _empty_presentation(),
         cues=[
-            SectionCueDraft(cue_id="cue_a", start=10.0, cue_ref="Cue 3", name="Verse", cue_number=3),
+            SectionCueDraft(
+                cue_id="cue_a", start=10.0, cue_ref="Cue 3", name="Verse", cue_number=3
+            ),
         ],
     )
     try:
@@ -152,7 +160,9 @@ def test_section_manager_add_before_cue_one_uses_fractional_cue_number() -> None
     dialog = SectionManagerDialog(
         _empty_presentation(),
         cues=[
-            SectionCueDraft(cue_id="cue_a", start=10.0, cue_ref="Cue 1", name="Verse", cue_number=1),
+            SectionCueDraft(
+                cue_id="cue_a", start=10.0, cue_ref="Cue 1", name="Verse", cue_number=1
+            ),
         ],
     )
     try:
@@ -172,7 +182,9 @@ def test_section_manager_table_edit_updates_selected_row_values() -> None:
     dialog = SectionManagerDialog(
         _empty_presentation(),
         cues=[
-            SectionCueDraft(cue_id="cue_a", start=10.0, cue_ref="Cue 1", name="Verse", cue_number=1),
+            SectionCueDraft(
+                cue_id="cue_a", start=10.0, cue_ref="Cue 1", name="Verse", cue_number=1
+            ),
         ],
     )
     try:
@@ -194,9 +206,15 @@ def test_section_manager_quick_label_applies_to_multiple_selected_rows() -> None
     dialog = SectionManagerDialog(
         _empty_presentation(),
         cues=[
-            SectionCueDraft(cue_id="cue_a", start=10.0, cue_ref="Cue 1", name="Verse", cue_number=1),
-            SectionCueDraft(cue_id="cue_b", start=20.0, cue_ref="Cue 2", name="Bridge", cue_number=2),
-            SectionCueDraft(cue_id="cue_c", start=30.0, cue_ref="Cue 3", name="Outro", cue_number=3),
+            SectionCueDraft(
+                cue_id="cue_a", start=10.0, cue_ref="Cue 1", name="Verse", cue_number=1
+            ),
+            SectionCueDraft(
+                cue_id="cue_b", start=20.0, cue_ref="Cue 2", name="Bridge", cue_number=2
+            ),
+            SectionCueDraft(
+                cue_id="cue_c", start=30.0, cue_ref="Cue 3", name="Outro", cue_number=3
+            ),
         ],
     )
     try:
@@ -215,8 +233,12 @@ def test_section_manager_multi_edit_name_updates_all_selected_rows() -> None:
     dialog = SectionManagerDialog(
         _empty_presentation(),
         cues=[
-            SectionCueDraft(cue_id="cue_a", start=10.0, cue_ref="Cue 1", name="Verse", cue_number=1),
-            SectionCueDraft(cue_id="cue_b", start=20.0, cue_ref="Cue 2", name="Bridge", cue_number=2),
+            SectionCueDraft(
+                cue_id="cue_a", start=10.0, cue_ref="Cue 1", name="Verse", cue_number=1
+            ),
+            SectionCueDraft(
+                cue_id="cue_b", start=20.0, cue_ref="Cue 2", name="Bridge", cue_number=2
+            ),
         ],
     )
     try:
@@ -234,9 +256,15 @@ def test_section_manager_delete_removes_multiple_selected_rows() -> None:
     dialog = SectionManagerDialog(
         _empty_presentation(),
         cues=[
-            SectionCueDraft(cue_id="cue_a", start=10.0, cue_ref="Cue 1", name="Verse", cue_number=1),
-            SectionCueDraft(cue_id="cue_b", start=20.0, cue_ref="Cue 2", name="Bridge", cue_number=2),
-            SectionCueDraft(cue_id="cue_c", start=30.0, cue_ref="Cue 3", name="Outro", cue_number=3),
+            SectionCueDraft(
+                cue_id="cue_a", start=10.0, cue_ref="Cue 1", name="Verse", cue_number=1
+            ),
+            SectionCueDraft(
+                cue_id="cue_b", start=20.0, cue_ref="Cue 2", name="Bridge", cue_number=2
+            ),
+            SectionCueDraft(
+                cue_id="cue_c", start=30.0, cue_ref="Cue 3", name="Outro", cue_number=3
+            ),
         ],
     )
     try:

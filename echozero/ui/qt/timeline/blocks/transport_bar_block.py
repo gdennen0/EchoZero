@@ -54,7 +54,9 @@ class TransportBarBlock:
         )
 
         if layout.meta_rect.width() > 1.0:
-            status_color = QColor("#7fd1ae") if presentation.is_playing else QColor(self.style.meta_hex)
+            status_color = (
+                QColor("#7fd1ae") if presentation.is_playing else QColor(self.style.meta_hex)
+            )
             painter.setPen(status_color)
             prior_font = painter.font()
             meta_font = QFont(prior_font)

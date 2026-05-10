@@ -174,6 +174,8 @@ class CompatibilityReport:
             "errors": list(self.errors),
             "warnings": list(self.warnings),
             "error_details": self._normalize_issue_details(self.error_details, severity="error"),
-            "warning_details": self._normalize_issue_details(self.warning_details, severity="warning"),
+            "warning_details": self._normalize_issue_details(
+                self.warning_details, severity="warning"
+            ),
             "checkedAt": self.checked_at.isoformat(),
         }

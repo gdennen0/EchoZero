@@ -32,7 +32,6 @@ from echozero.editor.pipeline import Pipeline
 from echozero.progress import RuntimeBus
 from echozero.result import Err, Result, err, is_ok, ok, unwrap
 
-
 # ---------------------------------------------------------------------------
 # Pure scheduling function
 # ---------------------------------------------------------------------------
@@ -159,6 +158,7 @@ class Coordinator:
         """
         if self._executing:
             from echozero.errors import ExecutionError
+
             return err(ExecutionError("Execution already in progress. Cancel first."))
         self._cancel_event.clear()
         planner = GraphPlanner()
@@ -194,6 +194,7 @@ class Coordinator:
         """Submit execution to background thread. Returns handle immediately."""
         if self._executing:
             from echozero.errors import ExecutionError
+
             return err(ExecutionError("Execution already in progress. Cancel first."))
 
         self._cancel_event.clear()
@@ -209,7 +210,9 @@ class Coordinator:
                     for block_id, value in outputs.items():
                         if isinstance(value, dict):
                             for port_name, port_value in value.items():
-                                self._cache.store(block_id, port_name, port_value, plan.execution_id)
+                                self._cache.store(
+                                    block_id, port_name, port_value, plan.execution_id
+                                )
                         else:
                             block = self._graph.blocks[block_id]
                             port_name = block.output_ports[0].name if block.output_ports else "out"
@@ -275,7 +278,9 @@ class Coordinator:
         block = self._graph.blocks.get(event.block_id)
         block_name = block.name if block else event.block_id
         reason = setting_changed_reason(
-            event.block_id, block_name, event.setting_key,
+            event.block_id,
+            block_name,
+            event.setting_key,
             old_value=event.old_value,
             new_value=event.new_value,
         )
@@ -287,7 +292,9 @@ class Coordinator:
         target = self._graph.blocks.get(event.target_block_id)
         target_name = target.name if target else event.target_block_id
         reason = connection_changed_reason(
-            event.target_block_id, target_name, "added",
+            event.target_block_id,
+            target_name,
+            "added",
         )
         self.propagate_stale(event.target_block_id, reason=reason)
         if self._auto_evaluate:
@@ -297,7 +304,9 @@ class Coordinator:
         target = self._graph.blocks.get(event.target_block_id)
         target_name = target.name if target else event.target_block_id
         reason = connection_changed_reason(
-            event.target_block_id, target_name, "removed",
+            event.target_block_id,
+            target_name,
+            "removed",
         )
         self.propagate_stale(event.target_block_id, reason=reason)
         if self._auto_evaluate:

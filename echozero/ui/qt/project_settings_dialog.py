@@ -75,4 +75,3 @@ def _coerce_offset_seconds(value: object) -> float:
         return float(value)
     except (TypeError, ValueError):
         return -1.0
-

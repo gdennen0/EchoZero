@@ -110,7 +110,8 @@ class TimelineOrchestratorManualPullImportMixin:
         missing_cue_numbers = [
             str(event.event_id)
             for event in selected_events
-            if event.cue_number is None and (event.cue_ref is None or str(event.cue_ref).strip() == "")
+            if event.cue_number is None
+            and (event.cue_ref is None or str(event.cue_ref).strip() == "")
         ]
         if not missing_cue_numbers:
             return

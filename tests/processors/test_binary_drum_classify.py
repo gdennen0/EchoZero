@@ -16,7 +16,16 @@ import pytest
 
 from echozero.domain.enums import BlockCategory, Direction, PortType
 from echozero.domain.graph import Graph
-from echozero.domain.types import AudioData, Block, BlockSettings, Connection, Event, EventData, Layer, Port
+from echozero.domain.types import (
+    AudioData,
+    Block,
+    BlockSettings,
+    Connection,
+    Event,
+    EventData,
+    Layer,
+    Port,
+)
 from echozero.execution import ExecutionContext
 from echozero.processors.binary_drum_classify import (
     BinaryAssignmentConfig,
@@ -157,8 +166,22 @@ def test_binary_drum_classify_processor_returns_kick_and_snare_layers() -> None:
                     id="onsets",
                     name="Onsets",
                     events=(
-                        Event(id="evt1", time=0.25, duration=0.05, classifications={}, metadata={}, origin="src"),
-                        Event(id="evt2", time=0.50, duration=0.05, classifications={}, metadata={}, origin="src"),
+                        Event(
+                            id="evt1",
+                            time=0.25,
+                            duration=0.05,
+                            classifications={},
+                            metadata={},
+                            origin="src",
+                        ),
+                        Event(
+                            id="evt2",
+                            time=0.50,
+                            duration=0.05,
+                            classifications={},
+                            metadata={},
+                            origin="src",
+                        ),
                     ),
                 ),
             )
@@ -183,7 +206,9 @@ def test_binary_drum_classify_processor_returns_kick_and_snare_layers() -> None:
 def test_binary_drum_classify_processor_requires_audio_input() -> None:
     graph = _make_graph()
     context = _make_context(graph)
-    context.set_output("source", "events_out", EventData(layers=(Layer(id="onsets", name="Onsets", events=()),)))
+    context.set_output(
+        "source", "events_out", EventData(layers=(Layer(id="onsets", name="Onsets", events=()),))
+    )
 
     processor = BinaryDrumClassifyProcessor(classify_fn=_mock_binary_classify)
     result = processor.execute("binary", context)
@@ -269,7 +294,14 @@ def test_binary_drum_classify_processor_supports_label_specific_inputs() -> None
                     id="kick_onsets",
                     name="Kick Onsets",
                     events=(
-                        Event(id="kick_evt", time=0.10, duration=0.05, classifications={}, metadata={}, origin="kick"),
+                        Event(
+                            id="kick_evt",
+                            time=0.10,
+                            duration=0.05,
+                            classifications={},
+                            metadata={},
+                            origin="kick",
+                        ),
                     ),
                 ),
             )
@@ -284,7 +316,14 @@ def test_binary_drum_classify_processor_supports_label_specific_inputs() -> None
                     id="snare_onsets",
                     name="Snare Onsets",
                     events=(
-                        Event(id="snare_evt", time=0.20, duration=0.05, classifications={}, metadata={}, origin="snare"),
+                        Event(
+                            id="snare_evt",
+                            time=0.20,
+                            duration=0.05,
+                            classifications={},
+                            metadata={},
+                            origin="snare",
+                        ),
                     ),
                 ),
             )
@@ -485,7 +524,14 @@ def test_default_binary_classify_stamps_structured_model_artifact_provenance(
                 label="kick",
                 audio_file="/tmp/kick.wav",
                 events=(
-                    Event(id="kick_evt", time=0.0, duration=0.01, classifications={}, metadata={}, origin="src"),
+                    Event(
+                        id="kick_evt",
+                        time=0.0,
+                        duration=0.01,
+                        classifications={},
+                        metadata={},
+                        origin="src",
+                    ),
                 ),
                 model_path="/tmp/kick_model.pth",
                 positive_threshold=0.5,
@@ -494,7 +540,14 @@ def test_default_binary_classify_stamps_structured_model_artifact_provenance(
                 label="snare",
                 audio_file="/tmp/snare.wav",
                 events=(
-                    Event(id="snare_evt", time=0.0, duration=0.01, classifications={}, metadata={}, origin="src"),
+                    Event(
+                        id="snare_evt",
+                        time=0.0,
+                        duration=0.01,
+                        classifications={},
+                        metadata={},
+                        origin="src",
+                    ),
                 ),
                 model_path="/tmp/snare_model.pth",
                 positive_threshold=0.5,
@@ -705,7 +758,14 @@ def test_default_binary_classify_skips_near_silent_events_by_default(
                 label="kick",
                 audio_file="/tmp/kick.wav",
                 events=(
-                    Event(id="kick_evt", time=0.0, duration=0.01, classifications={}, metadata={}, origin="src"),
+                    Event(
+                        id="kick_evt",
+                        time=0.0,
+                        duration=0.01,
+                        classifications={},
+                        metadata={},
+                        origin="src",
+                    ),
                 ),
                 model_path="/tmp/kick_model.pth",
                 positive_threshold=0.5,
@@ -714,7 +774,14 @@ def test_default_binary_classify_skips_near_silent_events_by_default(
                 label="snare",
                 audio_file="/tmp/snare.wav",
                 events=(
-                    Event(id="snare_evt", time=0.0, duration=0.01, classifications={}, metadata={}, origin="src"),
+                    Event(
+                        id="snare_evt",
+                        time=0.0,
+                        duration=0.01,
+                        classifications={},
+                        metadata={},
+                        origin="src",
+                    ),
                 ),
                 model_path="/tmp/snare_model.pth",
                 positive_threshold=0.5,
@@ -780,7 +847,14 @@ def test_default_binary_classify_demotes_scores_below_threshold_instead_of_dropp
                 label="kick",
                 audio_file="/tmp/kick.wav",
                 events=(
-                    Event(id="kick_evt", time=0.0, duration=0.01, classifications={}, metadata={}, origin="src"),
+                    Event(
+                        id="kick_evt",
+                        time=0.0,
+                        duration=0.01,
+                        classifications={},
+                        metadata={},
+                        origin="src",
+                    ),
                 ),
                 model_path="/tmp/kick_model.pth",
                 positive_threshold=0.5,
@@ -789,7 +863,14 @@ def test_default_binary_classify_demotes_scores_below_threshold_instead_of_dropp
                 label="snare",
                 audio_file="/tmp/snare.wav",
                 events=(
-                    Event(id="snare_evt", time=0.0, duration=0.01, classifications={}, metadata={}, origin="src"),
+                    Event(
+                        id="snare_evt",
+                        time=0.0,
+                        duration=0.01,
+                        classifications={},
+                        metadata={},
+                        origin="src",
+                    ),
                 ),
                 model_path="/tmp/snare_model.pth",
                 positive_threshold=0.5,

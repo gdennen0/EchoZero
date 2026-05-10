@@ -11,7 +11,10 @@ from pathlib import Path
 from uuid import uuid4
 
 from echozero.foundry.domain import ReviewItem, ReviewPolarity
-from echozero.foundry.services.audio_source_validation import InvalidAudioSourceError, inspect_audio_source
+from echozero.foundry.services.audio_source_validation import (
+    InvalidAudioSourceError,
+    inspect_audio_source,
+)
 
 _AUDIO_SUFFIXES = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aiff"}
 
@@ -36,8 +39,12 @@ def import_review_items_from_folder(
     if resolved_target_class is None:
         class_dirs = sorted(path for path in base.iterdir() if path.is_dir())
         if not class_dirs:
-            raise ValueError("Review folder import without --target-class requires class-named subdirectories.")
-        file_candidates = [file for class_dir in class_dirs for file in sorted(class_dir.rglob("*"))]
+            raise ValueError(
+                "Review folder import without --target-class requires class-named subdirectories."
+            )
+        file_candidates = [
+            file for class_dir in class_dirs for file in sorted(class_dir.rglob("*"))
+        ]
     else:
         file_candidates = sorted(base.rglob("*"))
 

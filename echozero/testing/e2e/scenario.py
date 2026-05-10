@@ -198,7 +198,9 @@ def _parse_yaml_block(lines: list[_YamlLine], start: int, indent: int) -> tuple[
     return _parse_yaml_mapping(lines, start, indent)
 
 
-def _parse_yaml_mapping(lines: list[_YamlLine], start: int, indent: int) -> tuple[dict[str, Any], int]:
+def _parse_yaml_mapping(
+    lines: list[_YamlLine], start: int, indent: int
+) -> tuple[dict[str, Any], int]:
     mapping: dict[str, Any] = {}
     index = start
     while index < len(lines):

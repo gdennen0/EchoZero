@@ -49,19 +49,16 @@ ProgressCallback = Callable[[DownloadProgress], None]
 class RemoteSource(Protocol):
     """Protocol for remote model sources."""
 
-    def check_available(self, org: str, model_type: ModelType) -> list[ModelUpdate]:
-        ...
+    def check_available(self, org: str, model_type: ModelType) -> list[ModelUpdate]: ...
 
     def download(
         self,
         model_id: str,
         target_dir: Path,
         on_progress: ProgressCallback | None = None,
-    ) -> Path:
-        ...
+    ) -> Path: ...
 
-    def get_latest_version(self, org: str, model_type: ModelType) -> str | None:
-        ...
+    def get_latest_version(self, org: str, model_type: ModelType) -> str | None: ...
 
 
 _SAFE_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_\-.]*$")

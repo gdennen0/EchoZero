@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 class ModelType(Enum):
     """What kind of task this model performs."""
+
     ONSET_DETECTION = "onset_detection"
     CLASSIFICATION = "classification"
     SEPARATION = "separation"
@@ -46,18 +47,20 @@ class ModelType(Enum):
 
 class ModelSource(Enum):
     """Where the model came from."""
-    BUILTIN = "builtin"     # shipped with EchoZero
-    USER_TRAINED = "user"   # trained by user in-app
-    IMPORTED = "imported"   # manually added by user
-    CLOUD = "cloud"         # downloaded from EchoZero cloud (future)
+
+    BUILTIN = "builtin"  # shipped with EchoZero
+    USER_TRAINED = "user"  # trained by user in-app
+    IMPORTED = "imported"  # manually added by user
+    CLOUD = "cloud"  # downloaded from EchoZero cloud (future)
 
 
 class ModelStatus(Enum):
     """Availability state."""
-    AVAILABLE = "available"   # file exists, ready to use
-    MISSING = "missing"       # registered but file not found
+
+    AVAILABLE = "available"  # file exists, ready to use
+    MISSING = "missing"  # registered but file not found
     DOWNLOADING = "downloading"  # cloud download in progress (future)
-    CORRUPT = "corrupt"       # file exists but integrity check failed
+    CORRUPT = "corrupt"  # file exists but integrity check failed
 
 
 # ---------------------------------------------------------------------------
@@ -72,14 +75,15 @@ class ModelCard:
     This is the "business card" for a model — everything you need to know
     without loading the actual weights.
     """
-    id: str                          # unique ID, e.g. "onset-v2.1"
-    model_type: ModelType            # what it does
-    name: str                        # human-readable, e.g. "Onset Detection v2.1"
-    version: str                     # semver-ish, e.g. "2.1.0"
-    source: ModelSource              # where it came from
-    relative_path: str               # path relative to models root dir
-    description: str = ""            # optional description
-    framework: str = "pytorch"       # pytorch, onnx, etc.
+
+    id: str  # unique ID, e.g. "onset-v2.1"
+    model_type: ModelType  # what it does
+    name: str  # human-readable, e.g. "Onset Detection v2.1"
+    version: str  # semver-ish, e.g. "2.1.0"
+    source: ModelSource  # where it came from
+    relative_path: str  # path relative to models root dir
+    description: str = ""  # optional description
+    framework: str = "pytorch"  # pytorch, onnx, etc.
     metadata: dict[str, Any] = field(default_factory=dict)  # arbitrary extra info
 
     def to_dict(self) -> dict[str, Any]:
@@ -154,7 +158,8 @@ class ModelRegistry:
             except Exception as e:
                 logger.warning(
                     "Corrupt manifest at %s, falling back to empty registry: %s",
-                    manifest_path, e,
+                    manifest_path,
+                    e,
                 )
                 self._cards = {}
                 self._defaults = {}
@@ -286,16 +291,12 @@ class ModelRegistry:
         try:
             path.is_relative_to(base)  # probe — raises AttributeError on < 3.9
             if not path.is_relative_to(base):
-                raise ValueError(
-                    f"Model path escapes models directory: {card.relative_path!r}"
-                )
+                raise ValueError(f"Model path escapes models directory: {card.relative_path!r}")
         except AttributeError:
             # Python < 3.9 fallback
             base_str = str(base)
             if not (str(path) == base_str or str(path).startswith(base_str + os.sep)):
-                raise ValueError(
-                    f"Model path escapes models directory: {card.relative_path!r}"
-                )
+                raise ValueError(f"Model path escapes models directory: {card.relative_path!r}")
         return path
 
     def check_status(self, card: ModelCard) -> ModelStatus:
@@ -309,6 +310,7 @@ class ModelRegistry:
         expected_hash = card.metadata.get("sha256")
         if expected_hash and path.is_file():
             import hashlib
+
             actual = hashlib.sha256(path.read_bytes()).hexdigest()
             if actual != expected_hash:
                 return ModelStatus.CORRUPT

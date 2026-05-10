@@ -63,18 +63,16 @@ class _ObjectInfoPanelActionsMixin:
         )
 
     def _emit_toggle_mute_from_panel(self: Any) -> None:
-        action = (
-            self._find_contract_action("set_layer_mute_off")
-            or self._find_contract_action("set_layer_mute_on")
+        action = self._find_contract_action("set_layer_mute_off") or self._find_contract_action(
+            "set_layer_mute_on"
         )
         if action is None or not action.enabled:
             return
         self.action_requested.emit(action)
 
     def _emit_toggle_solo_from_panel(self: Any) -> None:
-        action = (
-            self._find_contract_action("set_layer_solo_off")
-            or self._find_contract_action("set_layer_solo_on")
+        action = self._find_contract_action("set_layer_solo_off") or self._find_contract_action(
+            "set_layer_solo_on"
         )
         if action is None or not action.enabled:
             return
@@ -114,9 +112,7 @@ class _ObjectInfoPanelActionsMixin:
         visible_index = 0
         for section in self._contract.context_sections:
             actions = tuple(
-                action
-                for action in section.actions
-                if self._is_primary_inspector_action(action)
+                action for action in section.actions if self._is_primary_inspector_action(action)
             )
             if not actions:
                 continue
@@ -189,7 +185,9 @@ class _ObjectInfoPanelActionsMixin:
         body.setVisible(expanded)
         button.setArrowType(Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
 
-    def _build_pipeline_action_row(self: Any, action: InspectorAction, plan, parent: QWidget) -> QWidget:
+    def _build_pipeline_action_row(
+        self: Any, action: InspectorAction, plan, parent: QWidget
+    ) -> QWidget:
         row = QFrame(parent)
         row.setObjectName("timeline_object_info_action_row")
         layout = QVBoxLayout(row)
@@ -281,7 +279,9 @@ class _ObjectInfoPanelActionsMixin:
         run_button.setMinimumWidth(_ACTION_RUN_BUTTON_MIN_WIDTH_PX)
         run_button.setEnabled(action.enabled)
         run_button.clicked.connect(
-            lambda _checked=False, action_id=action.action_id: self._emit_contract_action(action_id)
+            lambda _checked=False, action_id=action.action_id: self._emit_contract_action(
+                action_id
+            )
         )
         layout.addWidget(run_button)
 
@@ -317,14 +317,12 @@ class _ObjectInfoPanelActionsMixin:
     def _sync_mute_solo_controls(self: Any, *, selected_layer: object | None) -> None:
         muted = bool(getattr(selected_layer, "muted", False))
         soloed = bool(getattr(selected_layer, "soloed", False))
-        mute_action = (
-            self._find_contract_action("set_layer_mute_off")
-            or self._find_contract_action("set_layer_mute_on")
-        )
-        solo_action = (
-            self._find_contract_action("set_layer_solo_off")
-            or self._find_contract_action("set_layer_solo_on")
-        )
+        mute_action = self._find_contract_action(
+            "set_layer_mute_off"
+        ) or self._find_contract_action("set_layer_mute_on")
+        solo_action = self._find_contract_action(
+            "set_layer_solo_off"
+        ) or self._find_contract_action("set_layer_solo_on")
 
         self._panel_mute_btn.setText("Unmute" if muted else "Mute")
         self._panel_solo_btn.setText("Unsolo" if soloed else "Solo")
@@ -363,7 +361,9 @@ class _ObjectInfoPanelActionsMixin:
         self._gain_spin.blockSignals(False)
 
         self._gain_down_btn.setEnabled(gain_down_action is not None and gain_down_action.enabled)
-        self._gain_unity_btn.setEnabled(gain_unity_action is not None and gain_unity_action.enabled)
+        self._gain_unity_btn.setEnabled(
+            gain_unity_action is not None and gain_unity_action.enabled
+        )
         self._gain_up_btn.setEnabled(gain_up_action is not None and gain_up_action.enabled)
         self._set_button_active(self._gain_down_btn, abs(gain_db + 6.0) < 0.01)
         self._set_button_active(self._gain_unity_btn, abs(gain_db) < 0.01)

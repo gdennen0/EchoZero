@@ -15,24 +15,41 @@ from echozero.pipelines.registry import pipeline_template
     name="Stem Separation",
     description="Separate audio into individual stems (drums, bass, vocals, other) using Demucs.",
     knobs={
-        'audio_file': knob("", label="Audio File",
-                            widget=KnobWidget.FILE_PICKER,
-                            file_types=(".wav", ".mp3", ".flac", ".aiff")),
-        'model': knob("latest_model", label="Model",
-                       widget=KnobWidget.DROPDOWN,
-                       options=("latest_model", "htdemucs", "htdemucs_ft", "mdx_extra", "mdx_extra_q")),
-        'device': knob("auto", label="Device",
-                        widget=KnobWidget.DROPDOWN,
-                        options=("auto", "cpu", "cuda", "mps")),
-        'shifts': knob(1, label="Quality Shifts",
-                        min_value=0, max_value=10, step=1,
-                        description="More shifts = better quality, slower",
-                        advanced=True),
-        'two_stems': knob("none", label="Two-Stem Mode",
-                           widget=KnobWidget.DROPDOWN,
-                           options=("none", "vocals", "drums", "bass", "other"),
-                           description="Extract only one stem + remainder",
-                           advanced=True),
+        "audio_file": knob(
+            "",
+            label="Audio File",
+            widget=KnobWidget.FILE_PICKER,
+            file_types=(".wav", ".mp3", ".flac", ".aiff"),
+        ),
+        "model": knob(
+            "latest_model",
+            label="Model",
+            widget=KnobWidget.DROPDOWN,
+            options=("latest_model", "htdemucs", "htdemucs_ft", "mdx_extra", "mdx_extra_q"),
+        ),
+        "device": knob(
+            "auto",
+            label="Device",
+            widget=KnobWidget.DROPDOWN,
+            options=("auto", "cpu", "cuda", "mps"),
+        ),
+        "shifts": knob(
+            1,
+            label="Quality Shifts",
+            min_value=0,
+            max_value=10,
+            step=1,
+            description="More shifts = better quality, slower",
+            advanced=True,
+        ),
+        "two_stems": knob(
+            "none",
+            label="Two-Stem Mode",
+            widget=KnobWidget.DROPDOWN,
+            options=("none", "vocals", "drums", "bass", "other"),
+            description="Extract only one stem + remainder",
+            advanced=True,
+        ),
     },
 )
 def build_stem_separation(
@@ -56,8 +73,8 @@ def build_stem_separation(
         id="separate",
         audio_in=load.audio_out,
     )
-    p.output('drums', sep.drums_out)
-    p.output('bass', sep.bass_out)
-    p.output('vocals', sep.vocals_out)
-    p.output('other', sep.other_out)
+    p.output("drums", sep.drums_out)
+    p.output("bass", sep.bass_out)
+    p.output("vocals", sep.vocals_out)
+    p.output("other", sep.other_out)
     return p

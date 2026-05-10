@@ -144,9 +144,7 @@ class OscSettingsDialog(QDialog):
     def _osc_settings_page(self) -> SettingsPage:
         base_page = self._settings_service.describe()
         osc_sections = tuple(
-            section
-            for section in base_page.sections
-            if section.key in {"osc_receive", "osc_send"}
+            section for section in base_page.sections if section.key in {"osc_receive", "osc_send"}
         )
         warnings = tuple(
             warning

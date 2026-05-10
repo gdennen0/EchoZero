@@ -7,7 +7,13 @@ import pytest
 from echozero.domain.enums import BlockCategory, Direction, PortType
 from echozero.domain.graph import Graph
 from echozero.domain.types import (
-    Block, BlockSettings, Connection, Event, EventData, Layer, Port,
+    Block,
+    BlockSettings,
+    Connection,
+    Event,
+    EventData,
+    Layer,
+    Port,
 )
 from echozero.execution import ExecutionContext, ExecutionEngine, GraphPlanner
 from echozero.processors.export_ma2 import (
@@ -18,10 +24,10 @@ from echozero.processors.export_ma2 import (
 from echozero.progress import RuntimeBus
 from echozero.result import is_err, is_ok, unwrap
 
-
 # ---------------------------------------------------------------------------
 # Unit tests: helpers
 # ---------------------------------------------------------------------------
+
 
 class TestSecondsToTimecode:
     def test_zero(self):
@@ -93,17 +99,42 @@ class TestBuildMA2XML:
 # Integration tests
 # ---------------------------------------------------------------------------
 
+
 def _make_event_data() -> EventData:
-    return EventData(layers=(
-        Layer(id="drums", name="Drums", events=(
-            Event(id="e1", time=0.5, duration=0.1,
-                  classifications={"class": "kick"}, metadata={}, origin="test"),
-            Event(id="e2", time=1.0, duration=0.1,
-                  classifications={"class": "snare"}, metadata={}, origin="test"),
-            Event(id="e3", time=1.5, duration=0.1,
-                  classifications={"class": "kick"}, metadata={}, origin="test"),
-        )),
-    ))
+    return EventData(
+        layers=(
+            Layer(
+                id="drums",
+                name="Drums",
+                events=(
+                    Event(
+                        id="e1",
+                        time=0.5,
+                        duration=0.1,
+                        classifications={"class": "kick"},
+                        metadata={},
+                        origin="test",
+                    ),
+                    Event(
+                        id="e2",
+                        time=1.0,
+                        duration=0.1,
+                        classifications={"class": "snare"},
+                        metadata={},
+                        origin="test",
+                    ),
+                    Event(
+                        id="e3",
+                        time=1.5,
+                        duration=0.1,
+                        classifications={"class": "kick"},
+                        metadata={},
+                        origin="test",
+                    ),
+                ),
+            ),
+        )
+    )
 
 
 class TestExportMA2Processor:
@@ -117,24 +148,33 @@ class TestExportMA2Processor:
 
         g = Graph()
         # We need a "source" block that produces EventData
-        g.add_block(Block(
-            id="source", name="Source", block_type="EventSource",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(), output_ports=(
-                Port("events_out", PortType.EVENT, Direction.OUTPUT),
-            ),
-        ))
-        g.add_block(Block(
-            id="export", name="Export", block_type="ExportMA2",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(Port("events_in", PortType.EVENT, Direction.INPUT),),
-            output_ports=(),
-            settings=BlockSettings({
-                "output_path": output_path,
-                "frame_rate": frame_rate,
-                "track_name": "TestTrack",
-            }),
-        ))
+        g.add_block(
+            Block(
+                id="source",
+                name="Source",
+                block_type="EventSource",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(),
+                output_ports=(Port("events_out", PortType.EVENT, Direction.OUTPUT),),
+            )
+        )
+        g.add_block(
+            Block(
+                id="export",
+                name="Export",
+                block_type="ExportMA2",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(Port("events_in", PortType.EVENT, Direction.INPUT),),
+                output_ports=(),
+                settings=BlockSettings(
+                    {
+                        "output_path": output_path,
+                        "frame_rate": frame_rate,
+                        "track_name": "TestTrack",
+                    }
+                ),
+            )
+        )
         g.add_connection(Connection("source", "events_out", "export", "events_in"))
 
         bus = RuntimeBus()
@@ -144,6 +184,7 @@ class TestExportMA2Processor:
         class FakeSource:
             def execute(self, block_id, context):
                 from echozero.result import ok
+
                 return ok(_make_event_data())
 
         engine.register_executor("EventSource", FakeSource())
@@ -181,24 +222,33 @@ class TestExportMA2Processor:
 
     def test_invalid_drop_frame_for_30fps(self):
         g = Graph()
-        g.add_block(Block(
-            id="source", name="Source", block_type="EventSource",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(), output_ports=(
-                Port("events_out", PortType.EVENT, Direction.OUTPUT),
-            ),
-        ))
-        g.add_block(Block(
-            id="export", name="Export", block_type="ExportMA2",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(Port("events_in", PortType.EVENT, Direction.INPUT),),
-            output_ports=(),
-            settings=BlockSettings({
-                "output_path": "/tmp/test.xml",
-                "frame_rate": 30,
-                "drop_frame": True,
-            }),
-        ))
+        g.add_block(
+            Block(
+                id="source",
+                name="Source",
+                block_type="EventSource",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(),
+                output_ports=(Port("events_out", PortType.EVENT, Direction.OUTPUT),),
+            )
+        )
+        g.add_block(
+            Block(
+                id="export",
+                name="Export",
+                block_type="ExportMA2",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(Port("events_in", PortType.EVENT, Direction.INPUT),),
+                output_ports=(),
+                settings=BlockSettings(
+                    {
+                        "output_path": "/tmp/test.xml",
+                        "frame_rate": 30,
+                        "drop_frame": True,
+                    }
+                ),
+            )
+        )
         g.add_connection(Connection("source", "events_out", "export", "events_in"))
 
         bus = RuntimeBus()
@@ -207,6 +257,7 @@ class TestExportMA2Processor:
         class FakeSource:
             def execute(self, block_id, context):
                 from echozero.result import ok
+
                 return ok(_make_event_data())
 
         engine.register_executor("EventSource", FakeSource())
@@ -217,20 +268,27 @@ class TestExportMA2Processor:
 
     def test_missing_output_path(self):
         g = Graph()
-        g.add_block(Block(
-            id="source", name="S", block_type="EventSource",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(), output_ports=(
-                Port("events_out", PortType.EVENT, Direction.OUTPUT),
-            ),
-        ))
-        g.add_block(Block(
-            id="export", name="E", block_type="ExportMA2",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(Port("events_in", PortType.EVENT, Direction.INPUT),),
-            output_ports=(),
-            settings=BlockSettings({}),
-        ))
+        g.add_block(
+            Block(
+                id="source",
+                name="S",
+                block_type="EventSource",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(),
+                output_ports=(Port("events_out", PortType.EVENT, Direction.OUTPUT),),
+            )
+        )
+        g.add_block(
+            Block(
+                id="export",
+                name="E",
+                block_type="ExportMA2",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(Port("events_in", PortType.EVENT, Direction.INPUT),),
+                output_ports=(),
+                settings=BlockSettings({}),
+            )
+        )
         g.add_connection(Connection("source", "events_out", "export", "events_in"))
 
         bus = RuntimeBus()
@@ -239,6 +297,7 @@ class TestExportMA2Processor:
         class FakeSource:
             def execute(self, block_id, context):
                 from echozero.result import ok
+
                 return ok(_make_event_data())
 
         engine.register_executor("EventSource", FakeSource())
@@ -248,13 +307,17 @@ class TestExportMA2Processor:
 
     def test_no_events_input_returns_error(self):
         g = Graph()
-        g.add_block(Block(
-            id="export", name="E", block_type="ExportMA2",
-            category=BlockCategory.PROCESSOR,
-            input_ports=(Port("events_in", PortType.EVENT, Direction.INPUT),),
-            output_ports=(),
-            settings=BlockSettings({"output_path": "/tmp/x.xml"}),
-        ))
+        g.add_block(
+            Block(
+                id="export",
+                name="E",
+                block_type="ExportMA2",
+                category=BlockCategory.PROCESSOR,
+                input_ports=(Port("events_in", PortType.EVENT, Direction.INPUT),),
+                output_ports=(),
+                settings=BlockSettings({"output_path": "/tmp/x.xml"}),
+            )
+        )
         bus = RuntimeBus()
         engine = ExecutionEngine(g, bus)
         engine.register_executor("ExportMA2", ExportMA2Processor(lambda c, p: p))

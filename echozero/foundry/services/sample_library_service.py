@@ -46,7 +46,11 @@ class SampleLibraryService:
                     audio_ref=sample.audio_ref,
                     label=sample.label,
                     state=state,
-                    source_type=str(version.lineage.get("kind", version.manifest.get("schema", "dataset_version"))),
+                    source_type=str(
+                        version.lineage.get(
+                            "kind", version.manifest.get("schema", "dataset_version")
+                        )
+                    ),
                     source_ref=version.id,
                     provenance={
                         "dataset_id": version.dataset_id,
@@ -78,7 +82,9 @@ class SampleLibraryService:
         """Return a compact operator-facing summary of library state."""
         records = self._repository.list()
         state_counts = Counter(record.state.value for record in records)
-        class_counts = Counter(record.label for record in records if record.state is LibrarySampleState.APPROVED)
+        class_counts = Counter(
+            record.label for record in records if record.state is LibrarySampleState.APPROVED
+        )
         source_counts = Counter(record.source_type for record in records)
         return {
             "sample_count": len(records),
@@ -109,7 +115,11 @@ class SampleLibraryService:
 
     def _find_existing(self, candidate: SampleLibraryRecord) -> SampleLibraryRecord | None:
         for record in self._repository.list():
-            if record.content_hash and candidate.content_hash and record.content_hash != candidate.content_hash:
+            if (
+                record.content_hash
+                and candidate.content_hash
+                and record.content_hash != candidate.content_hash
+            ):
                 continue
             if record.audio_ref != candidate.audio_ref:
                 continue

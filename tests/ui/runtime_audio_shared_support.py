@@ -293,5 +293,4 @@ def _event_slice_presentation() -> TimelinePresentation:
     )
 
 
-
 __all__ = [name for name in globals() if not name.startswith("__")]

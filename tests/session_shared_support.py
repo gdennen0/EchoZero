@@ -53,7 +53,6 @@ from echozero.persistence.repositories import PipelineConfigRepository
 from echozero.persistence.session import ProjectStorage
 from echozero.takes import Take, TakeSource
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -95,9 +94,7 @@ def _make_graph() -> Graph:
         name="Detector",
         block_type="onset_detector",
         category=BlockCategory.PROCESSOR,
-        input_ports=(
-            Port(name="audio_in", port_type=PortType.AUDIO, direction=Direction.INPUT),
-        ),
+        input_ports=(Port(name="audio_in", port_type=PortType.AUDIO, direction=Direction.INPUT),),
         output_ports=(
             Port(name="events_out", port_type=PortType.EVENT, direction=Direction.OUTPUT),
         ),
@@ -105,19 +102,25 @@ def _make_graph() -> Graph:
     )
     graph.add_block(b1)
     graph.add_block(b2)
-    graph.add_connection(Connection(
-        source_block_id="b1",
-        source_output_name="audio_out",
-        target_block_id="b2",
-        target_input_name="audio_in",
-    ))
+    graph.add_connection(
+        Connection(
+            source_block_id="b1",
+            source_output_name="audio_out",
+            target_block_id="b2",
+            target_input_name="audio_in",
+        )
+    )
     return graph
 
 
 def _make_song(project_id: str, **kw) -> SongRecord:
     defaults = dict(
-        id=_uid(), project_id=project_id, title="SongRecord A",
-        artist="Artist", order=0, active_version_id=None,
+        id=_uid(),
+        project_id=project_id,
+        title="SongRecord A",
+        artist="Artist",
+        order=0,
+        active_version_id=None,
     )
     defaults.update(kw)
     return SongRecord(**defaults)
@@ -125,9 +128,14 @@ def _make_song(project_id: str, **kw) -> SongRecord:
 
 def _make_version(song_id: str, **kw) -> SongVersionRecord:
     defaults = dict(
-        id=_uid(), song_id=song_id, label="Studio Mix",
-        audio_file="audio/song.wav", duration_seconds=180.0,
-        original_sample_rate=44100, audio_hash="abc123", created_at=_now(),
+        id=_uid(),
+        song_id=song_id,
+        label="Studio Mix",
+        audio_file="audio/song.wav",
+        duration_seconds=180.0,
+        original_sample_rate=44100,
+        audio_hash="abc123",
+        created_at=_now(),
     )
     defaults.update(kw)
     return SongVersionRecord(**defaults)
@@ -135,31 +143,53 @@ def _make_version(song_id: str, **kw) -> SongVersionRecord:
 
 def _make_layer(song_version_id: str, **kw) -> LayerRecord:
     defaults = dict(
-        id=_uid(), song_version_id=song_version_id, name="Drums",
-        layer_type="analysis", color="#FF0000", order=0,
-        visible=True, locked=False, parent_layer_id=None,
-        source_pipeline=None, created_at=_now(),
+        id=_uid(),
+        song_version_id=song_version_id,
+        name="Drums",
+        layer_type="analysis",
+        color="#FF0000",
+        order=0,
+        visible=True,
+        locked=False,
+        parent_layer_id=None,
+        source_pipeline=None,
+        created_at=_now(),
     )
     defaults.update(kw)
     return LayerRecord(**defaults)
 
 
 def _make_event_data() -> EventData:
-    return EventData(layers=(
-        Layer(id=_uid(), name="onsets", events=(
-            Event(
-                id=_uid(), time=1.0, duration=0.1,
-                classifications={"type": "kick"}, metadata={}, origin="pipeline",
+    return EventData(
+        layers=(
+            Layer(
+                id=_uid(),
+                name="onsets",
+                events=(
+                    Event(
+                        id=_uid(),
+                        time=1.0,
+                        duration=0.1,
+                        classifications={"type": "kick"},
+                        metadata={},
+                        origin="pipeline",
+                    ),
+                ),
             ),
-        )),
-    ))
+        )
+    )
 
 
 def _make_take(is_main: bool = False, **kw) -> Take:
     defaults = dict(
-        id=_uid(), label="Take 1", data=_make_event_data(),
-        origin="pipeline", source=None, created_at=_now(),
-        is_main=is_main, notes="",
+        id=_uid(),
+        label="Take 1",
+        data=_make_event_data(),
+        origin="pipeline",
+        source=None,
+        created_at=_now(),
+        is_main=is_main,
+        notes="",
     )
     defaults.update(kw)
     return Take(**defaults)
@@ -186,7 +216,6 @@ def event_bus():
 # ---------------------------------------------------------------------------
 # DirtyTracker unit tests
 # ---------------------------------------------------------------------------
-
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

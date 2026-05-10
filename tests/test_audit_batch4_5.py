@@ -17,7 +17,6 @@ from echozero.persistence.archive import is_valid_ez, pack_ez
 from echozero.persistence.schema import apply_migrations, init_db
 from echozero.pipelines.registry import PipelineRegistry, PipelineTemplate
 
-
 # ---------------------------------------------------------------------------
 # P6: Migration guard — V1 table never existed
 # ---------------------------------------------------------------------------
@@ -167,6 +166,7 @@ def test_registry_clear():
 
     def builder():
         from echozero.domain.graph import Graph
+
         return Graph()
 
     template = PipelineTemplate(

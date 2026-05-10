@@ -33,8 +33,7 @@ def _default_onset_detect(
         import numpy as np
     except ImportError:
         raise NotImplementedError(
-            "Default onset detection requires librosa. "
-            "Install with: pip install librosa"
+            "Default onset detection requires librosa. " "Install with: pip install librosa"
         )
 
     y, sr = librosa.load(file_path, sr=sample_rate, mono=True)
@@ -173,9 +172,7 @@ class DetectOnsetsProcessor:
                 timing_offset_ms=timing_offset_ms,
             )
         except Exception as exc:
-            return err(
-                ExecutionError(f"Onset detection failed for block '{block_id}': {exc}")
-            )
+            return err(ExecutionError(f"Onset detection failed for block '{block_id}': {exc}"))
 
         # Report halfway
         context.progress_bus.publish(
