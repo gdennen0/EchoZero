@@ -946,6 +946,11 @@ class Orchestrator:
                 now=now,
                 source_audio_path=source_audio_path,
             )
+            if self._is_stem_audio_output(pipeline_id=pipeline_id, output_name=output_name):
+                layer_record = replace(
+                    layer_record,
+                    state_flags={**layer_record.state_flags, "mute": True},
+                )
             session.layers.create(layer_record)
             is_main = True
 
@@ -1006,6 +1011,17 @@ class Orchestrator:
         take_ids.append(take.id)
         self._enforce_take_limit(session, layer_record_id)
         return layer_ids, take_ids
+
+    @staticmethod
+    def _is_stem_audio_output(*, pipeline_id: str, output_name: str) -> bool:
+        normalized_pipeline_id = str(pipeline_id or "").strip().lower()
+        normalized_output_name = str(output_name or "").strip().lower()
+        return normalized_pipeline_id == "stem_separation" and normalized_output_name in {
+            "drums",
+            "bass",
+            "vocals",
+            "other",
+        }
 
     def _persist_object_content_for_take(
         self,

@@ -61,6 +61,7 @@ def test_app_shell_runtime_extract_stems_persists_audio_layers_and_takes():
             assert layer.kind.name == "AUDIO"
             assert layer.main_take_id is not None
             assert layer.source_audio_path
+            assert layer.muted is True
             assert layer.status.source_label.startswith("stem_separation")
             assert layer.source_content_ref is not None
             source_content = runtime.project_storage.object_contents.get(
@@ -75,6 +76,7 @@ def test_app_shell_runtime_extract_stems_persists_audio_layers_and_takes():
             layer_record = runtime.project_storage.layers.get(str(layer.layer_id))
             assert layer_record is not None
             assert layer_record.parent_layer_id is None
+            assert layer_record.state_flags["mute"] is True
             assert layer_record.provenance["source_layer_id"] == str(
                 presentation.layers[0].layer_id
             )
