@@ -485,6 +485,7 @@ class LayerPresentation:
     main_content_id: ObjectContentId | None = None
     main_revision_id: ObjectRevisionId | None = None
     source_content_ref: SourceRef | None = None
+    parent_layer_id: LayerId | None = None
 
     def __post_init__(self) -> None:
         if not self.header_controls:

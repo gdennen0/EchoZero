@@ -396,6 +396,7 @@ class Layer:
     status: LayerStatus = field(default_factory=LayerStatus)
     provenance: LayerProvenance = field(default_factory=LayerProvenance)
     presentation_hints: LayerPresentationHints = field(default_factory=LayerPresentationHints)
+    parent_layer_id: LayerId | None = None
     object_id: TimelineObjectId | None = None
     main_content_id: ObjectContentId | None = None
     main_revision_id: ObjectRevisionId | None = None

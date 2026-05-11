@@ -45,6 +45,8 @@ def assemble_layer(
     take_rows = _assemble_take_rows(layer, state=state)
 
     badges: list[str] = ["main", layer.kind.value]
+    if layer.parent_layer_id is not None:
+        badges.append("child")
     if layer.sync.connected:
         badges.append("sync")
 
@@ -68,6 +70,7 @@ def assemble_layer(
         main_content_id=layer.main_content_id,
         main_revision_id=layer.main_revision_id,
         source_content_ref=layer.source_content_ref,
+        parent_layer_id=layer.parent_layer_id,
         main_take_id=primary_take.id if primary_take is not None else None,
         title=layer.name,
         subtitle="",

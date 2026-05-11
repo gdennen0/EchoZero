@@ -66,6 +66,11 @@ class ObjectActionSettingsPersistenceMixin:
         if source_layer_id is None:
             return
         persisted_source_layer_id = str(source_layer_id)
+        persisted_parent_layer_id = (
+            persisted_source_layer_id
+            if self.project_storage.layers.get(persisted_source_layer_id) is not None
+            else None
+        )
         updated_version_ids: set[str] = set()
         with self.project_storage.transaction():
             for generated_layer_id in analysis_result.layer_ids:
@@ -73,10 +78,19 @@ class ObjectActionSettingsPersistenceMixin:
                 if layer_record is None:
                     continue
                 provenance = dict(layer_record.provenance)
-                if provenance.get("source_layer_id") == persisted_source_layer_id:
+                if (
+                    provenance.get("source_layer_id") == persisted_source_layer_id
+                    and layer_record.parent_layer_id == persisted_parent_layer_id
+                ):
                     continue
                 provenance["source_layer_id"] = persisted_source_layer_id
-                self.project_storage.layers.update(replace(layer_record, provenance=provenance))
+                self.project_storage.layers.update(
+                    replace(
+                        layer_record,
+                        parent_layer_id=persisted_parent_layer_id,
+                        provenance=provenance,
+                    )
+                )
                 updated_version_ids.add(str(layer_record.song_version_id))
         for song_version_id in updated_version_ids:
             self.project_storage.dirty_tracker.mark_dirty(song_version_id)

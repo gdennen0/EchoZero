@@ -70,6 +70,15 @@ def test_app_shell_runtime_extract_stems_persists_audio_layers_and_takes():
             assert source_content.object_id == str(layer.source_content_ref.object_id)
             assert source_content.revision_id == str(layer.source_content_ref.revision_id)
 
+            assert layer.parent_layer_id == presentation.layers[0].layer_id
+            assert "child" in layer.badges
+            layer_record = runtime.project_storage.layers.get(str(layer.layer_id))
+            assert layer_record is not None
+            assert layer_record.parent_layer_id is None
+            assert layer_record.provenance["source_layer_id"] == str(
+                presentation.layers[0].layer_id
+            )
+
             layer_object = runtime.project_storage.timeline_objects.get(str(layer.object_id))
             assert layer_object is not None
             assert layer_object.main_content_id == str(layer.main_content_id)

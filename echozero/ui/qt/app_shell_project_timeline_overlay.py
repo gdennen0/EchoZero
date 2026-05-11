@@ -81,7 +81,9 @@ def apply_timeline_presentation_overlay(
         layers.append(
             replace(
                 layer,
-                badges=layer_badges(layer.title, layer.kind),
+                badges=layer_badges(
+                    layer.title, layer.kind, parent_layer_id=layer.parent_layer_id
+                ),
                 waveform_key=layer_fields.waveform_key,
                 source_audio_path=layer_fields.source_audio_path,
                 playback_source_ref=layer_fields.playback_source_ref,
@@ -106,10 +108,17 @@ def apply_timeline_presentation_overlay(
     )
 
 
-def layer_badges(name: str, kind: LayerKind) -> list[str]:
+def layer_badges(
+    name: str,
+    kind: LayerKind,
+    *,
+    parent_layer_id: object | None = None,
+) -> list[str]:
     """Compute default layer badges for runtime presentation."""
 
     badges = ["main", kind.value]
+    if parent_layer_id is not None:
+        badges.append("child")
     if kind is LayerKind.AUDIO and name.strip().lower() != "imported song":
         badges.append("stem")
     if "drum" in name.strip().lower():

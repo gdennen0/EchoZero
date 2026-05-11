@@ -140,6 +140,24 @@ def test_build_storage_layer_restores_layer_mute_and_solo_state_flags():
     assert layer.mixer.solo is True
 
 
+def test_build_storage_layer_restores_parent_layer_relationship():
+    takes = _layer_takes()
+    storage = _StubProjectStorage({"layer_drums": takes})
+
+    layer, _, _ = build_storage_layer(
+        storage,
+        TimelineId("timeline_runtime"),
+        _layer_record(
+            layer_id="layer_drums",
+            state_flags={},
+            parent_layer_id="layer_song",
+        ),
+    )
+
+    assert layer is not None
+    assert layer.parent_layer_id == "layer_song"
+
+
 def test_build_storage_layer_resolves_event_take_playback_source_ref_from_snapshot():
     take = PersistedTake.create(
         data=EventData(layers=()),
@@ -175,7 +193,12 @@ def test_build_storage_layer_resolves_event_take_playback_source_ref_from_snapsh
     assert Path(take_audio_fields.playback_source_ref).as_posix().endswith("stems/drums.wav")
 
 
-def _layer_record(*, layer_id: str, state_flags: dict[str, Any]) -> LayerRecord:
+def _layer_record(
+    *,
+    layer_id: str,
+    state_flags: dict[str, Any],
+    parent_layer_id: str | None = None,
+) -> LayerRecord:
     return LayerRecord(
         id=layer_id,
         song_version_id="song_version_runtime",
@@ -185,7 +208,7 @@ def _layer_record(*, layer_id: str, state_flags: dict[str, Any]) -> LayerRecord:
         order=0,
         visible=True,
         locked=False,
-        parent_layer_id=None,
+        parent_layer_id=parent_layer_id,
         source_pipeline=None,
         created_at=datetime.now(timezone.utc),
         state_flags=state_flags,

@@ -185,6 +185,7 @@ def build_storage_layer(
         name=layer_record.name.title(),
         kind=main_kind,
         order_index=int(layer_record.order) + 1,
+        parent_layer_id=_parent_layer_id_from_record(layer_record),
         object_id=TimelineObjectId(object_record.id),
         main_content_id=ObjectContentId(object_record.main_content_id),
         main_revision_id=ObjectRevisionId(main_content.revision_id),
@@ -237,6 +238,19 @@ def build_storage_layer(
         ),
     )
     return layer, main_audio, take_audio
+
+
+def _parent_layer_id_from_record(layer_record) -> LayerId | None:
+    """Resolve best-known parent layer identity for generated child rows."""
+
+    if layer_record.parent_layer_id is not None:
+        return LayerId(str(layer_record.parent_layer_id))
+    provenance = layer_record.provenance or {}
+    source_layer_id = provenance.get("source_layer_id")
+    if source_layer_id is None:
+        return None
+    candidate = str(source_layer_id).strip()
+    return LayerId(candidate) if candidate else None
 
 
 def layer_take_lanes_expanded(layer_record) -> bool:
