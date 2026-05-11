@@ -348,11 +348,6 @@ class AppSettingsService:
                 descriptor.action_id,
                 bool(updates.get(key)),
             )
-
-        selected_action_ids = AppSettingsService._apply_legacy_import_toggle_overrides(
-            selected_action_ids,
-            updates,
-        )
         return canonical_import_pipeline_action_ids(selected_action_ids)
 
     @staticmethod
@@ -368,26 +363,6 @@ class AppSettingsService:
                     resolved.append(text)
             return tuple(resolved)
         return ()
-
-    @staticmethod
-    def _apply_legacy_import_toggle_overrides(
-        selected_action_ids: list[str],
-        updates: Mapping[str, object],
-    ) -> list[str]:
-        legacy_toggles = (
-            ("import.run_extract_stems", "timeline.extract_stems"),
-            ("import.run_extract_song_drum_events", "timeline.extract_song_drum_events"),
-        )
-        resolved = list(selected_action_ids)
-        for key, action_id in legacy_toggles:
-            if key not in updates:
-                continue
-            resolved = AppSettingsService._set_action_enabled(
-                resolved,
-                action_id,
-                bool(updates.get(key)),
-            )
-        return resolved
 
     @staticmethod
     def _set_action_enabled(
@@ -452,10 +427,6 @@ class AppSettingsService:
             "osc_send.host": preferences.ma3_osc.send.host,
             "osc_send.port": preferences.ma3_osc.send.port or 0,
             "import.strip_ltc_timecode": preferences.song_import.strip_ltc_timecode,
-            "import.run_extract_stems": preferences.song_import.run_extract_stems,
-            "import.run_extract_song_drum_events": (
-                preferences.song_import.run_extract_song_drum_events
-            ),
             "import.pipeline_action_ids": preferences.song_import.pipeline_action_ids,
         }
         configured_action_ids = set(preferences.song_import.pipeline_action_ids)

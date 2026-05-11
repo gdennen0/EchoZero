@@ -16,11 +16,6 @@ from echozero.application.timeline.object_actions.descriptors import (
     descriptor_for_action,
 )
 
-_LEGACY_IMPORT_ACTION_IDS: tuple[tuple[str, str], ...] = (
-    ("run_extract_stems", "timeline.extract_stems"),
-    ("run_extract_song_drum_events", "timeline.extract_song_drum_events"),
-)
-
 _IMPORT_ACTION_PRIORITY: dict[str, int] = {
     "timeline.extract_stems": 0,
     "timeline.extract_song_drum_events": 1,
@@ -136,23 +131,13 @@ class SongImportPreferences:
     """Machine-local defaults for song/version import behavior."""
 
     strip_ltc_timecode: bool = True
-    run_extract_stems: bool = False
-    run_extract_song_drum_events: bool = False
     pipeline_action_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        action_ids = list(self.pipeline_action_ids)
-        if self.run_extract_stems:
-            action_ids.append("timeline.extract_stems")
-        if self.run_extract_song_drum_events:
-            action_ids.append("timeline.extract_song_drum_events")
-        canonical_ids = canonical_import_pipeline_action_ids(action_ids)
-        object.__setattr__(self, "pipeline_action_ids", canonical_ids)
-        object.__setattr__(self, "run_extract_stems", "timeline.extract_stems" in canonical_ids)
         object.__setattr__(
             self,
-            "run_extract_song_drum_events",
-            "timeline.extract_song_drum_events" in canonical_ids,
+            "pipeline_action_ids",
+            canonical_import_pipeline_action_ids(self.pipeline_action_ids),
         )
 
 
@@ -248,15 +233,11 @@ def app_preferences_from_dict(payload: dict[str, Any] | None) -> AppPreferences:
     osc = _mapping_or_empty(data.get("ma3_osc"))
     receive = _mapping_or_empty(osc.get("receive"))
     send = _mapping_or_empty(osc.get("send"))
-    song_import = _mapping_or_empty(data.get("song_import", data.get("import")))
+    song_import = _mapping_or_empty(data.get("song_import"))
     pipeline_action_ids = canonical_import_pipeline_action_ids(
         _coerce_pipeline_action_ids(
             song_import.get("pipeline_action_ids", song_import.get("action_ids"))
         )
-    )
-    pipeline_action_ids = _apply_legacy_import_action_overrides(
-        pipeline_action_ids,
-        song_import,
     )
 
     return AppPreferences(
@@ -272,23 +253,14 @@ def app_preferences_from_dict(payload: dict[str, Any] | None) -> AppPreferences:
         ),
         ma3_osc=MA3OscPreferences(
             receive=OscReceivePreferences(
-                enabled=bool(receive.get("enabled", osc.get("listen_enabled", False))),
-                host=_coerce_text(
-                    receive.get("host", osc.get("listen_host")),
-                    default="127.0.0.1",
-                ),
-                port=_coerce_non_negative_int(
-                    receive.get("port", osc.get("listen_port")),
-                    default=0,
-                ),
+                enabled=bool(receive.get("enabled", False)),
+                host=_coerce_text(receive.get("host"), default="127.0.0.1"),
+                port=_coerce_non_negative_int(receive.get("port"), default=0),
             ),
             send=OscSendPreferences(
-                enabled=bool(send.get("enabled", osc.get("command_enabled", False))),
-                host=_coerce_text(
-                    send.get("host", osc.get("command_host")),
-                    default="127.0.0.1",
-                ),
-                port=_coerce_optional_positive_int(send.get("port", osc.get("command_port"))),
+                enabled=bool(send.get("enabled", False)),
+                host=_coerce_text(send.get("host"), default="127.0.0.1"),
+                port=_coerce_optional_positive_int(send.get("port")),
             ),
         ),
         song_import=SongImportPreferences(
@@ -349,26 +321,6 @@ def _coerce_pipeline_action_ids(value: object) -> tuple[str, ...]:
                 resolved.append(text)
         return tuple(resolved)
     return ()
-
-
-def _apply_legacy_import_action_overrides(
-    pipeline_action_ids: tuple[str, ...],
-    song_import: dict[str, Any],
-) -> tuple[str, ...]:
-    resolved = list(pipeline_action_ids)
-    for legacy_key, action_id in _LEGACY_IMPORT_ACTION_IDS:
-        if legacy_key not in song_import:
-            continue
-        if bool(song_import.get(legacy_key)):
-            if action_id not in resolved:
-                resolved.append(action_id)
-        else:
-            resolved = [
-                candidate_action_id
-                for candidate_action_id in resolved
-                if candidate_action_id != action_id
-            ]
-    return canonical_import_pipeline_action_ids(resolved)
 
 
 def _coerce_recent_project_paths(value: object) -> tuple[str, ...]:

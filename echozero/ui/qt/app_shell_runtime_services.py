@@ -163,14 +163,6 @@ def build_playback_controller(
     )
 
 
-def build_runtime_audio_controller(
-    audio_output_config: AudioOutputRuntimeConfig | None = None,
-) -> ProcessPlaybackClient:
-    """Compatibility alias for callers that still say `build_runtime_audio_controller`."""
-
-    return build_playback_controller(audio_output_config)
-
-
 def _coerce_project_ma3_push_offset_seconds(value: object) -> float:
     try:
         return float(value)

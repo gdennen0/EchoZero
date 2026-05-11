@@ -109,8 +109,6 @@ def test_app_settings_service_apply_updates_persists_audio_osc_and_import_change
     assert result.preferences.ma3_osc.send.enabled is True
     assert result.preferences.ma3_osc.send.port == 9000
     assert result.preferences.song_import.strip_ltc_timecode is True
-    assert result.preferences.song_import.run_extract_stems is True
-    assert result.preferences.song_import.run_extract_song_drum_events is True
     assert result.preferences.song_import.pipeline_action_ids == (
         "timeline.extract_stems",
         "timeline.extract_song_drum_events",
@@ -133,23 +131,6 @@ def test_app_settings_service_apply_updates_rejects_output_channels_above_suppor
 
     with pytest.raises(AppSettingsValidationError, match="between 1 and 16"):
         service.apply_updates({"audio.output_channels": 17})
-
-
-def test_app_settings_service_apply_updates_accepts_legacy_import_toggle_keys() -> None:
-    service = AppSettingsService(_MemoryStore(), audio_device_options_provider=_device_options)
-
-    result = service.apply_updates(
-        {
-            "import.run_extract_stems": True,
-            "import.run_extract_song_drum_events": True,
-        }
-    )
-
-    assert result.song_import_changed is True
-    assert result.preferences.song_import.pipeline_action_ids == (
-        "timeline.extract_stems",
-        "timeline.extract_song_drum_events",
-    )
 
 
 def test_app_settings_service_resolve_audio_output_config_converts_runtime_types() -> None:
@@ -213,32 +194,6 @@ def test_app_settings_service_resolve_ma3_osc_runtime_config_merges_launch_overr
     assert config.send.enabled is True
     assert config.send.host == "10.0.0.2"
     assert config.send.port == 9000
-
-
-def test_app_preferences_from_dict_accepts_legacy_flat_ma3_shape() -> None:
-    preferences = app_preferences_from_dict(
-        {
-            "ma3_osc": {
-                "listen_enabled": True,
-                "listen_host": "127.0.0.1",
-                "listen_port": 7100,
-                "command_enabled": True,
-                "command_host": "10.0.0.2",
-                "command_port": 9000,
-            }
-        }
-    )
-
-    assert preferences.ma3_osc.receive == OscReceivePreferences(
-        enabled=True,
-        host="127.0.0.1",
-        port=7100,
-    )
-    assert preferences.ma3_osc.send == OscSendPreferences(
-        enabled=True,
-        host="10.0.0.2",
-        port=9000,
-    )
 
 
 def test_app_settings_service_recent_project_paths_preserve_order_and_limit() -> None:
@@ -313,31 +268,10 @@ def test_app_preferences_from_dict_parses_song_import_pipeline_actions() -> None
     )
 
     assert preferences.song_import.strip_ltc_timecode is False
-    assert preferences.song_import.run_extract_stems is True
-    assert preferences.song_import.run_extract_song_drum_events is True
     assert preferences.song_import.pipeline_action_ids == (
         "timeline.extract_stems",
         "timeline.extract_song_drum_events",
     )
-
-
-def test_app_preferences_from_dict_legacy_import_toggle_overrides_pipeline_action_ids() -> None:
-    preferences = app_preferences_from_dict(
-        {
-            "song_import": {
-                "pipeline_action_ids": [
-                    "timeline.extract_stems",
-                    "timeline.extract_song_drum_events",
-                ],
-                "run_extract_stems": False,
-                "run_extract_song_drum_events": True,
-            }
-        }
-    )
-
-    assert preferences.song_import.pipeline_action_ids == ("timeline.extract_song_drum_events",)
-    assert preferences.song_import.run_extract_stems is False
-    assert preferences.song_import.run_extract_song_drum_events is True
 
 
 def test_app_preferences_from_dict_filters_non_import_safe_actions() -> None:

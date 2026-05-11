@@ -193,9 +193,6 @@ class SongBrowserPanel(QWidget):
         self._songs_tree.model().rowsMoved.connect(self._handle_song_rows_moved)
         browser_layout.addWidget(self._songs_tree, 2)
 
-        # Backward-compatible alias used by existing tests/support helpers.
-        self._tree = self._songs_tree
-
         version_header = QWidget(self._browser_page)
         version_header.setObjectName("songBrowserVersionsHeader")
         version_header_layout = QHBoxLayout(version_header)

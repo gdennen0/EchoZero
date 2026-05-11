@@ -1,4 +1,5 @@
 from tests.ui.app_shell_runtime_flow_support import (
+    test_build_playback_controller_defaults_to_engine_continuous_audio,
     test_app_shell_runtime_add_layer_after_song_defers_runtime_audio_build_while_stopped,
     test_app_shell_runtime_add_layer_after_song_rebuilds_runtime_audio_while_playing,
     test_app_shell_runtime_add_layer_after_song_survives_storage_refresh,

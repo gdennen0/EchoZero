@@ -726,22 +726,10 @@ def build_launcher_surface(
     }
     if resolved_app_settings_service is not None:
         widget_kwargs["app_settings_service"] = resolved_app_settings_service
-    try:
-        widget = TimelineWidget(
-            runtime.presentation(),
-            **widget_kwargs,
-        )
-    except TypeError as exc:
-        # Test fakes and legacy widget shims may not accept newer widget kwargs yet.
-        message = str(exc)
-        if "app_settings_service" not in message and "initial_header_width" not in message:
-            raise
-        widget_kwargs.pop("app_settings_service", None)
-        widget_kwargs.pop("initial_header_width", None)
-        widget = TimelineWidget(
-            runtime.presentation(),
-            **widget_kwargs,
-        )
+    widget = TimelineWidget(
+        runtime.presentation(),
+        **widget_kwargs,
+    )
     widget.setObjectName("echozero.shell")
     initial_width, initial_height = resolve_initial_window_size(widget)
     set_minimum_size = getattr(widget, "setMinimumSize", None)

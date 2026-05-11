@@ -1,6 +1,6 @@
 """Runtime-audio app-shell flow support cases.
 Exists to isolate runtime-audio rebuild and canonical build assertions from project and pipeline support tests.
-Connects the compatibility wrapper to the bounded audio support slice.
+Connects canonical playback-controller construction to the bounded audio support slice.
 """
 
 import shutil
@@ -13,7 +13,7 @@ from echozero.audio.engine import AudioEngine
 from echozero.application.playback.process_client import ProcessPlaybackClient
 from echozero.testing.analysis_mocks import build_mock_analysis_service, write_test_wav
 from echozero.ui.qt.app_shell import AppShellRuntime, build_app_shell
-from echozero.ui.qt.app_shell_runtime_services import build_runtime_audio_controller
+from echozero.ui.qt.app_shell_runtime_services import build_playback_controller
 from echozero.ui.qt.timeline.runtime_audio import TimelineRuntimeAudioController
 from tests.ui.app_shell_runtime_flow_shared_support import (
     _CountedRuntimeAudio,
@@ -84,8 +84,8 @@ def test_app_shell_runtime_apply_audio_output_config_reconfigures_runtime_audio_
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
-def test_build_runtime_audio_controller_defaults_to_engine_continuous_audio():
-    controller = build_runtime_audio_controller()
+def test_build_playback_controller_defaults_to_engine_continuous_audio():
+    controller = build_playback_controller()
 
     try:
         assert controller is not None

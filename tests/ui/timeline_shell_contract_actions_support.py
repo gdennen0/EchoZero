@@ -1160,7 +1160,7 @@ def test_timeline_drop_import_runs_configured_import_pipeline_actions(tmp_path):
 
         def __init__(self) -> None:
             self._preferences = AppPreferences(
-                song_import=SongImportPreferences(run_extract_stems=True)
+                song_import=SongImportPreferences(pipeline_action_ids=("timeline.extract_stems",))
             )
 
         def load(self) -> AppPreferences:

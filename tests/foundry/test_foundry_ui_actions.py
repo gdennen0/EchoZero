@@ -93,13 +93,18 @@ def test_foundry_window_create_and_start_runs_in_background_with_live_updates(
     window._create_and_ingest_dataset()
     window._plan_version()
 
-    original_train = window._app.runs._trainer.train
+    original_train = window._app.runs._baseline_trainer.train
 
-    def delayed_train(run, dataset_version, cancel_event=None):
+    def delayed_train(run, dataset_version, cancel_event=None, progress_callback=None):
         time.sleep(0.35)
-        return original_train(run, dataset_version, cancel_event=cancel_event)
+        return original_train(
+            run,
+            dataset_version,
+            cancel_event=cancel_event,
+            progress_callback=progress_callback,
+        )
 
-    monkeypatch.setattr(window._app.runs._trainer, "train", delayed_train)
+    monkeypatch.setattr(window._app.runs._baseline_trainer, "train", delayed_train)
 
     window._create_and_start_run()
 
@@ -132,11 +137,12 @@ def test_foundry_window_background_start_handles_failed_run_gracefully(
     window._plan_version()
     window._create_run()
 
-    def failing_train(run, dataset_version, cancel_event=None):
+    def failing_train(run, dataset_version, cancel_event=None, progress_callback=None):
+        del run, dataset_version, cancel_event, progress_callback
         time.sleep(0.2)
         raise RuntimeError("fixture training failure")
 
-    monkeypatch.setattr(window._app.runs._trainer, "train", failing_train)
+    monkeypatch.setattr(window._app.runs._baseline_trainer, "train", failing_train)
 
     window._start_run()
 
@@ -448,13 +454,18 @@ def test_foundry_window_queue_panel_updates_active_run_status_during_background_
     window._create_and_ingest_dataset()
     window._plan_version()
 
-    original_train = window._app.runs._trainer.train
+    original_train = window._app.runs._baseline_trainer.train
 
-    def delayed_train(run, dataset_version, cancel_event=None):
+    def delayed_train(run, dataset_version, cancel_event=None, progress_callback=None):
         time.sleep(0.35)
-        return original_train(run, dataset_version, cancel_event=cancel_event)
+        return original_train(
+            run,
+            dataset_version,
+            cancel_event=cancel_event,
+            progress_callback=progress_callback,
+        )
 
-    monkeypatch.setattr(window._app.runs._trainer, "train", delayed_train)
+    monkeypatch.setattr(window._app.runs._baseline_trainer, "train", delayed_train)
 
     window._create_and_start_run()
 
@@ -580,16 +591,21 @@ def test_foundry_window_queue_cancel_stops_active_background_run_with_feedback(
     window._create_and_ingest_dataset()
     window._plan_version()
 
-    original_train = window._app.runs._trainer.train
+    original_train = window._app.runs._baseline_trainer.train
 
-    def cancelable_train(run, dataset_version, cancel_event=None):
+    def cancelable_train(run, dataset_version, cancel_event=None, progress_callback=None):
         for _ in range(40):
             if cancel_event is not None and cancel_event.is_set():
                 raise RunCanceledError("run canceled")
             time.sleep(0.02)
-        return original_train(run, dataset_version, cancel_event=cancel_event)
+        return original_train(
+            run,
+            dataset_version,
+            cancel_event=cancel_event,
+            progress_callback=progress_callback,
+        )
 
-    monkeypatch.setattr(window._app.runs._trainer, "train", cancelable_train)
+    monkeypatch.setattr(window._app.runs._baseline_trainer, "train", cancelable_train)
 
     window._create_and_start_run()
 

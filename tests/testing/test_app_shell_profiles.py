@@ -34,10 +34,20 @@ def test_launcher_surface_builds_canonical_runtime_surface(monkeypatch):
     temp_root = _repo_local_temp_root()
 
     class FakeWidget:
-        def __init__(self, presentation, *, on_intent, runtime_audio) -> None:
+        def __init__(
+            self,
+            presentation,
+            *,
+            on_intent,
+            runtime_audio,
+            initial_header_width,
+            app_settings_service=None,
+        ) -> None:
             self.presentation = presentation
             self.on_intent = on_intent
             self.runtime_audio = runtime_audio
+            self.initial_header_width = initial_header_width
+            self.app_settings_service = app_settings_service
 
         def setObjectName(self, _name: str) -> None:
             pass

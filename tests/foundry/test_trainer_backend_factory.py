@@ -21,9 +21,9 @@ class _FakeBackend:
         raise NotImplementedError
 
 
-def test_resolve_defaults_to_legacy_backend(tmp_path):
+def test_resolve_defaults_to_baseline_backend(tmp_path):
     factory = TrainerBackendFactory()
-    legacy = BaselineTrainer(tmp_path)
+    baseline = BaselineTrainer(tmp_path)
 
     resolved = factory.resolve(
         {
@@ -40,43 +40,43 @@ def test_resolve_defaults_to_legacy_backend(tmp_path):
             },
             "training": {"epochs": 1, "batchSize": 1, "learningRate": 0.01},
         },
-        legacy_backend=legacy,
+        baseline_backend=baseline,
     )
 
-    assert resolved is legacy
+    assert resolved is baseline
 
 
 def test_resolve_rejects_unknown_model_type(tmp_path):
     factory = TrainerBackendFactory()
-    legacy = BaselineTrainer(tmp_path)
+    baseline = BaselineTrainer(tmp_path)
 
     with pytest.raises(ValueError, match="run_spec.model.type"):
-        factory.resolve({"model": {"type": "transformer"}}, legacy_backend=legacy)
+        factory.resolve({"model": {"type": "transformer"}}, baseline_backend=baseline)
 
 
 def test_resolve_cnn_backend(tmp_path):
     factory = TrainerBackendFactory()
-    legacy = BaselineTrainer(tmp_path)
+    baseline = BaselineTrainer(tmp_path)
 
-    resolved = factory.resolve({"model": {"type": "cnn"}}, legacy_backend=legacy)
+    resolved = factory.resolve({"model": {"type": "cnn"}}, baseline_backend=baseline)
     assert isinstance(resolved, CnnTrainer)
 
 
 def test_resolve_crnn_backend(tmp_path):
     factory = TrainerBackendFactory()
-    legacy = BaselineTrainer(tmp_path)
+    baseline = BaselineTrainer(tmp_path)
 
-    resolved = factory.resolve({"model": {"type": "crnn"}}, legacy_backend=legacy)
+    resolved = factory.resolve({"model": {"type": "crnn"}}, baseline_backend=baseline)
     assert isinstance(resolved, CrnnTrainer)
 
 
 def test_resolve_supports_registered_custom_backend(tmp_path):
     factory = TrainerBackendFactory()
-    legacy = BaselineTrainer(tmp_path)
+    baseline = BaselineTrainer(tmp_path)
 
     factory.register(
         "custom_runtime",
-        lambda run_spec, legacy_backend: _FakeBackend(str(run_spec.get("schema"))),
+        lambda run_spec, baseline_backend: _FakeBackend(str(run_spec.get("schema"))),
     )
 
     resolved = factory.resolve(
@@ -84,7 +84,7 @@ def test_resolve_supports_registered_custom_backend(tmp_path):
             "schema": "foundry.train_run_spec.v1",
             "training": {"backend": "custom_runtime"},
         },
-        legacy_backend=legacy,
+        baseline_backend=baseline,
     )
 
     assert isinstance(resolved, _FakeBackend)
@@ -93,7 +93,7 @@ def test_resolve_supports_registered_custom_backend(tmp_path):
 
 def test_resolve_rejects_unknown_registered_backend(tmp_path):
     factory = TrainerBackendFactory()
-    legacy = BaselineTrainer(tmp_path)
+    baseline = BaselineTrainer(tmp_path)
 
     with pytest.raises(ValueError, match="run_spec.training.backend"):
-        factory.resolve({"training": {"backend": "missing_backend"}}, legacy_backend=legacy)
+        factory.resolve({"training": {"backend": "missing_backend"}}, baseline_backend=baseline)
