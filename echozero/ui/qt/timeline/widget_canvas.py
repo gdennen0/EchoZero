@@ -28,6 +28,7 @@ from echozero.ui.qt.timeline.blocks.layer_header import HeaderSlots, LayerHeader
 from echozero.ui.qt.timeline.blocks.take_row import TakeRowBlock
 from echozero.ui.qt.timeline.blocks.waveform_lane import WaveformLaneBlock
 from echozero.ui.qt.timeline.layer_height_config import timeline_layer_height_config
+from echozero.ui.qt.timeline.layer_rows import TimelineLayerRow, build_timeline_layer_rows
 from echozero.ui.qt.timeline.style import TIMELINE_STYLE
 from echozero.ui.qt.timeline.time_grid import TimelineGridMode
 from echozero.ui.qt.timeline.widget_canvas_interaction_mixin import (
@@ -250,7 +251,8 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
     def _recompute_height(self) -> None:
         self._prune_row_height_overrides()
         height = self._top_padding
-        for layer in self.presentation.layers:
+        for row in self._layer_rows():
+            layer = row.layer
             height += self._main_row_height_for_layer(layer)
             if layer.is_expanded and not layer.is_fully_collapsed:
                 height += len(layer.takes) * self._take_row_height
@@ -357,6 +359,9 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
             if layer.layer_id == layer_id:
                 return self._main_row_height_for_layer(layer)
         return int(self._main_row_height)
+
+    def _layer_rows(self) -> list[TimelineLayerRow]:
+        return build_timeline_layer_rows(self.presentation.layers)
 
     def _set_main_row_height_for_layer(self, layer_id: LayerId, height: int) -> None:
         layer = next(

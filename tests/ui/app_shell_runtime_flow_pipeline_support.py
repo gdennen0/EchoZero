@@ -37,6 +37,8 @@ def _assert_presentation_object_refs_resolve(runtime, presentation) -> None:
 
 
 def test_app_shell_runtime_extract_stems_persists_audio_layers_and_takes():
+    from echozero.ui.qt.timeline.layer_rows import build_timeline_layer_rows
+
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(
         working_dir_root=temp_root / "working",
@@ -55,6 +57,17 @@ def test_app_shell_runtime_extract_stems_persists_audio_layers_and_takes():
         assert titles[:5] == ["Imported Song", "Drums", "Bass", "Vocals", "Other"]
         assert runtime.session.active_song_version_id is not None
         assert runtime.is_dirty is True
+        hierarchy_rows = build_timeline_layer_rows(presentation.layers)
+        assert [row.layer.title for row in hierarchy_rows[:5]] == [
+            "Imported Song",
+            "Drums",
+            "Bass",
+            "Vocals",
+            "Other",
+        ]
+        assert hierarchy_rows[0].depth == 0
+        assert hierarchy_rows[0].has_child_layers is True
+        assert [row.depth for row in hierarchy_rows[1:5]] == [1, 1, 1, 1]
 
         stem_layers = presentation.layers[1:5]
         for layer in stem_layers:

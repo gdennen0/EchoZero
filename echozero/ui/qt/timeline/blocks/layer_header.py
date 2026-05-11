@@ -40,6 +40,7 @@ class LayerHeaderBlock:
         layer: LayerPresentation,
         *,
         dimmed: bool = False,
+        has_child_layers: bool = False,
     ) -> HeaderHitTargets:
         rect = slots.rect
         fill_hex = (
@@ -72,7 +73,7 @@ class LayerHeaderBlock:
                 dimmed=dimmed,
             )
 
-        if layer.takes or layer.is_fully_collapsed:
+        if layer.takes or layer.is_fully_collapsed or has_child_layers:
             painter.setPen(QColor(self.style.toggle_border_hex))
             painter.setBrush(QBrush(QColor(self.style.toggle_fill_hex)))
             painter.drawRoundedRect(

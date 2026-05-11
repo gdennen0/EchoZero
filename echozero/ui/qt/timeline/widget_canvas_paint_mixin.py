@@ -286,13 +286,16 @@ class _TimelineCanvasPaintMixin:
 
     def _draw_layers(self: Any, painter: QPainter) -> None:
         y = self._top_padding
-        for layer in self.presentation.layers:
+        for row in self._layer_rows():
+            layer = row.layer
             row_height = self._main_row_height_for_layer(layer)
             self._draw_main_row(
                 painter,
                 layer,
                 y,
                 row_height=row_height,
+                hierarchy_depth=row.depth,
+                has_child_layers=row.has_child_layers,
             )
             y += row_height
             if layer.is_expanded and not layer.is_fully_collapsed:
@@ -344,6 +347,8 @@ class _TimelineCanvasPaintMixin:
         top: int,
         *,
         row_height: int,
+        hierarchy_depth: int = 0,
+        has_child_layers: bool = False,
     ) -> None:
         dimmed = self._layer_dimmed(layer)
         layout = MainRowLayout.create(
@@ -366,6 +371,22 @@ class _TimelineCanvasPaintMixin:
             painter.setPen(QPen(QColor("#8fd0ff"), 2))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRoundedRect(outline_rect, 8.0, 8.0)
+            painter.restore()
+        if hierarchy_depth > 0:
+            hierarchy_accent = QColor("#9aa4b0")
+            hierarchy_accent.setAlpha(84)
+            indent_px = min(34.0, 14.0 + (float(hierarchy_depth - 1) * 10.0))
+            painter.fillRect(
+                QRectF(0.0, float(top), indent_px, float(max(1, row_height) - 1)),
+                hierarchy_accent,
+            )
+            painter.save()
+            painter.setPen(QPen(QColor("#768190"), 1))
+            branch_x = indent_px + 5.0
+            branch_top = float(top + 8)
+            branch_mid = float(top + max(12, row_height // 2))
+            painter.drawLine(int(branch_x), int(branch_top), int(branch_x), int(branch_mid))
+            painter.drawLine(int(branch_x), int(branch_mid), int(branch_x + 8), int(branch_mid))
             painter.restore()
         if self._shows_section_overlay_for_layer(layer) and not layer.is_fully_collapsed:
             self._draw_section_overlay_band(painter, top=top, row_height=row_height)
@@ -395,7 +416,12 @@ class _TimelineCanvasPaintMixin:
             )
 
         slots = self._header_block_slots_factory(layout)
-        if layer.takes:
+        if hierarchy_depth > 0:
+            indent_px = min(44.0, 18.0 + (float(hierarchy_depth - 1) * 10.0))
+            slots.title_rect.adjust(indent_px, 0.0, 0.0, 0.0)
+            slots.status_rect.adjust(indent_px, 0.0, 0.0, 0.0)
+            slots.metadata_rect.adjust(indent_px, 0.0, 0.0, 0.0)
+        if layer.takes or layer.is_fully_collapsed or has_child_layers:
             self._toggle_rects.append((slots.toggle_rect, layer.layer_id))
         self._header_select_rects.append((layout.header_rect, layer.layer_id))
         if not layer.is_fully_collapsed:
@@ -406,7 +432,13 @@ class _TimelineCanvasPaintMixin:
             self._event_lane_rects.append(
                 (layout.content_rect, layer.layer_id, layer.main_take_id)
             )
-        hit_targets = self._header_block.paint(painter, slots, layer, dimmed=dimmed)
+        hit_targets = self._header_block.paint(
+            painter,
+            slots,
+            layer,
+            dimmed=dimmed,
+            has_child_layers=has_child_layers,
+        )
         for control_id, rect in hit_targets.control_rects:
             if control_id == "set_layer_mute":
                 self._mute_rects.append((rect, layer.layer_id))

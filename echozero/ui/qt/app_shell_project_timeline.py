@@ -178,6 +178,7 @@ def build_project_native_baseline_timeline(
             layers.append(layer)
             layer_audio[layer.id] = layer_fields
             take_audio.update(take_fields)
+    _expand_synthetic_source_layer_groups(layers)
     timeline = Timeline(
         id=timeline_id,
         song_version_id=SongVersionId(version.id),
@@ -207,6 +208,17 @@ def build_project_native_baseline_timeline(
         SongId(active_song.id),
         SongVersionId(version.id),
     )
+
+
+def _expand_synthetic_source_layer_groups(layers: list[Layer]) -> None:
+    """Default imported song source rows open when generated child layers exist."""
+
+    parent_layer_ids = {
+        layer.parent_layer_id for layer in layers if layer.parent_layer_id is not None
+    }
+    for layer in layers:
+        if layer.id in parent_layer_ids and str(layer.id).startswith("layer_song_"):
+            layer.presentation_hints.expanded = True
 
 
 def build_empty_project_timeline(project_storage: ProjectStorage) -> Timeline:

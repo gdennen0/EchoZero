@@ -16,6 +16,7 @@ from echozero.ui.FEEL import RULER_HEIGHT_PX, TAKE_ROW_HEIGHT_PX, TIMELINE_TRANS
 from echozero.ui.qt.font_bootstrap import ensure_qt_fonts_available
 from echozero.ui.qt.timeline.demo_app import build_demo_app
 from echozero.ui.qt.timeline.layer_height_config import timeline_layer_height_config
+from echozero.ui.qt.timeline.layer_rows import build_timeline_layer_rows
 from echozero.ui.qt.timeline.widget import TimelineWidget
 
 
@@ -64,10 +65,10 @@ def estimate_full_window_height(presentation: TimelinePresentation, *, minimum: 
     transport_height = TIMELINE_TRANSPORT_HEIGHT_PX
     hscroll_height = 20
 
-    take_rows = sum(len(layer.takes) for layer in presentation.layers if layer.is_expanded)
+    rows = build_timeline_layer_rows(presentation.layers)
+    take_rows = sum(len(row.layer.takes) for row in rows if row.layer.is_expanded)
     main_rows_height = sum(
-        int(main_row_heights_by_kind.get(layer.kind, default_main_row_height))
-        for layer in presentation.layers
+        int(main_row_heights_by_kind.get(row.layer.kind, default_main_row_height)) for row in rows
     )
     canvas_height = (
         ruler_height
