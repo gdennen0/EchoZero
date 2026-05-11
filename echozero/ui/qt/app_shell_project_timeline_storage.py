@@ -241,8 +241,10 @@ def build_storage_layer(
 
 
 def _parent_layer_id_from_record(layer_record) -> LayerId | None:
-    """Resolve best-known parent layer identity for generated child rows."""
+    """Resolve display parent identity for generated audio child rows."""
 
+    if not _layer_record_uses_parent_row(layer_record):
+        return None
     if layer_record.parent_layer_id is not None:
         return LayerId(str(layer_record.parent_layer_id))
     provenance = layer_record.provenance or {}
@@ -251,6 +253,21 @@ def _parent_layer_id_from_record(layer_record) -> LayerId | None:
         return None
     candidate = str(source_layer_id).strip()
     return LayerId(candidate) if candidate else None
+
+
+_STEM_CHILD_OUTPUT_NAMES = frozenset({"drums", "bass", "vocals", "other"})
+
+
+def _layer_record_uses_parent_row(layer_record) -> bool:
+    source_pipeline = getattr(layer_record, "source_pipeline", None) or {}
+    pipeline_id = str(source_pipeline.get("pipeline_id") or "").strip().lower()
+    output_name = str(source_pipeline.get("output_name") or "").strip().lower()
+    data_type = str(source_pipeline.get("data_type") or "").strip().lower()
+    return (
+        pipeline_id == "stem_separation"
+        and data_type == "audio"
+        and output_name in _STEM_CHILD_OUTPUT_NAMES
+    )
 
 
 def layer_take_lanes_expanded(layer_record) -> bool:

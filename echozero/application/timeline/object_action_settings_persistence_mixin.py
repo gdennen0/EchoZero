@@ -39,6 +39,23 @@ class ObjectActionSettingsPersistenceShell(ScopedConfigShell, Protocol):
     def _require_workflow(action_id: str) -> tuple[ActionDescriptor, str]: ...
 
 
+_STEM_CHILD_OUTPUT_NAMES = frozenset({"drums", "bass", "vocals", "other"})
+
+
+def _generated_layer_uses_parent_row(layer_record: object) -> bool:
+    """Return whether a generated layer should appear as a child row of its source."""
+
+    source_pipeline = getattr(layer_record, "source_pipeline", None) or {}
+    pipeline_id = str(source_pipeline.get("pipeline_id") or "").strip().lower()
+    output_name = str(source_pipeline.get("output_name") or "").strip().lower()
+    data_type = str(source_pipeline.get("data_type") or "").strip().lower()
+    return (
+        pipeline_id == "stem_separation"
+        and data_type == "audio"
+        and output_name in _STEM_CHILD_OUTPUT_NAMES
+    )
+
+
 class ObjectActionSettingsPersistenceMixin:
     """Provides scoped-config storage and generated-layer provenance updates."""
 
@@ -66,10 +83,8 @@ class ObjectActionSettingsPersistenceMixin:
         if source_layer_id is None:
             return
         persisted_source_layer_id = str(source_layer_id)
-        persisted_parent_layer_id = (
-            persisted_source_layer_id
-            if self.project_storage.layers.get(persisted_source_layer_id) is not None
-            else None
+        source_layer_exists = (
+            self.project_storage.layers.get(persisted_source_layer_id) is not None
         )
         updated_version_ids: set[str] = set()
         with self.project_storage.transaction():
@@ -78,6 +93,11 @@ class ObjectActionSettingsPersistenceMixin:
                 if layer_record is None:
                     continue
                 provenance = dict(layer_record.provenance)
+                persisted_parent_layer_id = (
+                    persisted_source_layer_id
+                    if source_layer_exists and _generated_layer_uses_parent_row(layer_record)
+                    else None
+                )
                 if (
                     provenance.get("source_layer_id") == persisted_source_layer_id
                     and layer_record.parent_layer_id == persisted_parent_layer_id

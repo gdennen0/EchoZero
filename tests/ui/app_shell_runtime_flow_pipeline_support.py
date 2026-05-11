@@ -606,6 +606,7 @@ def test_app_shell_runtime_extract_song_drum_events_adds_selected_stem_layers(mo
         event_titles = {layer.title for layer in event_layers}
         assert "Kick" in event_titles
         assert "Snare" in event_titles
+        assert all(layer.parent_layer_id is None for layer in event_layers)
         assert [
             (block_id, target_class, Path(audio_path).name)
             for block_id, target_class, audio_path in binary_executor.calls
@@ -675,6 +676,7 @@ def test_app_shell_runtime_extract_drum_events_persists_event_layers_from_drums_
         assert all(
             layer.status.source_layer_id == str(drums_layer.layer_id) for layer in event_layers
         )
+        assert all(layer.parent_layer_id is None for layer in event_layers)
         assert any(
             (layer.status.source_label or "").startswith("onset_detection")
             for layer in event_layers

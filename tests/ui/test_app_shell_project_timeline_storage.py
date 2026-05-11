@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from echozero.application.shared.ids import TimelineId
-from echozero.domain.types import EventData
+from echozero.domain.types import AudioData, EventData
 from echozero.application.timeline.object_content_persistence import (
     content_id_for_take,
     object_id_for_layer,
@@ -140,8 +140,8 @@ def test_build_storage_layer_restores_layer_mute_and_solo_state_flags():
     assert layer.mixer.solo is True
 
 
-def test_build_storage_layer_restores_parent_layer_relationship():
-    takes = _layer_takes()
+def test_build_storage_layer_restores_stem_audio_parent_layer_relationship():
+    takes = _audio_layer_takes()
     storage = _StubProjectStorage({"layer_drums": takes})
 
     layer, _, _ = build_storage_layer(
@@ -151,11 +151,39 @@ def test_build_storage_layer_restores_parent_layer_relationship():
             layer_id="layer_drums",
             state_flags={},
             parent_layer_id="layer_song",
+            source_pipeline={
+                "pipeline_id": "stem_separation",
+                "output_name": "drums",
+                "data_type": "audio",
+            },
         ),
     )
 
     assert layer is not None
     assert layer.parent_layer_id == "layer_song"
+
+
+def test_build_storage_layer_does_not_parent_event_layers_by_source_reference():
+    takes = _layer_takes()
+    storage = _StubProjectStorage({"layer_kick": takes})
+
+    layer, _, _ = build_storage_layer(
+        storage,
+        TimelineId("timeline_runtime"),
+        _layer_record(
+            layer_id="layer_kick",
+            state_flags={},
+            parent_layer_id="layer_drums",
+            source_pipeline={
+                "pipeline_id": "detect_drums",
+                "output_name": "kick",
+                "data_type": "event",
+            },
+        ),
+    )
+
+    assert layer is not None
+    assert layer.parent_layer_id is None
 
 
 def test_build_storage_layer_resolves_event_take_playback_source_ref_from_snapshot():
@@ -198,6 +226,7 @@ def _layer_record(
     layer_id: str,
     state_flags: dict[str, Any],
     parent_layer_id: str | None = None,
+    source_pipeline: dict[str, Any] | None = None,
 ) -> LayerRecord:
     return LayerRecord(
         id=layer_id,
@@ -209,11 +238,24 @@ def _layer_record(
         visible=True,
         locked=False,
         parent_layer_id=parent_layer_id,
-        source_pipeline=None,
+        source_pipeline=source_pipeline,
         created_at=datetime.now(timezone.utc),
         state_flags=state_flags,
         provenance={},
     )
+
+
+def _audio_layer_takes() -> list[PersistedTake]:
+    return [
+        PersistedTake.create(
+            data=AudioData(
+                sample_rate=44100, duration=1.0, file_path="drums.wav", channel_count=2
+            ),
+            label="Take 1",
+            origin="pipeline",
+            is_main=True,
+        )
+    ]
 
 
 def _layer_takes() -> list[PersistedTake]:
