@@ -201,6 +201,57 @@ def test_app_shell_runtime_extract_stems_registers_waveforms_for_main_and_take_a
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
+def test_app_shell_runtime_promote_stem_take_updates_main_content_on_child_layer():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=build_mock_analysis_service(),
+    )
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        audio_path = write_test_wav(temp_root / "fixtures" / "promote-stem.wav")
+        runtime.add_song_from_path("Imported Song", audio_path)
+        runtime.extract_stems("source_audio")
+        second_pass = runtime.extract_stems("source_audio")
+
+        drums_layer = next(layer for layer in second_pass.layers if layer.title == "Drums")
+        assert drums_layer.parent_layer_id == second_pass.layers[0].layer_id
+        assert drums_layer.takes
+        promoted_take = drums_layer.takes[0]
+        prior_main_take_id = drums_layer.main_take_id
+        prior_main_content_id = drums_layer.main_content_id
+
+        runtime.dispatch(
+            TriggerTakeAction(
+                layer_id=drums_layer.layer_id,
+                take_id=promoted_take.take_id,
+                action_id="overwrite_main",
+            )
+        )
+
+        promoted = next(layer for layer in runtime.presentation().layers if layer.title == "Drums")
+        assert promoted.parent_layer_id == second_pass.layers[0].layer_id
+        assert promoted.main_take_id == promoted_take.take_id
+        assert promoted.main_content_id == promoted_take.content_id
+        assert promoted.main_content_id != prior_main_content_id
+        assert [take.take_id for take in promoted.takes] == [prior_main_take_id]
+        assert promoted.takes[0].content_id == prior_main_content_id
+
+        layer_record = runtime.project_storage.layers.get(str(promoted.layer_id))
+        assert layer_record is not None
+        persisted_takes = runtime.project_storage.takes.list_by_layer(str(promoted.layer_id))
+        persisted_main = next(take for take in persisted_takes if take.is_main)
+        assert persisted_main.id == str(promoted_take.take_id)
+        drums_object = runtime.project_storage.timeline_objects.get(str(promoted.object_id))
+        assert drums_object is not None
+        assert drums_object.main_content_id == str(promoted_take.content_id)
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
 def test_app_shell_runtime_delete_take_persists_numbered_take_labels_on_reload():
     temp_root = _repo_local_temp_root()
     save_path = temp_root / "delete-take.ez"

@@ -17,6 +17,7 @@ from tests.ui.app_shell_runtime_flow_support import (
     test_app_shell_runtime_extract_song_sections_persists_section_layer,
     test_app_shell_runtime_extract_stems_from_derived_audio_layer_is_deferred,
     test_app_shell_runtime_pipeline_runs_do_not_auto_save_projects,
+    test_app_shell_runtime_promote_stem_take_updates_main_content_on_child_layer,
     test_app_shell_runtime_extract_stems_passes_explicit_source_audio_binding,
     test_app_shell_runtime_extract_stems_persists_audio_layers_and_takes,
     test_app_shell_runtime_extract_stems_registers_waveforms_for_main_and_take_audio,

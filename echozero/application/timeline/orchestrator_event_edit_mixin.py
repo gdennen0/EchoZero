@@ -441,7 +441,17 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
         if normalized in {"overwrite_main", "promote_take"}:
             if source_take.id == main_take.id:
                 return
-            main_take.events = self._clone_events_for_target(source_take.events, main_take)
+            if not is_event_like_layer_kind(layer.kind):
+                layer.takes = [
+                    source_take,
+                    *[take for take in layer.takes if take.id != source_take.id],
+                ]
+                layer.main_content_id = source_take.content_id
+                layer.main_revision_id = source_take.revision_id
+                layer.source_content_ref = source_take.source_content_ref
+                main_take = source_take
+            else:
+                main_take.events = self._clone_events_for_target(source_take.events, main_take)
         elif normalized == "merge_main":
             if source_take.id == main_take.id:
                 return
