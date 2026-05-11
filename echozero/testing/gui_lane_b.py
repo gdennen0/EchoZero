@@ -20,11 +20,13 @@ from echozero.application.timeline.intents import (
     ConfirmPullFromMA3,
     ExitPushToMA3Mode,
     OpenPullFromMA3Dialog,
+    OpenPushToMA3Dialog,
     SelectLayer,
     SelectPullSourceEvents,
     SelectPullSourceTrack,
     SelectPullSourceTracks,
     SelectPullTargetLayer,
+    SelectPushTargetTrack,
     SetPullImportMode,
 )
 from echozero.services.orchestrator import Orchestrator
@@ -378,18 +380,22 @@ class GuiLaneBRunner:
 
     @staticmethod
     def _open_push_workspace(harness: AppFlowHarness, *, layer_id: str) -> None:
-        last_error: Exception | None = None
-        for action_id in ("send_layer_to_ma3", "push_to_ma3", "send_to_ma3"):
-            try:
-                trigger_layer_contract_action(harness, layer_id, action_id)
-                return
-            except RuntimeError as exc:
-                last_error = exc
-                if "could not find inspector action" not in str(exc).lower():
-                    raise
-        if last_error is not None:
-            raise last_error
-        raise RuntimeError("Lane B could not open push workspace.")
+        presentation = harness.presentation()
+        layer = next(
+            (candidate for candidate in presentation.layers if str(candidate.layer_id) == layer_id),
+            None,
+        )
+        if layer is None:
+            raise RuntimeError(f"Lane B could not find layer_id '{layer_id}'.")
+        event_ids = [event.event_id for event in layer.events]
+        harness.widget._dispatch(SelectLayer(layer.layer_id))
+        harness.widget._dispatch(OpenPushToMA3Dialog(selection_event_ids=event_ids))
+        tracks = harness.presentation().manual_push_flow.available_tracks
+        if tracks:
+            harness.widget._dispatch(
+                SelectPushTargetTrack(target_track_coord=tracks[0].coord, layer_id=layer.layer_id)
+            )
+        QApplication.processEvents()
 
     def _resolve_step_params(self, params: dict[str, object]) -> dict[str, object]:
         resolved: dict[str, object] = {}

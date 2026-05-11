@@ -449,12 +449,14 @@ class _PushSyncService(SyncService):
         ma3_channel_no: int | None = None,
         selected_events,
         transfer_mode: str = "merge",
+        start_offset_seconds: float | None = None,
     ) -> None:
         payload = {
             "target_track_coord": target_track_coord,
             "selected_event_ids": [event.id for event in selected_events],
             "transfer_mode": transfer_mode,
         }
+        del start_offset_seconds
         if ma3_channel_no is not None:
             payload["ma3_channel_no"] = ma3_channel_no
         self.push_calls.append(payload)

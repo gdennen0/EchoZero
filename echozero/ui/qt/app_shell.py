@@ -598,7 +598,10 @@ class StageZeroRuntimeController(
         )
 
     def review_sample_export_root(self) -> Path:
-        return review_sample_export_root(self.project_storage.working_dir)
+        return review_sample_export_root()
+
+    def timeline_review_sample_export_folder(self) -> Path:
+        return self.review_sample_export_root()
 
     def shutdown(self) -> None:
         self._review_server_controller.stop()

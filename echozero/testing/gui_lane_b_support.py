@@ -116,6 +116,31 @@ class _LaneBSyncService(SyncService):
     def list_push_track_options(self) -> list[ManualPushTrackOption]:
         return list(self._push_tracks)
 
+    def apply_push_transfer(
+        self,
+        *,
+        target_track_coord: str,
+        ma3_channel_no: int | None,
+        selected_events: list[object],
+        transfer_mode: str,
+        start_offset_seconds: float,
+    ) -> None:
+        _ = (
+            target_track_coord,
+            ma3_channel_no,
+            selected_events,
+            transfer_mode,
+            start_offset_seconds,
+        )
+
+    def refresh_push_track_options(
+        self,
+        *,
+        target_track_coord: str | None = None,
+    ) -> list[ManualPushTrackOption]:
+        _ = target_track_coord
+        return self.list_push_track_options()
+
     def list_pull_track_options(self) -> list[ManualPullTrackOption]:
         return list(self._pull_tracks)
 
@@ -149,8 +174,11 @@ def resolve_layer(harness, params: dict[str, object]):
     layer_id = params.get("layer_id")
     layer_title = params.get("layer_title")
     if isinstance(layer_id, str) and layer_id.strip():
+        normalized_layer_id = layer_id.strip()
+        if normalized_layer_id == "source_audio" and presentation.layers:
+            return presentation.layers[0]
         for layer in presentation.layers:
-            if str(layer.layer_id) == layer_id.strip():
+            if str(layer.layer_id) == normalized_layer_id:
                 return layer
         raise RuntimeError(f"Lane B could not find layer_id '{layer_id}'.")
     if isinstance(layer_title, str) and layer_title.strip():

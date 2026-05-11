@@ -39,7 +39,9 @@ from echozero.application.timeline.models import (
 )
 from echozero.application.timeline.object_content_persistence import (
     load_layer_object_content,
+    object_id_for_layer,
     source_ref_from_payload,
+    sync_layer_object_content,
 )
 from echozero.domain.types import AudioData
 from echozero.domain.types import Event as DomainEvent
@@ -125,6 +127,16 @@ def build_storage_layer(
     takes = project_storage.takes.list_by_layer(layer_record.id)
     if not takes:
         return None, AudioPresentationFields(), {}
+    if project_storage.timeline_objects.get(object_id_for_layer(layer_record.id)) is None:
+        main_take = next((take for take in takes if take.is_main), takes[0])
+        sync_layer_object_content(
+            project_storage,
+            song_version_id=layer_record.song_version_id,
+            layer_id=layer_record.id,
+            layer_name=layer_record.name,
+            content_kind=content_kind_for_storage_take(layer_record, main_take),
+            takes=takes,
+        )
     object_record, content_records = load_layer_object_content(
         project_storage,
         layer_record_id=layer_record.id,
@@ -277,6 +289,17 @@ def take_kind(take) -> LayerKind:
     if isinstance(take.data, EventData):
         return LayerKind.EVENT
     return LayerKind.AUDIO
+
+
+def content_kind_for_storage_take(layer_record, main_take) -> str:
+    """Resolve persisted object/content kind for a stored layer projection."""
+
+    layer_kind = resolve_storage_layer_kind(layer_record, main_take)
+    if layer_kind is LayerKind.AUDIO:
+        return "audio_clip"
+    if layer_kind is LayerKind.SECTION:
+        return "section_events"
+    return "event_layer"
 
 
 def resolve_storage_layer_kind(layer_record, main_take) -> LayerKind:

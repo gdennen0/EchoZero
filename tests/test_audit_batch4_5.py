@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from echozero.errors import PersistenceError
 from echozero.persistence.archive import is_valid_ez, pack_ez
 from echozero.persistence.schema import apply_migrations, init_db
 from echozero.pipelines.registry import PipelineRegistry, PipelineTemplate
@@ -43,14 +44,8 @@ def test_migrate_v1_to_v2_no_v1_table():
             audio_hash TEXT NOT NULL, created_at TEXT NOT NULL);
     """)
 
-    # Should not raise even though song_pipeline_configs doesn't exist
-    apply_migrations(conn)
-
-    # pipeline_configs table should exist (created by migration)
-    row = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='pipeline_configs'"
-    ).fetchone()
-    assert row is not None, "pipeline_configs table should have been created"
+    with pytest.raises(PersistenceError, match="Unsupported EchoZero project schema v1"):
+        apply_migrations(conn)
 
 
 def test_migrate_v1_to_v2_with_v1_table():
@@ -79,11 +74,8 @@ def test_migrate_v1_to_v2_with_v1_table():
             ('cfg1', 'ver1', 'pipe1', '{}', '2024-01-01T00:00:00');
     """)
 
-    apply_migrations(conn)
-
-    row = conn.execute("SELECT * FROM pipeline_configs WHERE id = 'cfg1'").fetchone()
-    assert row is not None
-    assert row["template_id"] == "pipe1"
+    with pytest.raises(PersistenceError, match="Unsupported EchoZero project schema v1"):
+        apply_migrations(conn)
 
 
 # ---------------------------------------------------------------------------

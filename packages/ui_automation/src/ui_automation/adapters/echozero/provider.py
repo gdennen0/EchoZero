@@ -141,6 +141,7 @@ class EchoZeroAutomationBackend:
         self._render()
         presentation = self._harness.presentation()
         viewport = self._harness.widget.presentation
+        source_layer_id = self._source_layer_id(presentation)
         targets = [
             AutomationTarget(
                 kind="window",
@@ -176,10 +177,11 @@ class EchoZeroAutomationBackend:
 
         for layer in presentation.layers:
             header_rect = self._find_layer_rect(str(layer.layer_id))
+            layer_target_id = self._layer_target_id(str(layer.layer_id))
             targets.append(
                 AutomationTarget(
                     kind="layer",
-                    target_id=self._layer_target_id(str(layer.layer_id)),
+                    target_id=layer_target_id,
                     parent_id="shell.timeline",
                     label=layer.title,
                     bounds=None if header_rect is None else self._canvas_bounds(header_rect),
@@ -191,15 +193,41 @@ class EchoZeroAutomationBackend:
                     },
                 )
             )
+            if layer is presentation.layers[0] and layer.source_audio_path:
+                targets.append(
+                    AutomationTarget(
+                        kind="layer",
+                        target_id="timeline.layer:source_audio",
+                        parent_id="shell.timeline",
+                        label=layer.title,
+                        bounds=None if header_rect is None else self._canvas_bounds(header_rect),
+                        metadata={
+                            "layer_id": str(layer.layer_id),
+                            "canonical_target_id": layer_target_id,
+                            "kind": layer.kind.value,
+                            "event_count": len(layer.events),
+                            "selected": layer.layer_id == presentation.selected_layer_id,
+                        },
+                    )
+                )
             if header_rect is not None:
                 hit_targets.append(
                     AutomationHitTarget(
-                        target_id=self._layer_target_id(str(layer.layer_id)),
+                        target_id=layer_target_id,
                         kind="layer",
                         bounds=self._canvas_bounds(header_rect),
                         metadata={"layer_id": str(layer.layer_id)},
                     )
                 )
+                if layer is presentation.layers[0] and layer.source_audio_path:
+                    hit_targets.append(
+                        AutomationHitTarget(
+                            target_id="timeline.layer:source_audio",
+                            kind="layer",
+                            bounds=self._canvas_bounds(header_rect),
+                            metadata={"layer_id": str(layer.layer_id)},
+                        )
+                    )
             push_rect = self._find_layer_surface_rect("push", str(layer.layer_id))
             if push_rect is not None:
                 targets.append(
@@ -332,7 +360,10 @@ class EchoZeroAutomationBackend:
 
         selection = []
         if presentation.selected_layer_id is not None:
-            selection.append(self._layer_target_id(str(presentation.selected_layer_id)))
+            if source_layer_id is not None and str(presentation.selected_layer_id) == source_layer_id:
+                selection.append("timeline.layer:source_audio")
+            else:
+                selection.append(self._layer_target_id(str(presentation.selected_layer_id)))
         for event_id in presentation.selected_event_ids:
             selection.append(self._event_target_id(str(event_id)))
 
@@ -348,7 +379,11 @@ class EchoZeroAutomationBackend:
                 )
             )
 
-        automation_objects = self._automation_objects_from_contract(contract, contract_actions)
+        automation_objects = self._automation_objects_from_contract(
+            contract,
+            contract_actions,
+            source_layer_id=source_layer_id,
+        )
         focused_target_id = self._focused_target_id(selection)
         focused_object_id = automation_objects[0].object_id if automation_objects else None
         active_song_title = next(
@@ -851,6 +886,8 @@ class EchoZeroAutomationBackend:
         self,
         contract,
         contract_actions: list[AutomationAction],
+        *,
+        source_layer_id: str | None = None,
     ) -> tuple[AutomationObject, ...]:
         if contract.identity is None:
             return ()
@@ -858,12 +895,14 @@ class EchoZeroAutomationBackend:
         for section in contract.sections:
             for row in section.rows:
                 fact_rows.append(AutomationObjectFact(label=row.label, value=row.value))
-        target_id = self._contract_target_id(
-            contract.identity.object_type, contract.identity.object_id
-        )
+        object_id = contract.identity.object_id
+        target_id = self._contract_target_id(contract.identity.object_type, object_id)
+        if contract.identity.object_type == "layer" and object_id == source_layer_id:
+            object_id = "source_audio"
+            target_id = "timeline.layer:source_audio"
         return (
             AutomationObject(
-                object_id=contract.identity.object_id,
+                object_id=object_id,
                 object_type=contract.identity.object_type,
                 label=contract.identity.label,
                 target_id=target_id,
@@ -894,7 +933,7 @@ class EchoZeroAutomationBackend:
     def _target_canvas_rect(self, target_id: str):
         canvas = self._harness.widget._canvas
         if target_id.startswith("timeline.layer:"):
-            return self._find_layer_rect(target_id.removeprefix("timeline.layer:"))
+            return self._find_layer_rect(self._resolve_layer_id_for_target(target_id))
         if target_id.startswith("timeline.event:"):
             event_id = target_id.removeprefix("timeline.event:")
             for rect, _layer_id, _take_id, candidate_event_id in canvas._event_rects:
@@ -904,6 +943,22 @@ class EchoZeroAutomationBackend:
             return self._find_layer_surface_rect("push", target_id.removeprefix("timeline.push:"))
         if target_id.startswith("timeline.pull:"):
             return self._find_layer_surface_rect("pull", target_id.removeprefix("timeline.pull:"))
+        return None
+
+    def _resolve_layer_id_for_target(self, target_id: str) -> str:
+        layer_id = target_id.removeprefix("timeline.layer:")
+        if layer_id != "source_audio":
+            return layer_id
+        presentation = self._harness.presentation()
+        source_layer_id = self._source_layer_id(presentation)
+        if source_layer_id is not None:
+            return source_layer_id
+        return layer_id
+
+    @staticmethod
+    def _source_layer_id(presentation) -> str | None:
+        if presentation.layers and presentation.layers[0].source_audio_path:
+            return str(presentation.layers[0].layer_id)
         return None
 
     def _resolve_drag_destination(self, destination: Any, source_point: QPoint) -> QPoint:

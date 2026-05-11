@@ -192,10 +192,7 @@ def resolve_audio_source_ref(
     match = find_audio_content_by_locator(session, normalized)
     if match is None and song_version_id is not None:
         version = session.song_versions.get(song_version_id)
-        if version is not None and _path_candidates(session, normalized) & _path_candidates(
-            session,
-            version.audio_file,
-        ):
+        if version is not None:
             ensure_imported_song_object(session, version)
             match = session.object_contents.get(imported_song_content_id(song_version_id))
     if match is None:
@@ -530,7 +527,13 @@ def _path_candidates(session: ProjectStorage, value: str) -> set[str]:
         return set()
     raw_path = Path(text)
     resolved = raw_path if raw_path.is_absolute() else (session.working_dir / raw_path)
-    candidates = {text, raw_path.as_posix(), str(raw_path), str(resolved.resolve())}
+    candidates = {
+        text,
+        raw_path.as_posix(),
+        str(raw_path),
+        raw_path.name,
+        str(resolved.resolve()),
+    }
     try:
         candidates.add(resolved.resolve().relative_to(session.working_dir.resolve()).as_posix())
     except ValueError:

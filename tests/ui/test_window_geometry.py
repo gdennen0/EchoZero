@@ -115,6 +115,7 @@ def test_resolve_initial_window_size_prefers_widget_screen(monkeypatch) -> None:
 
 def test_resolve_initial_window_size_falls_back_without_screen(monkeypatch) -> None:
     widget = _FakeWidget(None)
+    monkeypatch.setattr(window_geometry, "_screen_at_cursor", lambda: None)
     monkeypatch.setattr(window_geometry, "_primary_screen", lambda: None)
 
     assert window_geometry.resolve_initial_window_size(widget) == (
