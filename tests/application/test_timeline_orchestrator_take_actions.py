@@ -263,7 +263,7 @@ def _build_orchestrator_and_timeline() -> tuple[TimelineOrchestrator, Timeline, 
 def _load_real_project_timeline() -> tuple[TimelineOrchestrator, Timeline, Layer, Take, Layer]:
     project_ez = Path(__file__).resolve().parents[2] / "project.ez"
     if not project_ez.exists():
-        raise FileNotFoundError(f"Missing project.ez fixture at {project_ez}")
+        pytest.skip(f"Missing project.ez fixture at {project_ez}")
 
     with tempfile.TemporaryDirectory() as tmp_root:
         with zipfile.ZipFile(project_ez) as archive:

@@ -77,6 +77,7 @@ def require_imported_song_ref(
         raise PersistenceError(
             f"Song version not found for object/content projection: {song_version_id}"
         )
+    ensure_imported_song_object(session, version)
     return require_source_ref(
         session,
         object_id=imported_song_object_id(song_version_id),
@@ -84,6 +85,39 @@ def require_imported_song_ref(
         revision_id=imported_song_revision_id(version.audio_hash),
         role="imported_song_audio",
         locator=str(resolve_project_audio_path(session, version.audio_file)),
+    )
+
+
+def ensure_imported_song_object(session: ProjectStorage, version: Any) -> None:
+    """Ensure the imported-song audio has canonical object/content rows."""
+
+    object_id = imported_song_object_id(version.id)
+    content_id = imported_song_content_id(version.id)
+    revision_id = imported_song_revision_id(version.audio_hash)
+    created_at = getattr(version, "created_at", None) or datetime.now(timezone.utc)
+    _upsert_timeline_object(
+        session,
+        TimelineObjectRecord(
+            id=object_id,
+            song_version_id=version.id,
+            name="Imported Song",
+            object_kind="audio_clip",
+            main_content_id=content_id,
+            created_at=created_at,
+        ),
+    )
+    _upsert_object_content(
+        session,
+        ObjectContentRecord(
+            id=content_id,
+            object_id=object_id,
+            revision_id=revision_id,
+            content_kind="audio_clip",
+            payload={"audio_file": version.audio_file},
+            source_ref=None,
+            analysis_build=None,
+            created_at=created_at,
+        ),
     )
 
 
@@ -148,6 +182,7 @@ def resolve_audio_source_ref(
     *,
     locator: str,
     role: str = "audio_source",
+    song_version_id: str | None = None,
 ) -> SourceRef:
     """Resolve an audio locator to an existing object content row."""
 
@@ -155,6 +190,14 @@ def resolve_audio_source_ref(
     if not normalized:
         raise ValidationError("Cannot persist object content with an empty audio source ref.")
     match = find_audio_content_by_locator(session, normalized)
+    if match is None and song_version_id is not None:
+        version = session.song_versions.get(song_version_id)
+        if version is not None and _path_candidates(session, normalized) & _path_candidates(
+            session,
+            version.audio_file,
+        ):
+            ensure_imported_song_object(session, version)
+            match = session.object_contents.get(imported_song_content_id(song_version_id))
     if match is None:
         raise ValidationError(
             "Cannot persist object content because the audio source does not resolve "
@@ -207,6 +250,7 @@ def persist_take_object_content(
         source_ref = resolve_audio_source_ref(
             session,
             locator=str(source_audio_path).strip(),
+            song_version_id=song_version_id,
         ).to_dict()
 
     _upsert_timeline_object(
@@ -265,6 +309,7 @@ def persist_generated_audio_content(
         source_ref = resolve_audio_source_ref(
             session,
             locator=str(source_audio_path).strip(),
+            song_version_id=song_version_id,
         ).to_dict()
     _upsert_timeline_object(
         session,
@@ -326,7 +371,7 @@ def sync_layer_object_content(
     active_content_ids: set[str] = set()
     for take in takes:
         active_content_ids.add(content_id_for_take(take.id))
-        source_ref = _source_ref_from_take(session, take)
+        source_ref = _source_ref_from_take(session, take, song_version_id=song_version_id)
         _upsert_object_content(
             session,
             ObjectContentRecord(
@@ -406,6 +451,8 @@ def resolve_project_audio_path(session: ProjectStorage, audio_file: str) -> Path
 def _source_ref_from_take(
     session: ProjectStorage,
     take: PersistedTake,
+    *,
+    song_version_id: str,
 ) -> SourceRef | None:
     if take.source is None:
         return None
@@ -413,7 +460,11 @@ def _source_ref_from_take(
     source_audio_path = settings_snapshot.get("source_audio_path")
     if source_audio_path in (None, ""):
         return None
-    return resolve_audio_source_ref(session, locator=str(source_audio_path))
+    return resolve_audio_source_ref(
+        session,
+        locator=str(source_audio_path),
+        song_version_id=song_version_id,
+    )
 
 
 def _payload_for_take(take: PersistedTake) -> dict[str, Any]:
