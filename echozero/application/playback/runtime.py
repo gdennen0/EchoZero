@@ -6,10 +6,12 @@ Connects timeline presentation state to one backend-agnostic runtime playback co
 
 from __future__ import annotations
 
+from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor, wait
+from dataclasses import asdict, replace
+from datetime import datetime, timezone
 import threading
 import time
-from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 
@@ -20,6 +22,10 @@ from echozero.application.playback.models import (
     PlaybackSource,
     PlaybackState,
     PlaybackTimingSnapshot,
+)
+from echozero.application.playback.audio_diagnostics import (
+    timestamped_capture_id,
+    write_audio_diagnostics_bundle,
 )
 from echozero.application.playback.timecode import PlaybackTimecodeAuthority, TimebaseSpec
 from echozero.application.playback.tracks import (
@@ -34,8 +40,10 @@ from echozero.audio.engine import AudioEngine
 from echozero.audio.layer import AudioTrack
 from echozero.audio.file_cache import load_audio_file
 from echozero.audio.output_backend import DEFAULT_BUFFER_SIZE
+from echozero.output_routing import parse_output_bus_spans
 
 _SOUNDDEVICE_BACKEND = "sounddevice"
+_RUNTIME_EVENT_LIMIT = 32
 
 
 def _db_to_linear(gain_db: float) -> float:
@@ -104,6 +112,10 @@ class PlaybackController:
         self._device_reinit_count = 0
         self._last_device_reinit_reason = ""
         self._last_route_resolution_summary = ""
+        self._runtime_event_sequence = 0
+        self._recent_runtime_events = deque(maxlen=_RUNTIME_EVENT_LIMIT)
+        self._audio_diagnostics_capture: dict[str, object] | None = None
+        self._last_audio_diagnostics_capture_result: dict[str, object] | None = None
 
     @property
     def engine(self) -> AudioEngine:
@@ -302,9 +314,12 @@ class PlaybackController:
         end_sample = min(end_sample, int(source_buffer.shape[0]))
         if end_sample <= start_sample:
             return False
-        preview_buffer = np.asarray(source_buffer[start_sample:end_sample], dtype=np.float32)
+        preview_buffer = np.array(
+            source_buffer[start_sample:end_sample], dtype=np.float32, copy=True
+        )
         if preview_buffer.size == 0:
             return False
+        replacing_preview = bool(self._preview_active or self._engine.overlay_active)
         self.stop_preview()
         self._last_transition = "preview_start"
         played = self._engine.play_overlay(
@@ -313,12 +328,192 @@ class PlaybackController:
             volume=_db_to_linear(gain_db),
         )
         self._preview_active = bool(played)
+        if played:
+            self._record_runtime_event(
+                "preview-replace" if replacing_preview else "preview-start",
+                source_ref=source_path,
+                start_seconds=max(0.0, float(start_seconds)),
+                end_seconds=max(0.0, float(end_seconds)),
+                duration_seconds=max(0.0, float(end_seconds) - float(start_seconds)),
+                frames=int(preview_buffer.shape[0]),
+                sample_rate=int(sample_rate),
+            )
         return bool(played)
 
     def stop_preview(self) -> None:
+        was_preview_active = bool(self._preview_active or self._engine.overlay_active)
         self._last_transition = "preview_stop"
         self._preview_active = False
         self._engine.stop_overlay()
+        if was_preview_active:
+            self._record_runtime_event("preview-stop")
+
+    def start_audio_diagnostics_capture(
+        self,
+        *,
+        output_dir: str | Path | None = None,
+        include_audio_buffers: bool = True,
+        max_audio_blocks: int = 64,
+    ) -> dict[str, object]:
+        """Start one bounded runtime-audio diagnostics capture."""
+
+        capture_id = timestamped_capture_id()
+        started = datetime.now(timezone.utc).isoformat()
+        capture: dict[str, object] = {
+            "capture_id": capture_id,
+            "active": True,
+            "started_at_utc": started,
+            "started_monotonic_seconds": float(time.monotonic()),
+            "output_dir": str(output_dir) if output_dir is not None else None,
+            "include_audio_buffers": bool(include_audio_buffers),
+            "max_audio_blocks": max(0, min(256, int(max_audio_blocks))),
+        }
+        self._audio_diagnostics_capture = capture
+        self._last_audio_diagnostics_capture_result = None
+        start_engine_capture = getattr(self._engine, "start_diagnostics_capture", None)
+        engine_status: dict[str, object] = {}
+        if callable(start_engine_capture):
+            engine_status = dict(
+                start_engine_capture(
+                    include_audio_buffers=bool(include_audio_buffers),
+                    max_audio_blocks=int(capture["max_audio_blocks"]),
+                )
+            )
+        self._record_runtime_event(
+            "diagnostics-capture-start",
+            capture_id=capture_id,
+            include_audio_buffers=bool(include_audio_buffers),
+        )
+        return {
+            **capture,
+            "engine": engine_status,
+        }
+
+    def stop_audio_diagnostics_capture(self) -> dict[str, object]:
+        """Stop diagnostics capture and write a timestamped bundle."""
+
+        capture = dict(self._audio_diagnostics_capture or {})
+        if not capture:
+            result = dict(self._last_audio_diagnostics_capture_result or {})
+            result.setdefault("active", False)
+            result.setdefault("bundle_path", None)
+            return result
+
+        capture["active"] = False
+        capture["stopped_at_utc"] = datetime.now(timezone.utc).isoformat()
+        capture["stopped_monotonic_seconds"] = float(time.monotonic())
+        self._record_runtime_event(
+            "diagnostics-capture-stop",
+            capture_id=str(capture.get("capture_id", "")),
+        )
+        stop_engine_capture = getattr(self._engine, "stop_diagnostics_capture", None)
+        engine_capture: dict[str, object] = {}
+        if callable(stop_engine_capture):
+            engine_capture = dict(stop_engine_capture())
+        audio_blocks = engine_capture.get("audio_blocks", ())
+        playback_state = self._snapshot_state_for_diagnostics_bundle()
+        runtime_events = tuple(playback_state.diagnostics.recent_audio_runtime_events)
+        result = write_audio_diagnostics_bundle(
+            capture_id=str(capture.get("capture_id") or timestamped_capture_id()),
+            capture=capture,
+            playback_state=playback_state,
+            device_config=self._audio_diagnostics_device_config(),
+            runtime_sensor_events=runtime_events,
+            audio_blocks=audio_blocks if isinstance(audio_blocks, (list, tuple)) else (),
+            output_dir=capture.get("output_dir"),
+        )
+        self._audio_diagnostics_capture = None
+        self._last_audio_diagnostics_capture_result = dict(result)
+        return dict(result)
+
+    def audio_diagnostics_capture_status(self) -> dict[str, object]:
+        """Return current or most recent diagnostics capture metadata."""
+
+        if self._audio_diagnostics_capture is not None:
+            engine_status: dict[str, object] = {}
+            status = getattr(self._engine, "diagnostics_capture_status", None)
+            if callable(status):
+                engine_status = dict(status())
+            return {
+                **self._audio_diagnostics_capture,
+                "engine": engine_status,
+            }
+        result = dict(self._last_audio_diagnostics_capture_result or {})
+        result.setdefault("active", False)
+        return result
+
+    def _snapshot_state_for_diagnostics_bundle(self) -> PlaybackState:
+        presentation = self._latest_presentation
+        if presentation is not None:
+            return self.snapshot_state(presentation)
+        return PlaybackState(
+            status=PlaybackStatus.PLAYING if self.is_playing() else PlaybackStatus.STOPPED,
+            latency_ms=float(self._engine.reported_output_latency_seconds) * 1000.0,
+            backend_name=self._engine.backend_name or _SOUNDDEVICE_BACKEND,
+            output_sample_rate=int(self._engine.sample_rate),
+            output_channels=int(self._engine.output_channels),
+            diagnostics=PlaybackDiagnostics(
+                glitch_count=int(self._engine.glitch_count),
+                last_audio_status=self._format_audio_status(self._engine.last_audio_status),
+                output_device=self._format_output_device(self._engine.output_device),
+                resolved_output_device=self._format_output_device(
+                    self._engine.resolved_output_device
+                ),
+                output_device_name=self._engine.resolved_output_device_name,
+                stream_latency=self._engine.stream_latency,
+                stream_blocksize=int(self._engine.stream_blocksize),
+                prime_output_buffers_using_stream_callback=bool(
+                    self._engine.prime_output_buffers_using_stream_callback
+                ),
+                requested_output_sample_rate=self._engine.output_config.requested_sample_rate,
+                requested_output_channels=self._engine.output_config.requested_channels,
+                device_max_output_channels=int(
+                    self._engine.output_config.device_max_output_channels
+                ),
+                hardware_resolution_reason=self._engine.output_config.hardware_resolution_reason,
+                sample_rate_resolution_reason=(
+                    self._engine.output_config.sample_rate_resolution_reason
+                ),
+                channel_resolution_reason=self._engine.output_config.channel_resolution_reason,
+                route_resolution_summary=self._last_route_resolution_summary,
+                last_transition=self._last_transition,
+                transition_state=self._transition_state(),
+                last_track_sync_reason=self._last_track_sync_reason,
+                ramp_samples_remaining=int(self._engine.ramp_samples_remaining),
+                last_discontinuity_reason=self._engine.last_discontinuity_reason,
+                last_ramp_reason=self._engine.last_ramp_reason,
+                structural_rebuild_count=self._structural_rebuild_count,
+                coalesced_edit_count=self._coalesced_edit_count,
+                last_structural_rebuild_ms=self._last_structural_rebuild_ms,
+                max_structural_rebuild_ms=self._max_structural_rebuild_ms,
+                local_projection_build_ms=self._last_local_projection_build_ms,
+                local_sync_classify_ms=self._last_local_sync_classify_ms,
+                last_local_sync_change_kind=self._last_local_sync_change_kind,
+                last_ipc_command=self._last_ipc_command,
+                rt_last_apply_latency_ms=self._rt_last_apply_latency_ms,
+                rt_last_seek_apply_latency_ms=self._rt_last_seek_apply_latency_ms,
+                device_reinit_count=int(self._device_reinit_count),
+                last_device_reinit_reason=self._last_device_reinit_reason,
+                recent_audio_runtime_events=self._recent_audio_runtime_events(),
+            ),
+        )
+
+    def _audio_diagnostics_device_config(self) -> dict[str, object]:
+        config = self._engine.output_config
+        payload = asdict(config)
+        payload.update(
+            {
+                "backend_name": self._engine.backend_name or _SOUNDDEVICE_BACKEND,
+                "sample_rate": int(self._engine.sample_rate),
+                "channels": int(self._engine.output_channels),
+                "stream_latency": self._engine.stream_latency,
+                "stream_blocksize": int(self._engine.stream_blocksize),
+                "reported_output_latency_seconds": float(
+                    self._engine.reported_output_latency_seconds
+                ),
+            }
+        )
+        return payload
 
     def record_local_sync_decision(
         self,
@@ -409,8 +604,46 @@ class PlaybackController:
                 rt_last_seek_apply_latency_ms=self._rt_last_seek_apply_latency_ms,
                 device_reinit_count=int(self._device_reinit_count),
                 last_device_reinit_reason=self._last_device_reinit_reason,
+                recent_audio_runtime_events=self._recent_audio_runtime_events(),
             ),
         )
+
+    def _record_runtime_event(self, kind: str, **metrics: object) -> None:
+        """Append one bounded controller-side audio runtime diagnostic event."""
+
+        try:
+            self._runtime_event_sequence += 1
+            event: dict[str, object] = {
+                "seq": int(self._runtime_event_sequence),
+                "source": "playback_controller",
+                "kind": str(kind or "runtime-event"),
+                "monotonic_seconds": float(time.monotonic()),
+                "is_playing": bool(self._engine.transport.is_playing),
+                "overlay_active": bool(self._engine.overlay_active),
+            }
+            for key, value in metrics.items():
+                if value is None:
+                    continue
+                if isinstance(value, (str, bool, int, float)):
+                    event[str(key)] = value
+                    continue
+                try:
+                    event[str(key)] = float(value)  # type: ignore[arg-type]
+                except (TypeError, ValueError):
+                    event[str(key)] = str(value)
+            self._recent_runtime_events.append(event)
+        except Exception:
+            return
+
+    def _recent_audio_runtime_events(self) -> tuple[dict[str, object], ...]:
+        engine_events = getattr(self._engine, "recent_runtime_events", ())
+        try:
+            events = [dict(event) for event in self._recent_runtime_events]
+            events.extend(dict(event) for event in engine_events)
+        except Exception:
+            events = [dict(event) for event in self._recent_runtime_events]
+        events.sort(key=lambda event: float(event.get("monotonic_seconds", 0.0) or 0.0))
+        return tuple(events[-_RUNTIME_EVENT_LIMIT:])
 
     def _transition_state(self) -> str:
         if self._preview_active:
@@ -432,14 +665,16 @@ class PlaybackController:
             presentation,
             hardware_channels=hardware_channels,
         )
-        if configured_channels > 0 and configured_channels >= required_channels:
+        if hardware_channels > 0:
+            resolved_channels = hardware_channels
+        elif configured_channels > 0 and configured_channels >= required_channels:
             return presentation
-        resolved_channels = max(
-            1,
-            configured_channels,
-            required_channels,
-            hardware_channels,
-        )
+        else:
+            resolved_channels = max(
+                1,
+                configured_channels,
+                required_channels,
+            )
         return replace(
             presentation,
             playback_output_channels=resolved_channels,
@@ -452,26 +687,10 @@ class PlaybackController:
             output_bus = getattr(layer, "output_bus", None)
             if not isinstance(output_bus, str):
                 continue
-            parsed = PlaybackController._parse_output_bus(output_bus)
-            if parsed is None:
-                continue
-            _start_channel, end_channel = parsed
-            required = max(required, end_channel)
+            for parsed in parse_output_bus_spans(output_bus):
+                _start_channel, end_channel = parsed
+                required = max(required, end_channel)
         return max(0, int(required))
-
-    @staticmethod
-    def _parse_output_bus(output_bus: str) -> tuple[int, int] | None:
-        token = str(output_bus or "").strip().lower()
-        if not token.startswith("outputs_"):
-            return None
-        parts = token.split("_")
-        if len(parts) != 3 or (not parts[1].isdigit()) or (not parts[2].isdigit()):
-            return None
-        start_channel = int(parts[1])
-        end_channel = int(parts[2])
-        if start_channel < 1 or end_channel < start_channel:
-            return None
-        return start_channel, end_channel
 
     @staticmethod
     def _route_resolution_summary(
@@ -484,13 +703,13 @@ class PlaybackController:
             output_bus = getattr(layer, "output_bus", None)
             if not isinstance(output_bus, str):
                 continue
-            parsed = PlaybackController._parse_output_bus(output_bus)
-            if parsed is None:
-                continue
-            _start_channel, end_channel = parsed
-            if end_channel > hardware_channels:
+            over_tokens: list[str] = []
+            for start_channel, end_channel in parse_output_bus_spans(output_bus):
+                if end_channel > hardware_channels:
+                    over_tokens.append(f"outputs_{start_channel}_{end_channel}")
+            if over_tokens:
                 layer_id = str(getattr(layer, "layer_id", "unknown"))
-                clamped.append(f"{layer_id}:{output_bus}->silent")
+                clamped.append(f"{layer_id}:{'/'.join(over_tokens)}->pruned")
         if clamped:
             return "routes-exceed-hardware:" + ",".join(clamped)
         return "routes-fit-hardware"
@@ -507,6 +726,7 @@ class PlaybackController:
                 "stream_latency",
                 "stream_blocksize",
                 "prime_output_buffers_using_stream_callback",
+                "master_output_bus",
             )
         ):
             return "settings-change"
@@ -528,6 +748,7 @@ class PlaybackController:
                 device_spec.get("prime_output_buffers_using_stream_callback", True)
             ),
             output_device=device_spec.get("output_device"),
+            master_output_bus=device_spec.get("master_output_bus"),
         )
 
     @staticmethod

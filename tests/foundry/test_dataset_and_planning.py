@@ -373,6 +373,97 @@ def test_dataset_service_derives_binary_version_using_review_polarity(tmp_path: 
     }
 
 
+def test_dataset_service_derives_grouped_binary_version_from_multiple_positive_labels(
+    tmp_path: Path,
+):
+    service = DatasetService(tmp_path)
+    dataset = service.create_dataset(
+        "Review Samples",
+        source_kind="project_review_export",
+        metadata={"project_ref": "project:fixture"},
+    )
+    samples = [
+        DatasetSample(
+            sample_id="sm_hi_hat",
+            audio_ref="hi_hat.wav",
+            label="hi_hat",
+            content_hash="hash-hi-hat",
+            source_provenance={"review_item_id": "ri-hi-hat", "review_polarity": "positive"},
+            group_id="content:hash-hi-hat",
+            curation_state=CurationState.ACCEPTED,
+        ),
+        DatasetSample(
+            sample_id="sm_crash",
+            audio_ref="crash.wav",
+            label="crash",
+            content_hash="hash-crash",
+            source_provenance={"review_item_id": "ri-crash", "review_polarity": "positive"},
+            group_id="content:hash-crash",
+            curation_state=CurationState.ACCEPTED,
+        ),
+        DatasetSample(
+            sample_id="sm_ride_negative",
+            audio_ref="ride_negative.wav",
+            label="ride",
+            content_hash="hash-ride-negative",
+            source_provenance={
+                "review_item_id": "ri-ride-negative",
+                "review_polarity": "negative",
+            },
+            group_id="content:hash-ride-negative",
+            curation_state=CurationState.ACCEPTED,
+        ),
+        DatasetSample(
+            sample_id="sm_snare",
+            audio_ref="snare.wav",
+            label="snare",
+            content_hash="hash-snare",
+            source_provenance={"review_item_id": "ri-snare", "review_polarity": "positive"},
+            group_id="content:hash-snare",
+            curation_state=CurationState.ACCEPTED,
+        ),
+    ]
+    source_version = DatasetVersion(
+        id="dsv_review_cymbal_family",
+        dataset_id=dataset.id,
+        version=1,
+        manifest_hash=DatasetService.compute_manifest_hash(samples),
+        sample_rate=22050,
+        audio_standard="mono_wav_pcm16",
+        class_map=["crash", "hi_hat", "ride", "snare"],
+        samples=samples,
+        taxonomy={"schema": "foundry.taxonomy.v1"},
+        label_policy={"schema": "foundry.label_policy.v1", "classification_mode": "multiclass"},
+        manifest={"schema": "foundry.project_review_dataset_manifest.v1"},
+        created_at=datetime.now(UTC),
+    )
+    DatasetVersionRepository(tmp_path).save(source_version)
+
+    derived = service.derive_binary_dataset_version(
+        source_version.id,
+        positive_label="cymbal",
+        positive_aliases=("hi_hat", "crash", "ride"),
+    )
+
+    assert derived.class_map == ["cymbal", "other"]
+    assert {sample.sample_id: sample.label for sample in derived.samples} == {
+        "sm_hi_hat": "cymbal",
+        "sm_crash": "cymbal",
+        "sm_ride_negative": "other",
+        "sm_snare": "other",
+    }
+    assert derived.manifest["derivation"]["positive_source_labels"] == [
+        "hi_hat",
+        "crash",
+        "ride",
+    ]
+    assert derived.lineage["positive_source_labels"] == [
+        "hi_hat",
+        "crash",
+        "ride",
+    ]
+
+
 def test_dataset_service_exports_project_review_dataset_from_canonical_project_truth(
     tmp_path: Path,
 ):

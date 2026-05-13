@@ -61,6 +61,7 @@ from tests.ui.timeline_shell_support import (
     test_select_mode_keys_dispatch_navigation_intents,
     test_select_mode_right_arrow_centers_on_newly_selected_event,
     test_select_mode_shift_space_triggers_event_clip_preview_action,
+    test_space_dispatches_pause_transport_intent_when_timeline_is_playing,
     test_shift_click_event_dispatches_additive_selection_mode,
     test_transport_bar_clicks_dispatch_play_pause_and_stop,
 )

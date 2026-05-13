@@ -30,6 +30,8 @@ class TimelinePresentationOverlay:
     project_title: str
     end_time_label: str
     bpm: float | None
+    bpm_confidence: float | None
+    beat_anchor_seconds: float | None
     layer_audio: dict[LayerId, AudioPresentationFields]
     take_audio: dict[TakeId, AudioPresentationFields]
     active_song_id: str = ""

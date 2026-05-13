@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PyQt6.QtCore import QRectF, Qt
-from PyQt6.QtGui import QColor, QPainter, QBrush, QFont, QFontMetrics
+from PyQt6.QtCore import QPointF, QRectF, Qt
+from PyQt6.QtGui import QColor, QPainter, QBrush, QFont, QFontMetrics, QPolygonF
 
 from echozero.application.presentation.models import (
     LayerHeaderControlPresentation,
@@ -74,25 +74,12 @@ class LayerHeaderBlock:
             )
 
         if layer.takes or layer.is_fully_collapsed or has_child_layers:
-            painter.setPen(QColor(self.style.toggle_border_hex))
-            painter.setBrush(QBrush(QColor(self.style.toggle_fill_hex)))
-            painter.drawRoundedRect(
+            self._draw_toggle_glyph(
+                painter,
                 slots.toggle_rect,
-                self.style.toggle_corner_radius,
-                self.style.toggle_corner_radius,
+                is_fully_collapsed=layer.is_fully_collapsed,
+                is_expanded=layer.is_expanded,
             )
-            painter.setPen(QColor(self.style.toggle_text_hex))
-            prior_font = painter.font()
-            toggle_font = QFont(prior_font)
-            toggle_font.setPointSize(self.style.toggle_font.point_size)
-            toggle_font.setBold(self.style.toggle_font.bold)
-            painter.setFont(toggle_font)
-            painter.drawText(
-                slots.toggle_rect.adjusted(0, -1, 0, -1),
-                Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine,
-                "+" if layer.is_fully_collapsed else "v" if layer.is_expanded else ">",
-            )
-            painter.setFont(prior_font)
         return HeaderHitTargets(control_rects=tuple(control_rects))
 
     @staticmethod
@@ -194,6 +181,52 @@ class LayerHeaderBlock:
         )
         painter.setFont(prior_font)
         return rect.right()
+
+    def _draw_toggle_glyph(
+        self,
+        painter: QPainter,
+        rect: QRectF,
+        *,
+        is_fully_collapsed: bool,
+        is_expanded: bool,
+    ) -> None:
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(QColor(self.style.toggle_text_hex)))
+        if is_fully_collapsed:
+            center_x = rect.center().x()
+            center_y = rect.center().y()
+            painter.drawRect(QRectF(center_x - 3.5, center_y - 0.75, 7.0, 1.5))
+            painter.drawRect(QRectF(center_x - 0.75, center_y - 3.5, 1.5, 7.0))
+            painter.restore()
+            return
+
+        inset = 4.0
+        left = rect.left() + inset
+        right = rect.right() - inset
+        top = rect.top() + inset
+        bottom = rect.bottom() - inset
+        mid_x = rect.center().x()
+        mid_y = rect.center().y()
+        if is_expanded:
+            polygon = QPolygonF(
+                [
+                    QPointF(left, top),
+                    QPointF(right, top),
+                    QPointF(mid_x, bottom),
+                ]
+            )
+        else:
+            polygon = QPolygonF(
+                [
+                    QPointF(left, top),
+                    QPointF(right, mid_y),
+                    QPointF(left, bottom),
+                ]
+            )
+        painter.drawPolygon(polygon)
+        painter.restore()
 
     def _draw_active_button(
         self,

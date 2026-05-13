@@ -29,6 +29,7 @@ from echozero.application.presentation.models import (
     TakeLanePresentation,
     TimelinePresentation,
 )
+from echozero.output_routing import output_bus_label
 
 
 def build_empty_contract(
@@ -110,6 +111,22 @@ def build_song_version_contract(
                         else "unconfigured"
                     ),
                 ),
+                InspectorFactRow(
+                    "bpm",
+                    (
+                        f"{float(presentation.bpm):.1f}".rstrip("0").rstrip(".")
+                        if presentation.bpm is not None and float(presentation.bpm) > 0.0
+                        else "unknown"
+                    ),
+                ),
+                InspectorFactRow(
+                    "first beat",
+                    (
+                        _format_seconds(presentation.beat_anchor_seconds)
+                        if presentation.beat_anchor_seconds is not None
+                        else "unanchored"
+                    ),
+                ),
                 InspectorFactRow("versions", str(version_count or 1)),
                 InspectorFactRow("timeline duration", presentation.end_time_label),
                 InspectorFactRow("layers", str(len(presentation.layers))),
@@ -173,7 +190,9 @@ def build_layer_contract(
         InspectorFactRow("pan", f"{layer.pan:+.2f}"),
         InspectorFactRow(
             "output route",
-            "Outputs 1/2 (Default)" if layer.output_bus is None else layer.output_bus,
+            "Master/default output"
+            if layer.output_bus is None
+            else output_bus_label(layer.output_bus),
         ),
     ]
     rows.extend(_layer_transfer_rows(presentation, layer))

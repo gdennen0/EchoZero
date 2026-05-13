@@ -5,6 +5,7 @@ Connects project-level song/version workflows to persistence repositories.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import uuid
 from dataclasses import replace as dataclass_replace
@@ -32,6 +33,8 @@ from echozero.persistence.repositories import (
     TakeRepository,
     TimelineObjectRepository,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class _ProjectStorageVersioningHost(Protocol):
@@ -105,6 +108,7 @@ class ProjectStorageVersioningMixin:
             prepare_audio_for_import,
             scan_audio_metadata,
         )
+        from echozero.persistence.audio_tempo import detect_audio_tempo
 
         import_options = (
             cast(AudioImportOptions, audio_import_options)
@@ -122,6 +126,10 @@ class ProjectStorageVersioningMixin:
         except Exception as exc:
             raise ValidationError(f"Invalid audio file '{audio_source.name}': {exc}") from exc
 
+        tempo_metadata = detect_audio_tempo(prepared_source.source_path)
+        if tempo_metadata is None:
+            logger.info("No tempo metadata detected for imported audio '%s'", audio_source.name)
+
         try:
             audio_rel_path, audio_hash = import_audio(
                 prepared_source.source_path, host.working_dir
@@ -138,6 +146,11 @@ class ProjectStorageVersioningMixin:
             original_sample_rate=metadata.sample_rate,
             audio_hash=audio_hash,
             created_at=datetime.now(timezone.utc),
+            bpm=None if tempo_metadata is None else tempo_metadata.bpm,
+            bpm_confidence=None if tempo_metadata is None else tempo_metadata.bpm_confidence,
+            beat_anchor_seconds=(
+                None if tempo_metadata is None else tempo_metadata.beat_anchor_seconds
+            ),
             ma3_timecode_pool_no=ma3_timecode_pool_no,
         )
         host.song_versions.create(version)
@@ -275,6 +288,7 @@ class ProjectStorageVersioningMixin:
         artist: str = "",
         label: str = "Original",
         default_templates: list[str] | None = None,
+        seed_default_song_id: str | None = None,
         audio_import_options: object | None = None,
         scan_fn: object | None = None,
     ) -> tuple[SongRecord, SongVersionRecord]:
@@ -306,7 +320,14 @@ class ProjectStorageVersioningMixin:
             updated_song = dataclass_replace(song, active_version_id=version.id)
             host.songs.update(updated_song)
 
-            self._apply_default_templates_to_song(song_id, default_templates)
+            copied_seed_defaults = False
+            if seed_default_song_id:
+                copied_seed_defaults = self._copy_song_default_configs_to_song(
+                    seed_default_song_id,
+                    song_id,
+                )
+            if not copied_seed_defaults:
+                self._apply_default_templates_to_song(song_id, default_templates)
             self._copy_song_default_configs_to_version(song_id, version.id)
 
             host.db.commit()
@@ -345,6 +366,36 @@ class ProjectStorageVersioningMixin:
             host.song_default_pipeline_configs.create(
                 SongDefaultPipelineConfigRecord.from_version_config(config, song_id=song_id)
             )
+
+    def _copy_song_default_configs_to_song(
+        self,
+        source_song_id: str,
+        target_song_id: str,
+    ) -> bool:
+        """Clone song-default configs from one song onto another song."""
+
+        host = cast(_ProjectStorageVersioningHost, self)
+        source_configs = host.song_default_pipeline_configs.list_by_song(source_song_id)
+        if not source_configs:
+            return False
+        now = datetime.now(timezone.utc)
+        for config in source_configs:
+            cloned = SongDefaultPipelineConfigRecord(
+                id=uuid.uuid4().hex,
+                song_id=target_song_id,
+                template_id=config.template_id,
+                name=config.name,
+                graph_json=config.graph_json,
+                outputs_json=config.outputs_json,
+                knob_values=dict(config.knob_values),
+                created_at=now,
+                updated_at=now,
+                block_overrides={
+                    key: list(values) for key, values in config.block_overrides.items()
+                },
+            )
+            host.song_default_pipeline_configs.create(cloned)
+        return True
 
     def _copy_song_default_configs_to_version(
         self, song_id: str, song_version_id: str

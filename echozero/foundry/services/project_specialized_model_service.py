@@ -43,7 +43,7 @@ class ProjectSpecializedModelResult:
 
 
 class ProjectSpecializedModelService:
-    """Train and promote project-derived kick/snare one-vs-rest models into global runtime bundles."""
+    """Train and promote project-derived one-vs-rest drum models into global runtime bundles."""
 
     _default_labels = ("kick", "snare")
 
@@ -62,12 +62,15 @@ class ProjectSpecializedModelService:
         project_ref: str,
         labels: tuple[str, ...] = _default_labels,
     ) -> ProjectSpecializedModelResult:
-        """Train, validate, and install project-derived kick/snare runtime bundles."""
+        """Train, validate, and install project-derived runtime bundles for requested labels."""
         app = self._foundry_app_factory(self._root)
-        selected_labels = self._resolve_requested_labels(labels)
         review_dataset, review_version = self._extract_project_review_dataset(
             app,
             project_ref=project_ref,
+        )
+        selected_labels = self._resolve_requested_labels(
+            labels,
+            available_labels=tuple(review_version.class_map),
         )
         models_dir = ensure_installed_models_dir().resolve()
         previous_index = load_binary_drum_bundle_index(models_dir)
@@ -143,17 +146,28 @@ class ProjectSpecializedModelService:
         )
 
     @classmethod
-    def _resolve_requested_labels(cls, labels: tuple[str, ...]) -> tuple[str, ...]:
+    def _resolve_requested_labels(
+        cls,
+        labels: tuple[str, ...],
+        *,
+        available_labels: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        available = {
+            str(raw_label).strip().lower()
+            for raw_label in available_labels
+            if str(raw_label).strip()
+        }
         normalized_labels: list[str] = []
         seen: set[str] = set()
         for raw_label in labels:
             label = str(raw_label).strip().lower()
             if not label or label in seen:
                 continue
-            if label not in cls._default_labels:
-                supported = ", ".join(cls._default_labels)
+            if label not in available:
+                supported = ", ".join(sorted(available)) or "(none)"
                 raise ValueError(
-                    f"Unsupported specialized model label '{label}'. Supported labels: {supported}."
+                    f"Unsupported specialized model label '{label}'. "
+                    f"Available review labels: {supported}."
                 )
             normalized_labels.append(label)
             seen.add(label)

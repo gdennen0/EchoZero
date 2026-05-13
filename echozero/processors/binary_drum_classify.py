@@ -1,7 +1,7 @@
 """
 BinaryDrumClassifyProcessor: classify drum onsets into per-class layers using shared runtime models.
 Exists because Stage Zero needs a real app-path "extract classified drums" pipeline, not a preview heuristic.
-Used by the analysis service to turn drum-stem onset detections into kick/snare event layers.
+Used by the analysis service to turn drum-stem onset detections into selected drum event layers.
 """
 
 from __future__ import annotations
@@ -61,6 +61,26 @@ def predict_probabilities(runtime_model: "LoadedRuntimeModel", feature: np.ndarr
 
 _DEFAULT_MIN_EVENT_PEAK = 1e-3
 _DEFAULT_MIN_EVENT_RMS = 2e-4
+_DEFAULT_MIN_SEPARATION_MS = 0.0
+_DEFAULT_TARGET_LABELS = ("kick", "snare")
+_LABEL_MIN_EVENT_PEAK_DEFAULTS = {
+    "kick": _DEFAULT_MIN_EVENT_PEAK,
+    "snare": _DEFAULT_MIN_EVENT_PEAK,
+    "clap": 1.5e-3,
+    "cymbal": 8e-4,
+}
+_LABEL_MIN_EVENT_RMS_DEFAULTS = {
+    "kick": _DEFAULT_MIN_EVENT_RMS,
+    "snare": _DEFAULT_MIN_EVENT_RMS,
+    "clap": 3e-4,
+    "cymbal": 1.5e-4,
+}
+_LABEL_MIN_SEPARATION_MS_DEFAULTS = {
+    "kick": 80.0,
+    "snare": 50.0,
+    "clap": 55.0,
+    "cymbal": 90.0,
+}
 _REVIEW_METADATA_KEYS = frozenset(
     {
         "review",
@@ -81,6 +101,9 @@ class DrumLabelInferenceInput:
     events: tuple[Event, ...]
     model_path: str
     positive_threshold: float
+    min_event_peak: float = _DEFAULT_MIN_EVENT_PEAK
+    min_event_rms: float = _DEFAULT_MIN_EVENT_RMS
+    min_separation_seconds: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,7 +186,7 @@ def _default_binary_classify(
                 sample_rate=runtime_model.sample_rate,
                 max_length=runtime_model.max_length,
             )
-            if event_peak < assignment.min_event_peak and event_rms < assignment.min_event_rms:
+            if event_peak < label_input.min_event_peak and event_rms < label_input.min_event_rms:
                 continue
             feature = build_feature_tensor(
                 audio=audio,
@@ -182,15 +205,24 @@ def _default_binary_classify(
                 label=label_input.label,
                 score=score,
                 positive_threshold=label_input.positive_threshold,
-                source_audio=Path(label_input.audio_file).name,
+                source_audio=str(label_input.audio_file),
                 source_model=Path(label_input.model_path).name,
                 model_artifact=model_artifacts[label_input.label],
                 assignment=assignment,
+                min_event_peak=label_input.min_event_peak,
+                min_event_rms=label_input.min_event_rms,
+                min_separation_seconds=label_input.min_separation_seconds,
                 event_peak=event_peak,
                 event_rms=event_rms,
             )
             classified[label_input.label].append((classified_event, score))
-    return _apply_assignment_config(classified, assignment)
+    assigned = _apply_assignment_config(classified, assignment)
+    return _apply_label_min_separation(
+        assigned,
+        min_separation_by_label={
+            label_input.label: label_input.min_separation_seconds for label_input in inputs
+        },
+    )
 
 
 class BinaryDrumClassifyProcessor:
@@ -214,12 +246,13 @@ class BinaryDrumClassifyProcessor:
             return err(ExecutionError(f"Block not found: {block_id}"))
 
         settings = block.settings
-        kick_model_path = settings.get("kick_model_path")
-        snare_model_path = settings.get("snare_model_path")
-        if not isinstance(kick_model_path, str) or not kick_model_path.strip():
-            return err(ValidationError("kick_model_path is required"))
-        if not isinstance(snare_model_path, str) or not snare_model_path.strip():
-            return err(ValidationError("snare_model_path is required"))
+        try:
+            target_labels = _resolve_target_labels(settings)
+            label_model_paths = {
+                label: _require_model_path(settings, label=label) for label in target_labels
+            }
+        except ValidationError as exc:
+            return err(exc)
 
         device = str(settings.get("device", "cpu"))
         positive_threshold = _validated_probability(
@@ -245,6 +278,10 @@ class BinaryDrumClassifyProcessor:
             settings.get("min_event_rms", _DEFAULT_MIN_EVENT_RMS),
             setting_name="min_event_rms",
         )
+        min_separation_ms = _validated_non_negative(
+            settings.get("min_separation_ms", _DEFAULT_MIN_SEPARATION_MS),
+            setting_name="min_separation_ms",
+        )
 
         shared_event_data = context.get_input(block_id, "events_in", EventData)
         shared_audio = context.get_input(block_id, "audio_in", AudioData)
@@ -257,25 +294,20 @@ class BinaryDrumClassifyProcessor:
         )
 
         try:
-            label_inputs = (
+            label_inputs = tuple(
                 _resolve_label_inference_input(
                     context,
                     block_id=block_id,
-                    label="kick",
-                    model_path=kick_model_path,
+                    label=label,
+                    model_path=label_model_paths[label],
                     shared_audio=shared_audio,
                     shared_event_data=shared_event_data,
                     fallback_positive_threshold=positive_threshold,
-                ),
-                _resolve_label_inference_input(
-                    context,
-                    block_id=block_id,
-                    label="snare",
-                    model_path=snare_model_path,
-                    shared_audio=shared_audio,
-                    shared_event_data=shared_event_data,
-                    fallback_positive_threshold=positive_threshold,
-                ),
+                    fallback_min_event_peak=min_event_peak,
+                    fallback_min_event_rms=min_event_rms,
+                    fallback_min_separation_ms=min_separation_ms,
+                )
+                for label in target_labels
             )
         except (ExecutionError, ValidationError) as exc:
             return err(exc)
@@ -303,12 +335,12 @@ class BinaryDrumClassifyProcessor:
                 block_id=block_id,
                 phase="binary_drum_classify",
                 percent=0.9,
-                message="Building kick/snare layers",
+                message="Building classified drum layers",
             )
         )
 
         output_layers: list[Layer] = []
-        for label in ("kick", "snare"):
+        for label in target_labels:
             scored_events = classified.get(label, [])
             ordered_events = tuple(
                 event for event, _score in sorted(scored_events, key=lambda item: item[0].time)
@@ -324,6 +356,52 @@ class BinaryDrumClassifyProcessor:
             )
         )
         return ok(EventData(layers=tuple(output_layers)))
+
+
+def _resolve_target_labels(settings: dict[str, object]) -> tuple[str, ...]:
+    raw_target_labels = settings.get("target_labels")
+    if raw_target_labels is None:
+        return _DEFAULT_TARGET_LABELS
+
+    normalized_labels: list[str] = []
+    raw_values: tuple[object, ...]
+    if isinstance(raw_target_labels, str):
+        raw_values = tuple(part.strip() for part in raw_target_labels.split(","))
+    elif isinstance(raw_target_labels, (list, tuple)):
+        raw_values = tuple(raw_target_labels)
+    else:
+        raise ValidationError("target_labels must be a string, list, or tuple when provided")
+
+    for raw_value in raw_values:
+        label = _normalize_drum_label(raw_value)
+        if not label or label in normalized_labels:
+            continue
+        normalized_labels.append(label)
+    if not normalized_labels:
+        raise ValidationError("target_labels must include at least one label")
+    return tuple(normalized_labels)
+
+
+def _normalize_drum_label(raw_value: object) -> str:
+    label = str(raw_value).strip().lower()
+    if label in {"symbol", "cymbol"}:
+        return "cymbal"
+    return label
+
+
+def _require_model_path(settings: dict[str, object], *, label: str) -> str:
+    raw_model_path = settings.get(f"{label}_model_path")
+    if isinstance(raw_model_path, str) and raw_model_path.strip():
+        return raw_model_path
+    try:
+        from echozero.models.runtime_bundle_selection import resolve_installed_binary_drum_bundles
+
+        bundles = resolve_installed_binary_drum_bundles(labels=(label,))
+    except FileNotFoundError as exc:
+        raise ValidationError(
+            f"{label}_model_path is required or an installed runtime bundle for '{label}' must exist"
+        ) from exc
+    return str(bundles[label].manifest_path)
 
 
 def _validated_probability(raw_value: object, *, setting_name: str) -> float:
@@ -355,6 +433,9 @@ def _resolve_label_inference_input(
     shared_audio: AudioData | None,
     shared_event_data: EventData | None,
     fallback_positive_threshold: float,
+    fallback_min_event_peak: float,
+    fallback_min_event_rms: float,
+    fallback_min_separation_ms: float,
 ) -> DrumLabelInferenceInput:
     label_audio = context.get_input(block_id, f"{label}_audio_in", AudioData) or shared_audio
     if label_audio is None or not label_audio.file_path:
@@ -371,12 +452,36 @@ def _resolve_label_inference_input(
         block.settings.get(f"{label}_positive_threshold", fallback_positive_threshold),
         setting_name=f"{label}_positive_threshold",
     )
+    min_event_peak = _validated_non_negative(
+        block.settings.get(
+            f"{label}_min_event_peak",
+            _LABEL_MIN_EVENT_PEAK_DEFAULTS.get(label, fallback_min_event_peak),
+        ),
+        setting_name=f"{label}_min_event_peak",
+    )
+    min_event_rms = _validated_non_negative(
+        block.settings.get(
+            f"{label}_min_event_rms",
+            _LABEL_MIN_EVENT_RMS_DEFAULTS.get(label, fallback_min_event_rms),
+        ),
+        setting_name=f"{label}_min_event_rms",
+    )
+    min_separation_ms = _validated_non_negative(
+        block.settings.get(
+            f"{label}_min_separation_ms",
+            _LABEL_MIN_SEPARATION_MS_DEFAULTS.get(label, fallback_min_separation_ms),
+        ),
+        setting_name=f"{label}_min_separation_ms",
+    )
     return DrumLabelInferenceInput(
         label=label,
         audio_file=str(label_audio.file_path),
         events=_flatten_events(label_event_data),
         model_path=model_path,
         positive_threshold=positive_threshold,
+        min_event_peak=min_event_peak,
+        min_event_rms=min_event_rms,
+        min_separation_seconds=min_separation_ms / 1000.0,
     )
 
 
@@ -474,6 +579,48 @@ def _apply_assignment_config(
     }
 
 
+def _apply_label_min_separation(
+    classified: dict[str, list[tuple[Event, float]]],
+    *,
+    min_separation_by_label: dict[str, float],
+) -> dict[str, list[tuple[Event, float]]]:
+    resolved: dict[str, list[tuple[Event, float]]] = {}
+    for label, scored_events in classified.items():
+        min_separation_seconds = min_separation_by_label.get(label, 0.0)
+        if min_separation_seconds <= 0.0:
+            resolved[label] = sorted(scored_events, key=lambda item: item[0].time)
+            continue
+
+        kept: list[tuple[Event, float]] = []
+        suppressed: set[str] = set()
+        promoted_candidates = [
+            (event, score)
+            for event, score in scored_events
+            if _event_is_promoted(event)
+        ]
+        for event, score in sorted(promoted_candidates, key=lambda item: (-item[1], item[0].time)):
+            if any(abs(event.time - kept_event.time) < min_separation_seconds for kept_event, _ in kept):
+                suppressed.add(event.id)
+                continue
+            kept.append((event, score))
+
+        next_events: list[tuple[Event, float]] = []
+        for event, score in scored_events:
+            if event.id in suppressed:
+                event = _with_detection_promotion_state(
+                    event,
+                    promotion_state="demoted",
+                    extra_detection_metadata={
+                        "dedup_suppressed": True,
+                        "suppression_reason": "min_separation",
+                        "min_separation_ms": round(min_separation_seconds * 1000.0, 3),
+                    },
+                )
+            next_events.append((event, score))
+        resolved[label] = sorted(next_events, key=lambda item: item[0].time)
+    return resolved
+
+
 def _build_classified_event(
     *,
     event: Event,
@@ -484,6 +631,9 @@ def _build_classified_event(
     source_model: str,
     model_artifact: dict[str, Any],
     assignment: BinaryAssignmentConfig,
+    min_event_peak: float,
+    min_event_rms: float,
+    min_separation_seconds: float,
     event_peak: float,
     event_rms: float,
 ) -> Event:
@@ -501,8 +651,9 @@ def _build_classified_event(
         "assignment_mode": assignment.assignment_mode,
         "event_peak": round(event_peak, 6),
         "event_rms": round(event_rms, 6),
-        "min_event_peak": round(assignment.min_event_peak, 6),
-        "min_event_rms": round(assignment.min_event_rms, 6),
+        "min_event_peak": round(min_event_peak, 6),
+        "min_event_rms": round(min_event_rms, 6),
+        "min_separation_ms": round(min_separation_seconds * 1000.0, 3),
     }
     classifications = dict(event.classifications)
     classifications.update(
@@ -525,8 +676,9 @@ def _build_classified_event(
             "assignment_mode": assignment.assignment_mode,
             "event_peak": round(event_peak, 6),
             "event_rms": round(event_rms, 6),
-            "min_event_peak": round(assignment.min_event_peak, 6),
-            "min_event_rms": round(assignment.min_event_rms, 6),
+            "min_event_peak": round(min_event_peak, 6),
+            "min_event_rms": round(min_event_rms, 6),
+            "min_separation_ms": round(min_separation_seconds * 1000.0, 3),
             "detection": detection_metadata,
         }
     )
@@ -545,9 +697,26 @@ def _event_threshold_passed(event: Event) -> bool:
     return False
 
 
-def _with_detection_promotion_state(event: Event, *, promotion_state: str) -> Event:
+def _event_is_promoted(event: Event) -> bool:
+    detection = event.metadata.get("detection")
+    if not isinstance(detection, dict):
+        return False
+    return (
+        bool(detection.get("threshold_passed"))
+        and str(detection.get("promotion_state", "")).strip().lower() == "promoted"
+    )
+
+
+def _with_detection_promotion_state(
+    event: Event,
+    *,
+    promotion_state: str,
+    extra_detection_metadata: dict[str, Any] | None = None,
+) -> Event:
     detection_metadata = dict(event.metadata.get("detection") or {})
     detection_metadata["promotion_state"] = promotion_state
+    if extra_detection_metadata:
+        detection_metadata.update(extra_detection_metadata)
     next_metadata = dict(event.metadata)
     next_metadata["detection"] = detection_metadata
     return replace(

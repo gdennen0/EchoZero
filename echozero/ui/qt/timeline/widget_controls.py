@@ -53,7 +53,7 @@ from echozero.ui.qt.timeline.blocks.ruler import (
 )
 from echozero.ui.qt.timeline.blocks.transport_bar import TransportLayout
 from echozero.ui.qt.timeline.blocks.transport_bar_block import TransportBarBlock
-from echozero.ui.qt.timeline.time_grid import TimelineGridMode
+from echozero.ui.qt.timeline.time_grid import TimelineGridMode, grid_mode_label
 
 
 class TimelineEditorModeBar(QWidget):
@@ -69,7 +69,7 @@ class TimelineEditorModeBar(QWidget):
     settings_requested = pyqtSignal()
     osc_settings_requested = pyqtSignal()
     pipeline_settings_requested = pyqtSignal()
-    _COMPACT_WIDTH_THRESHOLD_PX = 1400
+    _COMPACT_WIDTH_THRESHOLD_PX = 1180
     _PRIMARY_VISIBLE_MODES: tuple[str, ...] = ("select", "draw", "fix")
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -422,8 +422,8 @@ class TimelineEditorModeBar(QWidget):
         self._refresh_settings_button_icon()
         if compact:
             self._settings_button.setText("")
-            self._osc_settings_button.setText("O")
-            self._pipeline_settings_button.setText("P")
+            self._osc_settings_button.setText("OSC")
+            self._pipeline_settings_button.setText("Pipe")
             return
         self._settings_button.setText("Settings")
         self._osc_settings_button.setText("OSC")
@@ -467,7 +467,7 @@ class TimelineEditorModeBar(QWidget):
         mode_width = 32 if compact else 58
         snap_width = 34 if compact else 64
         grid_width = 44 if compact else 84
-        shell_width = 34 if compact else 88
+        shell_width = 44 if compact else 88
         fix_small_width = 22 if compact else 30
         fix_select_width = 28 if compact else 36
         fix_toggle_width = 48 if compact else 90
@@ -510,15 +510,17 @@ class TimelineEditorModeBar(QWidget):
             widget.update()
 
     def _sync_grid_button_text(self) -> None:
-        mode_label = self._grid_mode.value.title()
+        mode_label = grid_mode_label(self._grid_mode)
         if self._compact_mode:
-            compact_label = {"Auto": "A", "Beat": "B", "Off": "O"}.get(mode_label, mode_label)
+            compact_label = {"Time": "T", "Beats": "B", "Off": "O"}.get(mode_label, mode_label)
             self._grid_button.setText(f"▦{compact_label}")
             return
         self._grid_button.setText(f"▦ Grid: {mode_label}")
 
     def _sync_grid_button_tooltip(self) -> None:
-        self._grid_button.setToolTip(f"Cycle grid mode (current: {self._grid_mode.value.title()})")
+        self._grid_button.setToolTip(
+            f"Cycle grid mode (current: {grid_mode_label(self._grid_mode)})"
+        )
 
     def _create_group_layout(self, parent: QWidget) -> QHBoxLayout:
         layout = QHBoxLayout(parent)

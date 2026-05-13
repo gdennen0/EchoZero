@@ -434,6 +434,187 @@ def test_project_specialized_model_service_can_promote_only_snare(
     assert bundles["snare"].manifest_path == result.promotions[0].manifest_path.resolve()
 
 
+def test_project_specialized_model_service_accepts_custom_review_labels(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    global_models_root = tmp_path / "global-models"
+    monkeypatch.setattr(
+        "echozero.foundry.services.project_specialized_model_service.ensure_installed_models_dir",
+        lambda: global_models_root,
+    )
+    review_dataset = Dataset(
+        id="ds_review_custom",
+        name="Review Samples",
+        source_kind="project_review_export",
+        metadata={"project_ref": "project:alpha", "queue_source_kind": "ez_project"},
+    )
+    review_version = DatasetVersion(
+        id="dsv_review_custom",
+        dataset_id=review_dataset.id,
+        version=1,
+        manifest_hash="hash-review-custom",
+        sample_rate=22050,
+        audio_standard="mono_wav_pcm16",
+        class_map=["clap", "cymbal", "snare"],
+        created_at=datetime.now(UTC),
+    )
+    call_log: list[tuple[str, str]] = []
+
+    class _FakeDatasets:
+        def get_dataset(self, dataset_id: str) -> Dataset | None:
+            return review_dataset if dataset_id == review_dataset.id else None
+
+        def get_version(self, version_id: str) -> DatasetVersion | None:
+            if version_id == review_version.id:
+                return review_version
+            label = version_id.removeprefix("dsv_")
+            return DatasetVersion(
+                id=version_id,
+                dataset_id=f"ds_{label}",
+                version=1,
+                manifest_hash=f"hash-{label}",
+                sample_rate=22050,
+                audio_standard="mono_wav_pcm16",
+                class_map=[label, "other"],
+                split_plan={"assignments": {"sm1": "train"}},
+                created_at=datetime.now(UTC),
+            )
+
+        def derive_binary_dataset_version(
+            self, source_version_id: str, *, positive_label: str
+        ) -> DatasetVersion:
+            call_log.append(("derive", f"{source_version_id}:{positive_label}"))
+            return DatasetVersion(
+                id=f"dsv_{positive_label}",
+                dataset_id=f"ds_{positive_label}",
+                version=1,
+                manifest_hash=f"hash-{positive_label}",
+                sample_rate=22050,
+                audio_standard="mono_wav_pcm16",
+                class_map=[positive_label, "other"],
+                split_plan={"assignments": {"sm1": "train"}},
+                created_at=datetime.now(UTC),
+            )
+
+    @dataclass
+    class _InstalledBundle:
+        label: str
+        bundle_name: str
+        bundle_dir: Path
+        manifest_path: Path
+        weights_path: Path
+
+    class _FakeRuntimeBundles:
+        def install_binary_drum_artifact(
+            self,
+            artifact_ref: str,
+            *,
+            models_dir: Path | None = None,
+            bundle_name: str | None = None,
+            bundle_label: str | None = None,
+        ) -> _InstalledBundle:
+            label = bundle_label or artifact_ref.split("_")[-1]
+            call_log.append(("install", f"{artifact_ref}:{label}"))
+            assert models_dir == global_models_root
+            assert bundle_name is not None
+            manifest_path = _write_bundle(models_dir, str(bundle_name), label)
+            return _InstalledBundle(
+                label=label,
+                bundle_name=str(bundle_name),
+                bundle_dir=manifest_path.parent,
+                manifest_path=manifest_path,
+                weights_path=manifest_path.parent / "model.pth",
+            )
+
+    class _FakeApp:
+        datasets = _FakeDatasets()
+        runtime_bundles = _FakeRuntimeBundles()
+
+        def extract_project_review_dataset(
+            self,
+            project_path: str | Path,
+            *,
+            project_ref: str | None = None,
+            song_id: str | None = None,
+            song_version_id: str | None = None,
+            layer_id: str | None = None,
+            queue_source_kind: str = "ez_project",
+        ) -> DatasetVersion:
+            call_log.append(("export_review", f"{project_ref}:{queue_source_kind}"))
+            assert Path(project_path) == tmp_path
+            assert song_id is None
+            assert song_version_id is None
+            assert layer_id is None
+            return review_version
+
+        def create_run(self, dataset_version_id: str, run_spec: dict[str, object]) -> TrainRun:
+            call_log.append(("create_run", dataset_version_id))
+            return TrainRun(
+                id=f"run_{dataset_version_id}",
+                dataset_version_id=dataset_version_id,
+                status=TrainRunStatus.QUEUED,
+                spec=run_spec,
+                spec_hash=f"hash-{dataset_version_id}",
+            )
+
+        def start_run(self, run_id: str) -> TrainRun:
+            call_log.append(("start_run", run_id))
+            return TrainRun(
+                id=run_id,
+                dataset_version_id=run_id.removeprefix("run_"),
+                status=TrainRunStatus.COMPLETED,
+                spec={},
+                spec_hash=f"hash-{run_id}",
+            )
+
+        def list_artifacts_for_run(self, run_id: str) -> list[ModelArtifact]:
+            label = run_id.removeprefix("run_dsv_")
+            return [
+                ModelArtifact(
+                    id=f"art_{label}",
+                    run_id=run_id,
+                    artifact_version="v1",
+                    path=tmp_path / f"{label}.manifest.json",
+                    sha256=f"sha-{label}",
+                    manifest={},
+                )
+            ]
+
+        def validate_artifact(self, artifact_id: str) -> CompatibilityReport:
+            call_log.append(("validate", artifact_id))
+            return CompatibilityReport(
+                artifact_id=artifact_id,
+                consumer="PyTorchAudioClassify",
+                ok=True,
+            )
+
+    service = ProjectSpecializedModelService(
+        tmp_path,
+        foundry_app_factory=lambda _root: _FakeApp(),
+    )
+
+    result = service.create_project_specialized_drum_models(
+        project_ref="project:alpha",
+        labels=("clap", "cymbal"),
+    )
+
+    assert [promotion.label for promotion in result.promotions] == ["clap", "cymbal"]
+    assert call_log == [
+        ("export_review", "project:alpha:ez_project"),
+        ("derive", "dsv_review_custom:clap"),
+        ("create_run", "dsv_clap"),
+        ("start_run", "run_dsv_clap"),
+        ("validate", "art_clap"),
+        ("install", "art_clap:clap"),
+        ("derive", "dsv_review_custom:cymbal"),
+        ("create_run", "dsv_cymbal"),
+        ("start_run", "run_dsv_cymbal"),
+        ("validate", "art_cymbal"),
+        ("install", "art_cymbal:cymbal"),
+    ]
+
+
 def test_project_specialized_model_service_restores_previous_global_index_on_later_failure(
     monkeypatch,
     tmp_path: Path,

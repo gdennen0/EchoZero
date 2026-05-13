@@ -2,9 +2,13 @@ from echozero.ui.qt.timeline.blocks.ruler import (
     absolute_timeline_x_for_view_x,
     seek_time_for_x,
     timeline_x_for_time,
+    visible_ruler_marks,
     visible_ruler_seconds,
 )
+from echozero.application.presentation.models import TimelinePresentation
+from echozero.application.shared.ids import TimelineId
 from echozero.ui.FEEL import RULER_MIN_TICK_SPACING_PX
+from echozero.ui.qt.timeline.time_grid import TimelineGridMode, visible_grid_lines
 from echozero.ui.qt.timeline.blocks.waveform_lane import waveform_x_for_time
 
 
@@ -118,3 +122,40 @@ def test_waveform_x_for_time_matches_ruler_mapping():
         pixels_per_second=100.0,
         content_start_x=320.0,
     )
+
+
+def test_visible_grid_lines_extend_before_first_beat_anchor():
+    lines = visible_grid_lines(
+        scroll_x=0.0,
+        pixels_per_second=160.0,
+        content_width=500.0,
+        mode=TimelineGridMode.BEAT,
+        bpm=120.0,
+        beat_anchor_seconds=2.0,
+    )
+
+    time_seconds = [round(line.time_seconds, 3) for line in lines]
+    assert 0.0 in time_seconds
+    assert 1.5 in time_seconds
+    assert 2.0 in time_seconds
+
+
+def test_visible_ruler_marks_skip_negative_bar_labels_before_anchor():
+    presentation = TimelinePresentation(
+        timeline_id=TimelineId("timeline_ruler"),
+        title="Ruler",
+        bpm=120.0,
+        beat_anchor_seconds=2.0,
+        pixels_per_second=160.0,
+        scroll_x=0.0,
+    )
+
+    marks = visible_ruler_marks(
+        presentation=presentation,
+        content_width=800.0,
+        content_start_x=320.0,
+    )
+
+    assert marks
+    assert marks[0][0] == "1|1"
+    assert marks[0][1] == 640.0

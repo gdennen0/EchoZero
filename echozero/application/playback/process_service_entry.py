@@ -15,6 +15,7 @@ from echozero.application.playback.process_service import PlaybackProcessService
 from echozero.application.playback.process_shared import PLAYBACK_IPC_HOST
 from echozero.application.settings import AudioOutputRuntimeConfig
 from echozero.errors import InfrastructureError
+from echozero.output_routing import DEFAULT_STEREO_OUTPUT_BUS, canonical_master_output_buses
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -39,6 +40,12 @@ def _load_audio_config(config_path: Path | None) -> AudioOutputRuntimeConfig | N
             int(payload["sample_rate"]) if payload.get("sample_rate") is not None else None
         ),
         channels=(int(payload["channels"]) if payload.get("channels") is not None else None),
+        master_output_bus=",".join(
+            canonical_master_output_buses(
+                payload.get("master_output_bus"),
+                default=DEFAULT_STEREO_OUTPUT_BUS,
+            )
+        ),
         stream_latency=payload.get("stream_latency"),
         stream_blocksize=(
             int(payload["stream_blocksize"])

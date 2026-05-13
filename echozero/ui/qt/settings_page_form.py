@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QLabel,
     QLineEdit,
     QScrollArea,
@@ -29,6 +30,116 @@ from echozero.application.settings import (
     SettingsPage,
     SettingsSection,
 )
+
+
+class _CheckboxGroupWidget(QWidget):
+    """Small value adapter for comma-compatible multi-select settings."""
+
+    def __init__(self, field: SettingsField, parent: QWidget) -> None:
+        super().__init__(parent)
+        layout = QGridLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setHorizontalSpacing(8)
+        layout.setVerticalSpacing(2)
+        self._checkboxes: list[tuple[object, QCheckBox]] = []
+        option_values = {str(option.value) for option in field.options}
+        selected_values = set(self._coerce_values(field.value))
+        default_values = set(self._coerce_values(field.default_value))
+        if not selected_values or not (selected_values & option_values):
+            selected_values = default_values & option_values
+        for index, option in enumerate(field.options):
+            checkbox = QCheckBox(option.label, self)
+            checkbox.setChecked(str(option.value) in selected_values)
+            row = index // 2
+            column = index % 2
+            layout.addWidget(checkbox, row, column)
+            self._checkboxes.append((option.value, checkbox))
+
+    def value(self) -> str:
+        return ",".join(
+            str(value)
+            for value, checkbox in self._checkboxes
+            if checkbox.isChecked()
+        )
+
+    def set_value(self, value: object) -> None:
+        selected_values = set(self._coerce_values(value))
+        option_values = {str(option_value) for option_value, _checkbox in self._checkboxes}
+        if selected_values and not (selected_values & option_values):
+            selected_values = set()
+        for option_value, checkbox in self._checkboxes:
+            checkbox.setChecked(str(option_value) in selected_values)
+
+    def connect_changed(self, callback) -> None:
+        for _option_value, checkbox in self._checkboxes:
+            checkbox.toggled.connect(callback)
+
+    @staticmethod
+    def _coerce_values(value: object) -> tuple[str, ...]:
+        if isinstance(value, str):
+            raw_values: list[object] = value.split(",")
+        elif isinstance(value, (list, tuple, set)):
+            raw_values = []
+            for item in value:
+                if isinstance(item, str):
+                    raw_values.extend(item.split(","))
+                else:
+                    raw_values.append(item)
+        else:
+            raw_values = [value]
+        return tuple(str(item).strip() for item in raw_values if str(item or "").strip())
+
+
+class _TargetLabelWorksheetAdapter(QWidget):
+    """Value adapter for worksheet-style classifier output checkboxes."""
+
+    def __init__(self, field: SettingsField, parent: QWidget) -> None:
+        super().__init__(parent)
+        self._checkboxes: dict[str, QCheckBox] = {}
+        option_values = {str(option.value) for option in field.options}
+        selected_values = set(_CheckboxGroupWidget._coerce_values(field.value))
+        default_values = set(_CheckboxGroupWidget._coerce_values(field.default_value))
+        if not selected_values or not (selected_values & option_values):
+            selected_values = default_values & option_values
+        for option in field.options:
+            value = str(option.value).strip()
+            if not value:
+                continue
+            checkbox = QCheckBox(option.label, parent)
+            checkbox.setChecked(value in selected_values)
+            checkbox.setEnabled(field.enabled)
+            self._checkboxes[value] = checkbox
+
+    def checkbox_for(self, label: str) -> QCheckBox | None:
+        return self._checkboxes.get(label)
+
+    def ensure_label(self, label: str, *, selected: bool = False) -> None:
+        normalized = str(label or "").strip()
+        if not normalized or normalized in self._checkboxes:
+            return
+        checkbox = QCheckBox(normalized.replace("_", " ").title(), self.parentWidget())
+        checkbox.setChecked(selected)
+        self._checkboxes[normalized] = checkbox
+
+    def labels(self) -> tuple[str, ...]:
+        return tuple(self._checkboxes)
+
+    def value(self) -> str:
+        return ",".join(
+            label for label, checkbox in self._checkboxes.items() if checkbox.isChecked()
+        )
+
+    def set_value(self, value: object) -> None:
+        selected_values = set(_CheckboxGroupWidget._coerce_values(value))
+        option_values = set(self._checkboxes)
+        if selected_values and not (selected_values & option_values):
+            selected_values = set()
+        for label, checkbox in self._checkboxes.items():
+            checkbox.setChecked(label in selected_values)
+
+    def connect_changed(self, callback) -> None:
+        for checkbox in self._checkboxes.values():
+            checkbox.toggled.connect(callback)
 
 
 class SettingsPageForm(QWidget):
@@ -100,6 +211,10 @@ class SettingsPageForm(QWidget):
             self._suspend_field_events = False
 
     def _add_section(self, section: SettingsSection) -> None:
+        if section.key.endswith(".classifier_worksheet"):
+            self._add_classifier_worksheet_section(section)
+            return
+
         title = QLabel(section.title, self._content)
         self._content_layout.addWidget(title)
         if section.description:
@@ -114,28 +229,53 @@ class SettingsPageForm(QWidget):
             field for field in section.fields if field.surface is SettingsFieldSurface.ADVANCED
         )
 
-        self._add_form_fields(primary_fields)
+        preferred_columns = max(1, int(section.preferred_columns))
+        self._add_form_fields(
+            primary_fields,
+            preferred_columns=preferred_columns,
+            section_key=section.key,
+        )
         if advanced_fields:
-            self._add_advanced_section(advanced_fields)
+            self._add_advanced_section(
+                advanced_fields,
+                preferred_columns=preferred_columns,
+                section_key=section.key,
+                always_show=section.always_show_advanced,
+            )
 
-    def _add_form_fields(self, fields: tuple[SettingsField, ...]) -> None:
+    def _add_form_fields(
+        self,
+        fields: tuple[SettingsField, ...],
+        *,
+        preferred_columns: int = 1,
+        section_key: str = "",
+    ) -> None:
         if not fields:
             return
-        form = QFormLayout()
-        form.setContentsMargins(0, 0, 0, 0)
-        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        form.setHorizontalSpacing(6)
-        form.setVerticalSpacing(4)
-        for field in fields:
-            self._add_form_field_row(form, field)
-        self._content_layout.addLayout(form)
+        if preferred_columns <= 1:
+            form = self._build_form_layout(fields)
+            self._content_layout.addLayout(form)
+            return
+        grid = self._build_grid_layout(
+            fields,
+            preferred_columns=preferred_columns,
+            section_key=section_key,
+        )
+        self._content_layout.addLayout(grid)
 
-    def _add_advanced_section(self, fields: tuple[SettingsField, ...]) -> None:
-        show_advanced = any(field.is_dirty for field in fields)
-        toggle = QCheckBox("Show advanced settings", self._content)
-        toggle.setChecked(show_advanced)
-        self._content_layout.addWidget(toggle)
+    def _add_advanced_section(
+        self,
+        fields: tuple[SettingsField, ...],
+        *,
+        preferred_columns: int = 1,
+        section_key: str = "",
+        always_show: bool = False,
+    ) -> None:
+        show_advanced = always_show or any(field.is_dirty for field in fields)
+        if not always_show:
+            toggle = QCheckBox("Show advanced settings", self._content)
+            toggle.setChecked(show_advanced)
+            self._content_layout.addWidget(toggle)
 
         container = QWidget(self._content)
         container.setVisible(show_advanced)
@@ -146,6 +286,116 @@ class SettingsPageForm(QWidget):
         title = QLabel("Advanced", container)
         container_layout.addWidget(title)
 
+        if preferred_columns <= 1:
+            form = self._build_form_layout(fields)
+            container_layout.addLayout(form)
+        else:
+            grid = self._build_grid_layout(
+                fields,
+                preferred_columns=preferred_columns,
+                section_key=f"{section_key}.advanced" if section_key else "advanced",
+            )
+            container_layout.addLayout(grid)
+        self._content_layout.addWidget(container)
+
+        if not always_show:
+            toggle.toggled.connect(container.setVisible)
+
+    def _add_classifier_worksheet_section(self, section: SettingsSection) -> None:
+        """Render classifier outputs as one compact worksheet instead of scattered rows."""
+
+        title = QLabel(section.title, self._content)
+        self._content_layout.addWidget(title)
+        if section.description:
+            description = QLabel(section.description, self._content)
+            description.setWordWrap(True)
+            self._content_layout.addWidget(description)
+
+        fields_by_key = {field.key: field for field in section.fields}
+        target_field = fields_by_key.get("target_drum_labels")
+        if target_field is None:
+            self._add_form_fields(section.fields, preferred_columns=1, section_key=section.key)
+            return
+
+        target_adapter = _TargetLabelWorksheetAdapter(target_field, self._content)
+        for key in fields_by_key:
+            if key.endswith("_model_path"):
+                target_adapter.ensure_label(key[: -len("_model_path")])
+        target_adapter.connect_changed(
+            lambda _checked, widget=target_adapter: self._emit_field_value_changed(
+                "target_drum_labels", widget
+            )
+        )
+        self._inputs["target_drum_labels"] = target_adapter
+
+        grid = QGridLayout()
+        grid.setObjectName(self._layout_object_name("classifierWorksheet", section.key))
+        grid.setProperty("section_key", section.key)
+        grid.setProperty("worksheet", "classifier_models")
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(4)
+
+        headers = ("Output", "Compatible Model", "Confidence", "Dedup")
+        for column, header in enumerate(headers):
+            label = QLabel(header, self._content)
+            label.setProperty("role", "worksheet_header")
+            grid.addWidget(label, 0, column)
+        grid.setColumnStretch(0, 0)
+        grid.setColumnStretch(1, 3)
+        grid.setColumnStretch(2, 1)
+        grid.setColumnStretch(3, 1)
+
+        for row, label in enumerate(target_adapter.labels(), start=1):
+            checkbox = target_adapter.checkbox_for(label)
+            if checkbox is None:
+                continue
+            grid.addWidget(checkbox, row, 0)
+            self._add_classifier_worksheet_widget(
+                grid,
+                row,
+                1,
+                fields_by_key.get(f"{label}_model_path"),
+            )
+            self._add_classifier_worksheet_widget(
+                grid,
+                row,
+                2,
+                fields_by_key.get(f"{label}_positive_threshold"),
+            )
+            self._add_classifier_worksheet_widget(
+                grid,
+                row,
+                3,
+                fields_by_key.get(f"{label}_min_separation_ms"),
+            )
+
+        self._content_layout.addLayout(grid)
+
+    def _add_classifier_worksheet_widget(
+        self,
+        grid: QGridLayout,
+        row: int,
+        column: int,
+        field: SettingsField | None,
+    ) -> None:
+        if field is None:
+            placeholder = QLabel("—", self._content)
+            grid.addWidget(placeholder, row, column)
+            return
+        widget = self._build_field_widget(field)
+        widget.setEnabled(field.enabled)
+        if isinstance(widget, QComboBox):
+            widget.setMinimumContentsLength(18)
+            widget.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        tooltip = self._field_tooltip_text(field)
+        if tooltip:
+            widget.setToolTip(tooltip)
+            widget.setStatusTip(tooltip)
+        self._inputs[field.key] = widget
+        grid.addWidget(widget, row, column)
+
+    def _build_form_layout(self, fields: tuple[SettingsField, ...]) -> QFormLayout:
         form = QFormLayout()
         form.setContentsMargins(0, 0, 0, 0)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
@@ -154,10 +404,39 @@ class SettingsPageForm(QWidget):
         form.setVerticalSpacing(4)
         for field in fields:
             self._add_form_field_row(form, field)
-        container_layout.addLayout(form)
-        self._content_layout.addWidget(container)
+        return form
 
-        toggle.toggled.connect(container.setVisible)
+    def _build_grid_layout(
+        self,
+        fields: tuple[SettingsField, ...],
+        *,
+        preferred_columns: int,
+        section_key: str = "",
+    ) -> QGridLayout:
+        grid = QGridLayout()
+        grid.setObjectName(self._layout_object_name("settingsPageGrid", section_key))
+        grid.setProperty("preferred_columns", preferred_columns)
+        grid.setProperty("section_key", section_key)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(6)
+        grid.setVerticalSpacing(4)
+        for column_index in range(preferred_columns):
+            label_column = column_index * 2
+            field_column = label_column + 1
+            grid.setColumnStretch(label_column, 0)
+            grid.setColumnStretch(field_column, 1)
+        for index, field in enumerate(fields):
+            row = index // preferred_columns
+            column_group = index % preferred_columns
+            self._add_grid_field_row(grid, row, column_group, field)
+        return grid
+
+    @staticmethod
+    def _layout_object_name(prefix: str, section_key: str) -> str:
+        safe_key = "".join(
+            character if character.isalnum() else "_" for character in section_key.strip()
+        ).strip("_")
+        return f"{prefix}_{safe_key}" if safe_key else prefix
 
     def _clear_sections(self) -> None:
         while self._content_layout.count():
@@ -205,6 +484,15 @@ class SettingsPageForm(QWidget):
             )
             return checkbox
 
+        if field.widget is SettingsFieldWidget.CHECKBOX_GROUP:
+            group = _CheckboxGroupWidget(field, self._content)
+            group.connect_changed(
+                lambda _checked, key=field.key, widget=group: self._emit_field_value_changed(
+                    key, widget
+                )
+            )
+            return group
+
         if field.widget is SettingsFieldWidget.NUMBER:
             if isinstance(field.value, int) and not isinstance(field.value, bool):
                 spin = QSpinBox(self._content)
@@ -214,6 +502,7 @@ class SettingsPageForm(QWidget):
                 spin.setValue(int(field.value))
                 if field.units:
                     spin.setSuffix(f" {field.units}")
+                spin.setMinimumWidth(118)
                 spin.setKeyboardTracking(False)
                 spin.valueChanged.connect(
                     lambda _value, key=field.key, widget=spin: self._emit_field_value_changed(
@@ -232,6 +521,7 @@ class SettingsPageForm(QWidget):
             spin.setValue(float(field.value if field.value is not None else 0.0))
             if field.units:
                 spin.setSuffix(f" {field.units}")
+            spin.setMinimumWidth(118)
             spin.setKeyboardTracking(False)
             spin.valueChanged.connect(
                 lambda _value, key=field.key, widget=spin: self._emit_field_value_changed(
@@ -242,6 +532,7 @@ class SettingsPageForm(QWidget):
 
         line_edit = QLineEdit(self._content)
         line_edit.setText("" if field.value is None else str(field.value))
+        line_edit.setMinimumWidth(180)
         if field.placeholder:
             line_edit.setPlaceholderText(field.placeholder)
         line_edit.textChanged.connect(
@@ -263,6 +554,29 @@ class SettingsPageForm(QWidget):
             label.setStatusTip(tooltip)
         self._inputs[field.key] = widget
         form.addRow(label, widget)
+
+    def _add_grid_field_row(
+        self, grid: QGridLayout, row: int, column_group: int, field: SettingsField
+    ) -> None:
+        widget = self._build_field_widget(field)
+        widget.setEnabled(field.enabled)
+        tooltip = self._field_tooltip_text(field)
+        label = QLabel(field.label, self._content)
+        if tooltip:
+            widget.setToolTip(tooltip)
+            widget.setStatusTip(tooltip)
+            label.setToolTip(tooltip)
+            label.setStatusTip(tooltip)
+        self._inputs[field.key] = widget
+        label_column = column_group * 2
+        field_column = label_column + 1
+        grid.addWidget(
+            label,
+            row,
+            label_column,
+            alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        )
+        grid.addWidget(widget, row, field_column)
 
     @staticmethod
     def _field_tooltip_text(field: SettingsField) -> str:
@@ -356,6 +670,10 @@ class SettingsPageForm(QWidget):
 
     @staticmethod
     def _read_widget_value(widget: QWidget) -> object:
+        if isinstance(widget, _TargetLabelWorksheetAdapter):
+            return widget.value()
+        if isinstance(widget, _CheckboxGroupWidget):
+            return widget.value()
         if isinstance(widget, QComboBox):
             return widget.currentData()
         if isinstance(widget, QCheckBox):
@@ -368,6 +686,12 @@ class SettingsPageForm(QWidget):
 
     @staticmethod
     def _write_widget_value(widget: QWidget, value: object) -> None:
+        if isinstance(widget, _TargetLabelWorksheetAdapter):
+            widget.set_value(value)
+            return
+        if isinstance(widget, _CheckboxGroupWidget):
+            widget.set_value(value)
+            return
         if isinstance(widget, QComboBox):
             index = widget.findData(value)
             if index >= 0:

@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import sqlite3
 import tempfile
+import wave
 import zipfile
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from echozero.application.mixer.models import AudibilityState, LayerMixerState, MixerState
@@ -18,20 +20,33 @@ from echozero.application.shared.enums import FollowMode, LayerKind
 from echozero.application.shared.ids import (
     EventId,
     LayerId,
+    ObjectContentId,
+    ObjectRevisionId,
     ProjectId,
     SessionId,
     SongId,
     SongVersionId,
     TakeId,
     TimelineId,
+    TimelineObjectId,
 )
 from echozero.application.shared.ranges import TimeRange
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
 from echozero.application.timeline.assembler import TimelineAssembler
+from echozero.application.timeline.event_similarity_audio import (
+    align_shape_to_reference,
+    compare_shape_similarity,
+)
+from echozero.application.timeline.event_comparison_service import (
+    TimbreFingerprintSettings,
+    build_timbre_fingerprint_preview,
+    compare_timbre_fingerprint_similarity,
+)
 from echozero.application.timeline.event_batch_scope import EventBatchScope
 from echozero.application.timeline.intents import (
     ClearSelection,
+    CopiedEventClip,
     CreateEvent,
     DeleteEvents,
     DuplicateSelectedEvents,
@@ -39,12 +54,14 @@ from echozero.application.timeline.intents import (
     MoveSelectedEventsToAdjacentLayer,
     MoveSelectedEvents,
     NudgeSelectedEvents,
+    PasteCopiedEvents,
     ReorderLayer,
     RenumberEventCueNumbers,
     SelectAllEvents,
     SelectAdjacentEventInSelectedLayer,
     SelectAdjacentLayer,
     SelectEveryOtherEvents,
+    SelectSimilarEvents,
     SelectSimilarSoundingEvents,
     SelectEvent,
     SelectTake,
@@ -59,6 +76,7 @@ from echozero.application.timeline.intents import (
     TriggerTakeAction,
     UpdateEventCueMappings,
 )
+from echozero.application.timeline.object_content import SourceRef
 from echozero.application.timeline.models import Event, EventRef, Layer, Take, Timeline
 from echozero.application.timeline.orchestrator import TimelineOrchestrator
 from echozero.application.transport.models import TransportState
@@ -258,6 +276,180 @@ def _build_orchestrator_and_timeline() -> tuple[TimelineOrchestrator, Timeline, 
         assembler=_Assembler(),
     )
     return orchestrator, timeline, layer, main_take, alt_take
+
+
+def _write_mono_wav(path: Path, samples: np.ndarray, sample_rate: int = 22050) -> None:
+    normalized = np.clip(samples, -1.0, 1.0)
+    pcm = (normalized * 32767.0).astype(np.int16)
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(sample_rate)
+        handle.writeframes(pcm.tobytes())
+
+
+def _sine_burst(
+    *,
+    frequency_hz: float,
+    sample_rate: int = 22050,
+    duration_seconds: float = 0.18,
+) -> np.ndarray:
+    times = np.linspace(0.0, duration_seconds, int(sample_rate * duration_seconds), endpoint=False)
+    envelope = np.hanning(len(times))
+    return (0.7 * np.sin(2.0 * np.pi * frequency_hz * times) * envelope).astype(np.float32)
+
+
+def _shaped_burst(
+    *,
+    shape: str,
+    frequency_hz: float = 220.0,
+    sample_rate: int = 22050,
+    duration_seconds: float = 0.18,
+) -> np.ndarray:
+    sample_count = int(sample_rate * duration_seconds)
+    times = np.linspace(0.0, duration_seconds, sample_count, endpoint=False)
+    if shape == "tight":
+        envelope = np.power(np.hanning(sample_count), 1.8)
+    elif shape == "wide":
+        envelope = np.power(np.hanning(sample_count), 0.8)
+    elif shape == "double":
+        pulse = np.hanning(max(8, sample_count // 2))
+        gap = np.zeros(max(4, sample_count // 10), dtype=np.float32)
+        combined = np.concatenate((pulse, gap, pulse))
+        envelope = np.interp(
+            np.linspace(0.0, 1.0, sample_count, endpoint=False),
+            np.linspace(0.0, 1.0, combined.size, endpoint=False),
+            combined,
+        )
+    elif shape == "front_loaded":
+        envelope = np.linspace(1.0, 0.0, sample_count, dtype=np.float32)
+        envelope *= np.hanning(sample_count)
+    else:
+        raise ValueError(f"Unknown burst shape: {shape}")
+    return (0.7 * np.sin(2.0 * np.pi * frequency_hz * times) * envelope).astype(np.float32)
+
+
+def _build_audio_similarity_timeline(
+    audio_path: Path,
+) -> tuple[TimelineOrchestrator, Timeline, Layer, Take]:
+    take = Take(
+        id=TakeId("take_main"),
+        layer_id=LayerId("layer_events"),
+        name="Main",
+        source_content_ref=SourceRef(
+            object_id=TimelineObjectId("object_audio"),
+            content_id=ObjectContentId("content_audio"),
+            revision_id=ObjectRevisionId("revision_audio"),
+            locator=str(audio_path),
+        ),
+        events=[
+            Event(id=EventId("evt_low_1"), take_id=TakeId("take_main"), start=0.0, end=0.18),
+            Event(id=EventId("evt_low_2"), take_id=TakeId("take_main"), start=0.5, end=0.68),
+            Event(id=EventId("evt_high_1"), take_id=TakeId("take_main"), start=1.0, end=1.18),
+            Event(id=EventId("evt_high_2"), take_id=TakeId("take_main"), start=1.5, end=1.68),
+        ],
+    )
+    layer = Layer(
+        id=LayerId("layer_events"),
+        timeline_id=TimelineId("timeline_audio"),
+        name="Events",
+        kind=LayerKind.EVENT,
+        order_index=0,
+        takes=[take],
+    )
+    timeline = Timeline(
+        id=TimelineId("timeline_audio"),
+        song_version_id=SongVersionId("version_audio"),
+        layers=[layer],
+    )
+    session = Session(
+        id=SessionId("session_audio"),
+        project_id=ProjectId("project_audio"),
+        active_song_id=SongId("song_audio"),
+        active_song_version_id=SongVersionId("version_audio"),
+        active_timeline_id=TimelineId("timeline_audio"),
+    )
+    orchestrator = TimelineOrchestrator(
+        session_service=_SessionService(session),
+        transport_service=_TransportService(session.transport_state),
+        mixer_service=_MixerService(),
+        playback_service=_PlaybackService(),
+        sync_service=_SyncService(),
+        assembler=_Assembler(),
+    )
+    return orchestrator, timeline, layer, take
+
+
+def _build_selected_layers_audio_similarity_timeline(
+    audio_path: Path,
+) -> tuple[TimelineOrchestrator, Timeline, Layer, Take, Layer]:
+    kick_take = Take(
+        id=TakeId("take_kick_main"),
+        layer_id=LayerId("layer_kick"),
+        name="Main",
+        source_content_ref=SourceRef(
+            object_id=TimelineObjectId("object_audio"),
+            content_id=ObjectContentId("content_audio"),
+            revision_id=ObjectRevisionId("revision_audio"),
+            locator=str(audio_path),
+        ),
+        events=[
+            Event(id=EventId("kick_1"), take_id=TakeId("take_kick_main"), start=0.0, end=0.18),
+            Event(id=EventId("kick_2"), take_id=TakeId("take_kick_main"), start=0.5, end=0.68),
+        ],
+    )
+    snare_take = Take(
+        id=TakeId("take_snare_main"),
+        layer_id=LayerId("layer_snare"),
+        name="Main",
+        source_content_ref=SourceRef(
+            object_id=TimelineObjectId("object_audio"),
+            content_id=ObjectContentId("content_audio"),
+            revision_id=ObjectRevisionId("revision_audio"),
+            locator=str(audio_path),
+        ),
+        events=[
+            Event(id=EventId("snare_1"), take_id=TakeId("take_snare_main"), start=1.0, end=1.18),
+            Event(id=EventId("snare_2"), take_id=TakeId("take_snare_main"), start=1.5, end=1.68),
+        ],
+    )
+    kick_layer = Layer(
+        id=LayerId("layer_kick"),
+        timeline_id=TimelineId("timeline_audio_layers"),
+        name="Kick",
+        kind=LayerKind.EVENT,
+        order_index=0,
+        takes=[kick_take],
+    )
+    snare_layer = Layer(
+        id=LayerId("layer_snare"),
+        timeline_id=TimelineId("timeline_audio_layers"),
+        name="Snare",
+        kind=LayerKind.EVENT,
+        order_index=1,
+        takes=[snare_take],
+    )
+    timeline = Timeline(
+        id=TimelineId("timeline_audio_layers"),
+        song_version_id=SongVersionId("version_audio_layers"),
+        layers=[kick_layer, snare_layer],
+    )
+    session = Session(
+        id=SessionId("session_audio_layers"),
+        project_id=ProjectId("project_audio_layers"),
+        active_song_id=SongId("song_audio_layers"),
+        active_song_version_id=SongVersionId("version_audio_layers"),
+        active_timeline_id=TimelineId("timeline_audio_layers"),
+    )
+    orchestrator = TimelineOrchestrator(
+        session_service=_SessionService(session),
+        transport_service=_TransportService(session.transport_state),
+        mixer_service=_MixerService(),
+        playback_service=_PlaybackService(),
+        sync_service=_SyncService(),
+        assembler=_Assembler(),
+    )
+    return orchestrator, timeline, kick_layer, kick_take, snare_layer
 
 
 def _load_real_project_timeline() -> tuple[TimelineOrchestrator, Timeline, Layer, Take, Layer]:
@@ -833,51 +1025,7 @@ def test_select_every_other_events_uses_current_selected_event_scope():
     assert timeline.selection.selected_event_ids == [EventId("main_1"), EventId("alt_2")]
 
 
-def test_select_similar_sounding_events_uses_classification_label_in_same_take():
-    orchestrator, timeline, layer, main_take, _alt_take = _build_orchestrator_and_timeline()
-    main_take.events = [
-        Event(
-            id=EventId("main_1"),
-            take_id=main_take.id,
-            start=1.0,
-            end=1.2,
-            label="Kick",
-            classifications={"class": "kick", "confidence": 0.93},
-        ),
-        Event(
-            id=EventId("main_2"),
-            take_id=main_take.id,
-            start=2.0,
-            end=2.2,
-            label="Kick",
-            classifications={"class": "kick", "confidence": 0.77},
-        ),
-        Event(
-            id=EventId("main_3"),
-            take_id=main_take.id,
-            start=3.0,
-            end=3.2,
-            label="Snare",
-            classifications={"class": "snare", "confidence": 0.91},
-        ),
-    ]
-
-    orchestrator.handle(
-        timeline,
-        SelectSimilarSoundingEvents(
-            layer_id=layer.id,
-            take_id=main_take.id,
-            event_id=EventId("main_1"),
-        ),
-    )
-
-    assert timeline.selection.selected_layer_id == layer.id
-    assert timeline.selection.selected_layer_ids == [layer.id]
-    assert timeline.selection.selected_take_id == main_take.id
-    assert timeline.selection.selected_event_ids == [EventId("main_1"), EventId("main_2")]
-
-
-def test_select_similar_sounding_events_with_no_signal_keeps_anchor_only():
+def test_select_similar_sounding_events_with_missing_audio_keeps_anchor_only():
     orchestrator, timeline, layer, main_take, _alt_take = _build_orchestrator_and_timeline()
     main_take.events = [
         Event(
@@ -921,355 +1069,252 @@ def test_select_similar_sounding_events_with_no_signal_keeps_anchor_only():
     assert timeline.selection.selected_event_ids == [EventId("main_1")]
 
 
-def test_select_similar_sounding_events_with_confidence_as_signal():
-    orchestrator, timeline, layer, main_take, _alt_take = _build_orchestrator_and_timeline()
-    main_take.events = [
-        Event(
-            id=EventId("main_1"),
-            take_id=main_take.id,
-            start=1.0,
-            end=1.2,
-            label="Event",
-            classifications={"confidence": 0.91},
-        ),
-        Event(
-            id=EventId("main_2"),
-            take_id=main_take.id,
-            start=2.0,
-            end=2.2,
-            label="Event",
-            classifications={"confidence": 0.89},
-        ),
-        Event(
-            id=EventId("main_3"),
-            take_id=main_take.id,
-            start=3.0,
-            end=3.2,
-            label="Event",
-            classifications={"confidence": 0.45},
-        ),
-    ]
+def test_compare_shape_similarity_aligns_shifted_curves():
+    anchor = (0.0, 0.08, 0.42, 0.9, 1.0, 0.46, 0.15, 0.02)
+    shifted = (0.0, 0.0, 0.08, 0.42, 0.9, 1.0, 0.46, 0.15)
+
+    aligned = align_shape_to_reference(anchor, shifted)
+
+    assert np.argmax(np.asarray(aligned, dtype=np.float32)) == np.argmax(
+        np.asarray(anchor, dtype=np.float32)
+    )
+    assert compare_shape_similarity(anchor, shifted) >= 0.95
+
+
+def test_compare_timbre_fingerprint_similarity_prefers_matching_one_shots(tmp_path: Path):
+    kick_a = _shaped_burst(shape="tight", frequency_hz=120.0)
+    kick_b = _shaped_burst(shape="tight", frequency_hz=120.0)
+    hat = _shaped_burst(shape="tight", frequency_hz=2200.0, duration_seconds=0.12)
+
+    audio_a_path = tmp_path / "kick_a.wav"
+    audio_b_path = tmp_path / "kick_b.wav"
+    audio_c_path = tmp_path / "hat.wav"
+    _write_mono_wav(audio_a_path, kick_a)
+    _write_mono_wav(audio_b_path, kick_b)
+    _write_mono_wav(audio_c_path, hat)
+
+    cache: dict[str, tuple[np.ndarray, int]] = {}
+    settings = TimbreFingerprintSettings(sample_count=64, padding_ms=20.0)
+    anchor = build_timbre_fingerprint_preview(
+        audio_path=str(audio_a_path),
+        start_seconds=0.0,
+        end_seconds=0.18,
+        settings=settings,
+        audio_cache=cache,
+    )
+    matching = build_timbre_fingerprint_preview(
+        audio_path=str(audio_b_path),
+        start_seconds=0.0,
+        end_seconds=0.18,
+        settings=settings,
+        audio_cache=cache,
+    )
+    different = build_timbre_fingerprint_preview(
+        audio_path=str(audio_c_path),
+        start_seconds=0.0,
+        end_seconds=0.12,
+        settings=settings,
+        audio_cache=cache,
+    )
+
+    assert anchor is not None
+    assert matching is not None
+    assert different is not None
+    assert compare_timbre_fingerprint_similarity(anchor, matching) >= 0.99
+    assert compare_timbre_fingerprint_similarity(anchor, different) < 0.9
+
+
+def test_select_similar_sounding_events_same_take_uses_normalized_shape(tmp_path: Path):
+    tight_a = _shaped_burst(shape="tight")
+    tight_b = _shaped_burst(shape="tight")
+    wide = _shaped_burst(shape="wide")
+    double_a = _shaped_burst(shape="double")
+    silence = np.zeros(int(22050 * 0.32), dtype=np.float32)
+    audio = np.concatenate((tight_a, silence, tight_b, silence, wide, silence, double_a))
+    audio_path = tmp_path / "similarity.wav"
+    _write_mono_wav(audio_path, audio)
+    orchestrator, timeline, layer, take = _build_audio_similarity_timeline(audio_path)
 
     orchestrator.handle(
         timeline,
         SelectSimilarSoundingEvents(
             layer_id=layer.id,
-            take_id=main_take.id,
-            event_id=EventId("main_1"),
+            take_id=take.id,
+            event_id=EventId("evt_low_1"),
+            match_strength="balanced",
+            similarity_threshold_override=0.85,
         ),
     )
 
-    assert timeline.selection.selected_layer_id == layer.id
-    assert timeline.selection.selected_layer_ids == [layer.id]
-    assert timeline.selection.selected_take_id == main_take.id
-    assert timeline.selection.selected_event_ids == [EventId("main_1"), EventId("main_2")]
-
-
-def test_select_similar_sounding_events_uses_nested_classification_label_map():
-    orchestrator, timeline, layer, main_take, _alt_take = _build_orchestrator_and_timeline()
-    main_take.events = [
-        Event(
-            id=EventId("main_1"),
-            take_id=main_take.id,
-            start=1.0,
-            end=1.2,
-            label="Event",
-            classifications={
-                "kick": {"confidence": 0.95},
-                "snare": {"confidence": 0.15},
-            },
-        ),
-        Event(
-            id=EventId("main_2"),
-            take_id=main_take.id,
-            start=2.0,
-            end=2.2,
-            label="Event",
-            classifications={"kick": {"confidence": 0.88}},
-        ),
-        Event(
-            id=EventId("main_3"),
-            take_id=main_take.id,
-            start=3.0,
-            end=3.2,
-            label="Event",
-            classifications={"snare": {"confidence": 0.91}},
-        ),
+    assert timeline.selection.selected_event_ids == [
+        EventId("evt_low_1"),
+        EventId("evt_low_2"),
+        EventId("evt_high_1"),
     ]
+
+
+def test_select_similar_events_shape_envelope_mode_matches_legacy_behavior(tmp_path: Path):
+    tight_a = _shaped_burst(shape="tight")
+    tight_b = _shaped_burst(shape="tight")
+    wide = _shaped_burst(shape="wide")
+    double_a = _shaped_burst(shape="double")
+    silence = np.zeros(int(22050 * 0.32), dtype=np.float32)
+    audio = np.concatenate((tight_a, silence, tight_b, silence, wide, silence, double_a))
+    audio_path = tmp_path / "comparison_mode.wav"
+    _write_mono_wav(audio_path, audio)
+    orchestrator, timeline, layer, take = _build_audio_similarity_timeline(audio_path)
 
     orchestrator.handle(
         timeline,
-        SelectSimilarSoundingEvents(
+        SelectSimilarEvents(
             layer_id=layer.id,
-            take_id=main_take.id,
-            event_id=EventId("main_1"),
+            take_id=take.id,
+            event_id=EventId("evt_low_1"),
+            comparison_mode="shape_envelope",
+            match_strength="balanced",
+            similarity_threshold_override=0.85,
         ),
     )
 
-    assert timeline.selection.selected_layer_id == layer.id
-    assert timeline.selection.selected_layer_ids == [layer.id]
-    assert timeline.selection.selected_take_id == main_take.id
-    assert timeline.selection.selected_event_ids == [EventId("main_1"), EventId("main_2")]
-
-
-def test_select_similar_sounding_events_uses_nested_classifier_label_field():
-    orchestrator, timeline, layer, main_take, _alt_take = _build_orchestrator_and_timeline()
-    main_take.events = [
-        Event(
-            id=EventId("main_1"),
-            take_id=main_take.id,
-            start=1.0,
-            end=1.2,
-            label="Event",
-            classifications={"prediction": {"label": "Ride", "confidence": 0.94}},
-        ),
-        Event(
-            id=EventId("main_2"),
-            take_id=main_take.id,
-            start=2.0,
-            end=2.2,
-            label="Event",
-            classifications={"prediction": {"label": "Ride", "confidence": 0.81}},
-        ),
-        Event(
-            id=EventId("main_3"),
-            take_id=main_take.id,
-            start=3.0,
-            end=3.2,
-            label="Event",
-            classifications={"prediction": {"label": "Crash", "confidence": 0.9}},
-        ),
+    assert timeline.selection.selected_event_ids == [
+        EventId("evt_low_1"),
+        EventId("evt_low_2"),
+        EventId("evt_high_1"),
     ]
+
+
+def test_select_similar_sounding_events_strength_thresholds_widen_selection_by_score(
+    tmp_path: Path,
+):
+    tight = _shaped_burst(shape="tight")
+    tight_copy = _shaped_burst(shape="tight")
+    wide = _shaped_burst(shape="wide")
+    double = _shaped_burst(shape="double")
+    silence = np.zeros(int(22050 * 0.32), dtype=np.float32)
+    audio = np.concatenate((tight, silence, tight_copy, silence, wide, silence, double))
+    audio_path = tmp_path / "shape_thresholds.wav"
+    _write_mono_wav(audio_path, audio)
+    orchestrator, timeline, layer, take = _build_audio_similarity_timeline(audio_path)
 
     orchestrator.handle(
         timeline,
         SelectSimilarSoundingEvents(
             layer_id=layer.id,
-            take_id=main_take.id,
-            event_id=EventId("main_1"),
-        ),
-    )
-
-    assert timeline.selection.selected_layer_id == layer.id
-    assert timeline.selection.selected_layer_ids == [layer.id]
-    assert timeline.selection.selected_take_id == main_take.id
-    assert timeline.selection.selected_event_ids == [EventId("main_1"), EventId("main_2")]
-
-
-def test_select_similar_sounding_events_strength_thresholds_widen_selection_by_score():
-    orchestrator, timeline, layer, main_take, _alt_take = _build_orchestrator_and_timeline()
-    main_take.events = [
-        Event(
-            id=EventId("main_1"),
-            take_id=main_take.id,
-            start=1.0,
-            end=1.2,
-            label="Kick",
-            classifications={"class": "kick", "confidence": 1.0},
-        ),
-        Event(
-            id=EventId("main_2"),
-            take_id=main_take.id,
-            start=2.0,
-            end=2.2,
-            label="Kick",
-            classifications={"class": "kick", "confidence": 0.98},
-        ),
-        Event(
-            id=EventId("main_3"),
-            take_id=main_take.id,
-            start=3.0,
-            end=3.28,
-            label="Kick",
-            classifications={"class": "kick", "confidence": 0.9},
-        ),
-        Event(
-            id=EventId("main_4"),
-            take_id=main_take.id,
-            start=4.0,
-            end=4.34,
-            label="Kick",
-            classifications={"class": "kick", "confidence": 0.7},
-        ),
-        Event(
-            id=EventId("main_5"),
-            take_id=main_take.id,
-            start=5.0,
-            end=5.6,
-            label="Snare",
-            classifications={"class": "snare", "confidence": 0.9},
-        ),
-    ]
-
-    orchestrator.handle(
-        timeline,
-        SelectSimilarSoundingEvents(
-            layer_id=layer.id,
-            take_id=main_take.id,
-            event_id=EventId("main_1"),
+            take_id=take.id,
+            event_id=EventId("evt_low_1"),
             match_strength="very_strict",
         ),
     )
-    assert timeline.selection.selected_event_ids == [EventId("main_1"), EventId("main_2")]
+    very_strict_ids = list(timeline.selection.selected_event_ids)
 
     orchestrator.handle(
         timeline,
         SelectSimilarSoundingEvents(
             layer_id=layer.id,
-            take_id=main_take.id,
-            event_id=EventId("main_1"),
+            take_id=take.id,
+            event_id=EventId("evt_low_1"),
             match_strength="strict",
         ),
     )
-    assert timeline.selection.selected_event_ids == [
-        EventId("main_1"),
-        EventId("main_2"),
-        EventId("main_3"),
-    ]
+    strict_ids = list(timeline.selection.selected_event_ids)
 
     orchestrator.handle(
         timeline,
         SelectSimilarSoundingEvents(
             layer_id=layer.id,
-            take_id=main_take.id,
-            event_id=EventId("main_1"),
+            take_id=take.id,
+            event_id=EventId("evt_low_1"),
             match_strength="balanced",
         ),
     )
+    balanced_ids = list(timeline.selection.selected_event_ids)
+
+    orchestrator.handle(
+        timeline,
+        SelectSimilarSoundingEvents(
+            layer_id=layer.id,
+            take_id=take.id,
+            event_id=EventId("evt_low_1"),
+            match_strength="loose",
+        ),
+    )
+    loose_ids = list(timeline.selection.selected_event_ids)
+
+    assert very_strict_ids == [EventId("evt_low_1"), EventId("evt_low_2")]
+    assert strict_ids == [EventId("evt_low_1"), EventId("evt_low_2")]
+    assert balanced_ids == [EventId("evt_low_1"), EventId("evt_low_2"), EventId("evt_high_1")]
+    assert loose_ids == [EventId("evt_low_1"), EventId("evt_low_2"), EventId("evt_high_1")]
+
+
+def test_select_similar_sounding_events_threshold_override_is_applied(tmp_path: Path):
+    tight = _shaped_burst(shape="tight")
+    tight_copy = _shaped_burst(shape="tight")
+    wide = _shaped_burst(shape="wide")
+    double = _shaped_burst(shape="double")
+    silence = np.zeros(int(22050 * 0.32), dtype=np.float32)
+    audio = np.concatenate((tight, silence, tight_copy, silence, wide, silence, double))
+    audio_path = tmp_path / "shape_override.wav"
+    _write_mono_wav(audio_path, audio)
+    orchestrator, timeline, layer, take = _build_audio_similarity_timeline(audio_path)
+
+    orchestrator.handle(
+        timeline,
+        SelectSimilarSoundingEvents(
+            layer_id=layer.id,
+            take_id=take.id,
+            event_id=EventId("evt_low_1"),
+            match_strength="loose",
+        ),
+    )
     assert timeline.selection.selected_event_ids == [
-        EventId("main_1"),
-        EventId("main_2"),
-        EventId("main_3"),
+        EventId("evt_low_1"),
+        EventId("evt_low_2"),
+        EventId("evt_high_1"),
     ]
 
     orchestrator.handle(
         timeline,
         SelectSimilarSoundingEvents(
             layer_id=layer.id,
-            take_id=main_take.id,
-            event_id=EventId("main_1"),
+            take_id=take.id,
+            event_id=EventId("evt_low_1"),
             match_strength="loose",
+            similarity_threshold_override=0.85,
         ),
     )
     assert timeline.selection.selected_event_ids == [
-        EventId("main_1"),
-        EventId("main_2"),
-        EventId("main_3"),
-        EventId("main_4"),
+        EventId("evt_low_1"),
+        EventId("evt_low_2"),
+        EventId("evt_high_1"),
     ]
 
 
-def test_select_similar_sounding_events_threshold_override_is_applied():
-    orchestrator, timeline, layer, main_take, _alt_take = _build_orchestrator_and_timeline()
-    main_take.events = [
-        Event(
-            id=EventId("main_1"),
-            take_id=main_take.id,
-            start=1.0,
-            end=1.2,
-            label="Kick",
-            classifications={"class": "kick", "confidence": 1.0},
-        ),
-        Event(
-            id=EventId("main_2"),
-            take_id=main_take.id,
-            start=2.0,
-            end=2.2,
-            label="Kick",
-            classifications={"class": "kick", "confidence": 0.98},
-        ),
-        Event(
-            id=EventId("main_3"),
-            take_id=main_take.id,
-            start=3.0,
-            end=3.3,
-            label="Kick",
-            classifications={"class": "kick", "confidence": 0.9},
-        ),
-        Event(
-            id=EventId("main_4"),
-            take_id=main_take.id,
-            start=4.0,
-            end=4.34,
-            label="Kick",
-            classifications={"class": "kick", "confidence": 0.7},
-        ),
-        Event(
-            id=EventId("main_5"),
-            take_id=main_take.id,
-            start=5.0,
-            end=5.6,
-            label="Snare",
-            classifications={"class": "snare", "confidence": 0.9},
-        ),
-    ]
+def test_select_similar_sounding_events_layer_scope_includes_other_takes(tmp_path: Path):
+    tight_a = _shaped_burst(shape="tight")
+    tight_b = _shaped_burst(shape="tight")
+    double_a = _shaped_burst(shape="double")
+    front_loaded = _shaped_burst(shape="front_loaded")
+    silence = np.zeros(int(22050 * 0.32), dtype=np.float32)
+    audio = np.concatenate((tight_a, silence, front_loaded, silence, tight_b, silence, double_a))
+    audio_path = tmp_path / "layer_scope.wav"
+    _write_mono_wav(audio_path, audio)
 
-    orchestrator.handle(
-        timeline,
-        SelectSimilarSoundingEvents(
-            layer_id=layer.id,
-            take_id=main_take.id,
-            event_id=EventId("main_1"),
-            match_strength="loose",
-        ),
-    )
-    assert timeline.selection.selected_event_ids == [
-        EventId("main_1"),
-        EventId("main_2"),
-        EventId("main_3"),
-        EventId("main_4"),
-    ]
-
-    orchestrator.handle(
-        timeline,
-        SelectSimilarSoundingEvents(
-            layer_id=layer.id,
-            take_id=main_take.id,
-            event_id=EventId("main_1"),
-            match_strength="loose",
-            similarity_threshold_override=0.95,
-        ),
-    )
-    assert timeline.selection.selected_event_ids == [EventId("main_1"), EventId("main_2")]
-
-
-def test_select_similar_sounding_events_layer_scope_includes_other_takes():
     orchestrator, timeline, layer, main_take, alt_take = _build_orchestrator_and_timeline()
+    source_ref = SourceRef(
+        object_id=TimelineObjectId("object_audio_layer_scope"),
+        content_id=ObjectContentId("content_audio_layer_scope"),
+        revision_id=ObjectRevisionId("revision_audio_layer_scope"),
+        locator=str(audio_path),
+    )
+    main_take.source_content_ref = source_ref
+    alt_take.source_content_ref = source_ref
     main_take.events = [
-        Event(
-            id=EventId("main_1"),
-            take_id=main_take.id,
-            start=1.0,
-            end=1.2,
-            label="Kick",
-            classifications={"class": "kick", "confidence": 0.86},
-        ),
-        Event(
-            id=EventId("main_2"),
-            take_id=main_take.id,
-            start=2.0,
-            end=2.2,
-            label="Snare",
-            classifications={"class": "snare", "confidence": 0.89},
-        ),
+        Event(id=EventId("main_1"), take_id=main_take.id, start=0.0, end=0.18),
+        Event(id=EventId("main_2"), take_id=main_take.id, start=0.5, end=0.68),
     ]
     alt_take.events = [
-        Event(
-            id=EventId("alt_1"),
-            take_id=alt_take.id,
-            start=1.25,
-            end=1.45,
-            label="Kick",
-            classifications={"class": "kick", "confidence": 0.91},
-        ),
-        Event(
-            id=EventId("alt_2"),
-            take_id=alt_take.id,
-            start=2.25,
-            end=2.45,
-            label="Hat",
-            classifications={"class": "hihat", "confidence": 0.91},
-        ),
+        Event(id=EventId("alt_1"), take_id=alt_take.id, start=1.0, end=1.18),
+        Event(id=EventId("alt_2"), take_id=alt_take.id, start=1.5, end=1.68),
     ]
 
     orchestrator.handle(
@@ -1280,39 +1325,53 @@ def test_select_similar_sounding_events_layer_scope_includes_other_takes():
             event_id=EventId("alt_1"),
             scope_mode="layer",
             match_strength="balanced",
+            similarity_threshold_override=0.85,
         ),
     )
 
     assert timeline.selection.selected_layer_id == layer.id
     assert timeline.selection.selected_layer_ids == [layer.id]
     assert timeline.selection.selected_take_id == alt_take.id
-    assert timeline.selection.selected_event_ids == [EventId("main_1"), EventId("alt_1")]
+    assert timeline.selection.selected_event_ids == [
+        EventId("main_1"),
+        EventId("main_2"),
+        EventId("alt_1"),
+    ]
 
 
-def test_select_similar_sounding_events_real_project_filters_other_event_layer_when_selected_layers_scope():
-    orchestrator, timeline, kick_layer, kick_take, snare_layer = _load_real_project_timeline()
+def test_select_similar_sounding_events_selected_layers_scope_filters_other_layers(
+    tmp_path: Path,
+):
+    tight_a = _shaped_burst(shape="tight")
+    tight_b = _shaped_burst(shape="tight")
+    double_a = _shaped_burst(shape="double")
+    double_b = _shaped_burst(shape="double", frequency_hz=320.0)
+    silence = np.zeros(int(22050 * 0.32), dtype=np.float32)
+    audio = np.concatenate((tight_a, silence, tight_b, silence, double_a, silence, double_b))
+    audio_path = tmp_path / "selected_layers.wav"
+    _write_mono_wav(audio_path, audio)
+    orchestrator, timeline, kick_layer, kick_take, snare_layer = (
+        _build_selected_layers_audio_similarity_timeline(audio_path)
+    )
     timeline.selection.selected_layer_ids = [kick_layer.id, snare_layer.id]
     timeline.selection.selected_layer_id = kick_layer.id
     timeline.selection.selected_take_id = kick_take.id
-
-    anchor_event = kick_take.events[0]
-    expected_kick_event_ids = {event.id for event in kick_take.events}
-    snare_event_ids = {event.id for take in snare_layer.takes for event in take.events}
 
     orchestrator.handle(
         timeline,
         SelectSimilarSoundingEvents(
             layer_id=kick_layer.id,
             take_id=kick_take.id,
-            event_id=anchor_event.id,
+            event_id=EventId("kick_1"),
             scope_mode="selected_layers_main",
+            match_strength="balanced",
+            similarity_threshold_override=0.85,
         ),
     )
 
     assert timeline.selection.selected_layer_ids == [kick_layer.id, snare_layer.id]
     assert timeline.selection.selected_take_id == kick_take.id
-    assert set(timeline.selection.selected_event_ids) == expected_kick_event_ids
-    assert set(timeline.selection.selected_event_ids).isdisjoint(snare_event_ids)
+    assert timeline.selection.selected_event_ids == [EventId("kick_1"), EventId("kick_2")]
 
 
 def test_select_every_other_events_restarts_per_selected_layer_main_scope():
@@ -1616,6 +1675,17 @@ def test_set_layer_output_bus_updates_layer_and_mixer_session_state():
     assert mixer_state.layer_states[layer.id].output_bus is None
 
 
+def test_set_layer_output_bus_collapses_legacy_comma_value_to_one_route():
+    orchestrator, timeline, layer, _main_take, _alt_take = _build_orchestrator_and_timeline()
+    layer.kind = LayerKind.AUDIO
+
+    orchestrator.handle(timeline, SetLayerOutputBus(layer.id, "outputs_1_1,outputs_3_3"))
+
+    assert layer.mixer.output_bus == "outputs_1_1"
+    mixer_state = orchestrator.mixer_service.get_state()
+    assert mixer_state.layer_states[layer.id].output_bus == "outputs_1_1"
+
+
 def test_set_gain_is_stubbed_for_event_layers():
     orchestrator, timeline, layer, _main_take, _alt_take = _build_orchestrator_and_timeline()
     assert layer.kind is LayerKind.EVENT
@@ -1829,6 +1899,49 @@ def test_move_selected_events_transfers_to_target_main_take():
     assert timeline.selection.selected_event_ids == [EventId("alt_1")]
 
 
+def test_move_selected_events_transfers_to_explicit_existing_take():
+    orchestrator, timeline, layer, _main_take, alt_take = _build_orchestrator_and_timeline()
+    source_ref = SourceRef(
+        object_id=TimelineObjectId("object_source"),
+        content_id=ObjectContentId("content_source"),
+        revision_id=ObjectRevisionId("revision_source"),
+        locator="/tmp/source-drums.wav",
+    )
+    alt_take.source_content_ref = source_ref
+    layer.source_content_ref = source_ref
+    layer.playback.armed_source_ref = "/tmp/source-drums.wav"
+    target_take = Take(
+        id=TakeId("take_target"),
+        layer_id=layer.id,
+        name="Take 3",
+        events=[_event("target_1", "take_target", 4.0)],
+    )
+    layer.takes.append(target_take)
+    timeline.selection.selected_layer_id = layer.id
+    timeline.selection.selected_take_id = alt_take.id
+    timeline.selection.selected_event_ids = [alt_take.events[0].id]
+
+    orchestrator.handle(
+        timeline,
+        MoveSelectedEvents(
+            delta_seconds=0.25,
+            target_layer_id=layer.id,
+            target_take_id=target_take.id,
+        ),
+    )
+
+    assert [event.id for event in alt_take.events] == [EventId("alt_2")]
+    assert [event.id for event in target_take.events] == [EventId("alt_1"), EventId("target_1")]
+    assert target_take.events[0].take_id == target_take.id
+    assert target_take.events[0].start == 1.5
+    assert target_take.events[0].end == 1.7
+    assert target_take.source_content_ref == source_ref
+    assert layer.playback.armed_source_ref == "/tmp/source-drums.wav"
+    assert timeline.selection.selected_layer_id == layer.id
+    assert timeline.selection.selected_take_id == target_take.id
+    assert timeline.selection.selected_event_ids == [EventId("alt_1")]
+
+
 def test_move_selected_events_with_copy_selected_duplicates_in_place():
     orchestrator, timeline, layer, main_take, _alt_take = _build_orchestrator_and_timeline()
     timeline.selection.selected_layer_id = layer.id
@@ -1898,6 +2011,110 @@ def test_move_selected_events_with_copy_selected_to_target_layer_keeps_originals
     assert timeline.selection.selected_layer_id == target_layer.id
     assert timeline.selection.selected_take_id == target_take.id
     assert timeline.selection.selected_event_ids == [EventId("take_snare_main:dup:alt_1:1")]
+
+
+def test_move_selected_events_can_create_new_destination_layer():
+    orchestrator, timeline, layer, _main_take, alt_take = _build_orchestrator_and_timeline()
+    source_ref = SourceRef(
+        object_id=TimelineObjectId("object_source"),
+        content_id=ObjectContentId("content_source"),
+        revision_id=ObjectRevisionId("revision_source"),
+        locator="/tmp/source-drums.wav",
+    )
+    alt_take.source_content_ref = source_ref
+    layer.source_content_ref = source_ref
+    layer.playback.armed_source_ref = "/tmp/source-drums.wav"
+    timeline.selection.selected_layer_id = layer.id
+    timeline.selection.selected_take_id = alt_take.id
+    timeline.selection.selected_event_ids = [alt_take.events[0].id]
+
+    original_layer_count = len(timeline.layers)
+
+    orchestrator.handle(
+        timeline,
+        MoveSelectedEvents(
+            delta_seconds=0.0,
+            create_layer_title="Percussion Details",
+        ),
+    )
+
+    assert len(timeline.layers) == original_layer_count + 1
+    created_layer = timeline.layers[-1]
+    assert created_layer.name == "Percussion Details"
+    assert created_layer.kind is LayerKind.EVENT
+    assert len(created_layer.takes) == 1
+    assert created_layer.takes[0].name == "Main"
+    assert [event.id for event in alt_take.events] == [EventId("alt_2")]
+    assert [event.id for event in created_layer.takes[0].events] == [EventId("alt_1")]
+    assert created_layer.takes[0].events[0].take_id == created_layer.takes[0].id
+    assert created_layer.takes[0].source_content_ref == source_ref
+    assert created_layer.source_content_ref == source_ref
+    assert created_layer.playback.armed_source_ref == "/tmp/source-drums.wav"
+    assert created_layer.provenance.source_layer_id == layer.id
+    assert timeline.selection.selected_layer_id == created_layer.id
+    assert timeline.selection.selected_take_id == created_layer.takes[0].id
+    assert timeline.selection.selected_event_ids == [EventId("alt_1")]
+
+
+def test_paste_copied_events_into_selected_target_take_at_playhead():
+    orchestrator, timeline, layer, _main_take, alt_take = _build_orchestrator_and_timeline()
+    source_ref = SourceRef(
+        object_id=TimelineObjectId("object_source"),
+        content_id=ObjectContentId("content_source"),
+        revision_id=ObjectRevisionId("revision_source"),
+        locator="/tmp/source-drums.wav",
+    )
+    alt_take.source_content_ref = source_ref
+    layer.source_content_ref = source_ref
+    layer.playback.armed_source_ref = "/tmp/source-drums.wav"
+    target_take = Take(
+        id=TakeId("take_target"),
+        layer_id=layer.id,
+        name="Take 3",
+        events=[],
+    )
+    layer.takes.append(target_take)
+    timeline.selection.selected_layer_id = layer.id
+    timeline.selection.selected_layer_ids = [layer.id]
+    timeline.selection.selected_take_id = target_take.id
+
+    orchestrator.handle(
+        timeline,
+        PasteCopiedEvents(
+            clips=[
+                CopiedEventClip(
+                    source_layer_id=layer.id,
+                    source_take_id=alt_take.id,
+                    source_layer_kind=layer.kind,
+                    event=_event("clip_1", "take_alt", 1.25),
+                ),
+                CopiedEventClip(
+                    source_layer_id=layer.id,
+                    source_take_id=alt_take.id,
+                    source_layer_kind=layer.kind,
+                    event=_event("clip_2", "take_alt", 2.25),
+                ),
+            ],
+            target_layer_id=layer.id,
+            target_take_id=target_take.id,
+            insert_at_seconds=10.0,
+        ),
+    )
+
+    assert [event.id for event in target_take.events] == [
+        EventId("take_target:dup:clip_1:1"),
+        EventId("take_target:dup:clip_2:1"),
+    ]
+    assert target_take.events[0].start == 10.0
+    assert target_take.events[0].end == 10.2
+    assert target_take.events[1].start == 11.0
+    assert target_take.events[1].end == 11.2
+    assert target_take.source_content_ref == source_ref
+    assert timeline.selection.selected_take_id == target_take.id
+    assert timeline.selection.selected_event_ids == [
+        EventId("take_target:dup:clip_1:1"),
+        EventId("take_target:dup:clip_2:1"),
+    ]
 
 
 def test_move_selected_events_rejects_locked_or_hidden_transfer_targets():

@@ -291,6 +291,16 @@ class AppShellObjectActionMixin:
             object_type="layer",
         )
 
+    def extract_note_contour(
+        self: AppShellObjectActionShell,
+        layer_id: LayerId,
+    ) -> TimelinePresentation:
+        return self.run_object_action(
+            "timeline.extract_note_contour",
+            object_id=layer_id,
+            object_type="layer",
+        )
+
     def classify_drum_events(
         self: AppShellObjectActionShell,
         layer_id: LayerId,

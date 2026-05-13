@@ -42,6 +42,7 @@ from echozero.application.timeline.intents import (
     CommitMissedEventsReview,
     CommitMissedEventReview,
     CreateEvent,
+    Pause,
     Play,
     ReplaceSectionCues,
     SectionCueEdit,
@@ -236,6 +237,9 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._canvas.delete_events_requested.connect(self._delete_events)
         self._canvas.nudge_requested.connect(self._nudge_selected_events)
         self._canvas.duplicate_requested.connect(self._duplicate_selected_events)
+        self._canvas.copy_requested.connect(self._copy_selected_events)
+        self._canvas.cut_requested.connect(self._cut_selected_events)
+        self._canvas.paste_requested.connect(self._paste_copied_events)
         self._canvas.edit_mode_requested.connect(self._set_edit_mode)
         self._canvas.fix_action_requested.connect(self._set_fix_action)
         self._canvas.fix_nav_include_demoted_toggle_requested.connect(
@@ -279,7 +283,7 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._main_splitter.addWidget(self._object_info)
         self._main_splitter.setStretchFactor(0, 1)
         self._main_splitter.setStretchFactor(1, 0)
-        self._main_splitter.setSizes([1080, self._object_info.target_width()])
+        self._main_splitter.setSizes([1120, self._object_info.target_width()])
         self._main_splitter.splitterMoved.connect(self._sync_object_info_splitter_width)
         self._shell_splitter = QSplitter(Qt.Orientation.Horizontal, content)
         self._shell_splitter.setObjectName("timelineShellSplitter")
@@ -288,7 +292,7 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._shell_splitter.addWidget(self._main_splitter)
         self._shell_splitter.setStretchFactor(0, 0)
         self._shell_splitter.setStretchFactor(1, 1)
-        self._shell_splitter.setSizes([self._song_browser_panel.target_width(), 1400])
+        self._shell_splitter.setSizes([self._song_browser_panel.target_width(), 1480])
         self._shell_splitter.splitterMoved.connect(self._sync_song_browser_splitter_width)
         content_layout.addWidget(self._shell_splitter, 1)
         self._song_drop_targets: tuple[QWidget, ...] = ()
@@ -378,7 +382,7 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._canvas.update()
 
     def _play_transport_from_spacebar(self) -> None:
-        self._dispatch(Stop() if self.presentation.is_playing else Play())
+        self._dispatch(Pause() if self.presentation.is_playing else Play())
 
     def _preview_selected_event_from_shift_space(self) -> None:
         self._preview_selected_event_clip()

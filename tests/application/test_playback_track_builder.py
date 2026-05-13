@@ -41,16 +41,19 @@ def test_playback_track_builder_preserves_wide_output_bus_when_device_supports_i
     assert plan.tracks[0].output_bus == "outputs_1_4"
 
 
-def test_playback_track_builder_clears_output_bus_that_exceeds_device_channels() -> None:
+def test_playback_track_builder_prunes_output_bus_that_exceeds_device_channels() -> None:
     builder = PlaybackTrackBuilder(
         lambda _path: (np.array([0.25, -0.25], dtype=np.float32), 44100)
     )
-    presentation = _presentation(output_bus="outputs_7_8", playback_output_channels=4)
+    presentation = _presentation(
+        output_bus="outputs_1_1,outputs_7_8",
+        playback_output_channels=4,
+    )
 
     plan = builder.build_track_plan(presentation)
 
     assert len(plan.tracks) == 1
-    assert plan.tracks[0].output_bus is None
+    assert plan.tracks[0].output_bus == "outputs_1_1"
 
 
 def test_playback_track_builder_ignores_event_layer_source_audio_when_event_playback_disabled() -> (
@@ -229,3 +232,38 @@ def test_playback_track_builder_event_slice_applies_boundary_fades_for_long_clip
     assert float(rendered[0]) < 0.5
     assert float(rendered[-1]) < 0.5
     assert float(rendered[len(rendered) // 2]) > 0.9
+
+
+def test_playback_track_builder_event_slice_applies_boundary_fades_for_tiny_clips() -> None:
+    source = np.ones(12, dtype=np.float32)
+    builder = PlaybackTrackBuilder(lambda _path: (source, 44100))
+    presentation = SimpleNamespace(
+        layers=[
+            SimpleNamespace(
+                layer_id="layer_event",
+                title="Tiny Click",
+                kind="event",
+                source_audio_path="tiny.wav",
+                playback_enabled=True,
+                playback_mode=PlaybackMode.EVENT_SLICE,
+                playback_source_ref="tiny.wav",
+                events=[SimpleNamespace(start=0.0, muted=False, badges=())],
+                output_bus=None,
+                muted=False,
+                soloed=False,
+                takes=[],
+            )
+        ],
+        selected_layer_id="layer_event",
+        selected_take_id=None,
+        playback_output_channels=2,
+    )
+
+    plan = builder.build_track_plan(presentation)
+
+    rendered = plan.tracks[0].buffer
+    assert rendered is not None
+    assert float(rendered[0]) == 0.0
+    assert float(rendered[-1]) == 0.0
+    assert float(np.max(rendered)) > 0.2
+    np.testing.assert_array_equal(source, np.ones(12, dtype=np.float32))

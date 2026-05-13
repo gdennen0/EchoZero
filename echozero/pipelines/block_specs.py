@@ -85,6 +85,17 @@ def DetectOnsets(**settings: Any) -> BlockSpec:
     )
 
 
+def DetectNoteContour(**settings: Any) -> BlockSpec:
+    """Detect a monophonic pitch contour and return event data."""
+    return BlockSpec(
+        block_type="DetectNoteContour",
+        name="Detect Note Contour",
+        input_ports=(PortSpec("audio_in", PortType.AUDIO, Direction.INPUT),),
+        output_ports=(PortSpec("events_out", PortType.EVENT, Direction.OUTPUT),),
+        settings=settings,
+    )
+
+
 def DetectSongSections(**settings: Any) -> BlockSpec:
     """Detect section boundaries and labels from song audio."""
     return BlockSpec(
@@ -131,8 +142,12 @@ def BinaryDrumClassify(**settings: Any) -> BlockSpec:
             PortSpec("events_in", PortType.EVENT, Direction.INPUT),
             PortSpec("kick_audio_in", PortType.AUDIO, Direction.INPUT),
             PortSpec("snare_audio_in", PortType.AUDIO, Direction.INPUT),
+            PortSpec("clap_audio_in", PortType.AUDIO, Direction.INPUT),
+            PortSpec("cymbal_audio_in", PortType.AUDIO, Direction.INPUT),
             PortSpec("kick_events_in", PortType.EVENT, Direction.INPUT),
             PortSpec("snare_events_in", PortType.EVENT, Direction.INPUT),
+            PortSpec("clap_events_in", PortType.EVENT, Direction.INPUT),
+            PortSpec("cymbal_events_in", PortType.EVENT, Direction.INPUT),
         ),
         output_ports=(PortSpec("events_out", PortType.EVENT, Direction.OUTPUT),),
         settings=settings,

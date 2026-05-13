@@ -1,6 +1,8 @@
 """Extract classified drums pipeline template."""
 
+from echozero.application.event_flows.drum_events import apply_drum_event_sensitivity_preset
 from echozero.pipelines.block_specs import LoadAudio
+
 from echozero.pipelines.params import KnobWidget, knob
 from echozero.pipelines.pipeline import Pipeline
 from echozero.pipelines.registry import pipeline_template
@@ -13,7 +15,7 @@ from echozero.pipelines.templates.drum_extraction import (
 @pipeline_template(
     id="extract_classified_drums",
     name="Extract Classified Drums",
-    description="Detect drum stem onsets and classify them into kick/snare layers.",
+    description="Detect drum stem onsets and classify them into selected drum event layers.",
     knobs={
         "audio_file": knob(
             "",
@@ -35,6 +37,20 @@ from echozero.pipelines.templates.drum_extraction import (
             file_types=(".manifest.json", ".pth"),
             maps_to_block="classify_drums",
         ),
+        "clap_model_path": knob(
+            "",
+            label="Clap Model",
+            widget=KnobWidget.FILE_PICKER,
+            file_types=(".manifest.json", ".pth"),
+            maps_to_block="classify_drums",
+        ),
+        "cymbal_model_path": knob(
+            "",
+            label="Cymbal Model",
+            widget=KnobWidget.FILE_PICKER,
+            file_types=(".manifest.json", ".pth"),
+            maps_to_block="classify_drums",
+        ),
         "classify_device": knob(
             "auto",
             label="Device",
@@ -42,6 +58,25 @@ from echozero.pipelines.templates.drum_extraction import (
             options=("auto", "cpu", "cuda"),
             maps_to_block="classify_drums",
             maps_to_setting="device",
+        ),
+        "target_drum_labels": knob(
+            ("kick", "snare"),
+            label="Drum Outputs",
+            widget=KnobWidget.MULTI_SELECT,
+            options=("kick", "snare", "clap", "cymbal"),
+            description="Choose which installed drum-model outputs to build from this drum stem.",
+            maps_to_block="classify_drums",
+            maps_to_setting="target_labels",
+        ),
+        "sensitivity_preset": knob(
+            "balanced",
+            label="Sensitivity",
+            widget=KnobWidget.DROPDOWN,
+            options=("more_events", "balanced", "fewer_events", "custom"),
+            description=(
+                "Choose how eagerly EchoZero finds drum events. Custom leaves advanced "
+                "threshold and onset controls untouched."
+            ),
         ),
         "kick_positive_threshold": knob(
             0.50,
@@ -67,6 +102,141 @@ from echozero.pipelines.templates.drum_extraction import (
                 " promote a detected candidate. Lower-scoring candidates still persist"
                 " as demoted reviewable events."
             ),
+            maps_to_block="classify_drums",
+        ),
+        "positive_threshold": knob(
+            0.60,
+            label="Default Classification Threshold",
+            min_value=0.0,
+            max_value=1.0,
+            step=0.01,
+            description="Fallback classification threshold for selected labels without a label-specific override.",
+            maps_to_block="classify_drums",
+        ),
+        "clap_positive_threshold": knob(
+            0.60,
+            label="Clap Classification Threshold",
+            min_value=0.0,
+            max_value=1.0,
+            step=0.01,
+            description="Stage 2 (classification): minimum clap model confidence required to promote a detected candidate.",
+            maps_to_block="classify_drums",
+        ),
+        "cymbal_positive_threshold": knob(
+            0.60,
+            label="Cymbal Classification Threshold",
+            min_value=0.0,
+            max_value=1.0,
+            step=0.01,
+            description="Stage 2 (classification): minimum cymbal model confidence required to promote a detected candidate.",
+            maps_to_block="classify_drums",
+        ),
+        "kick_min_event_peak": knob(
+            0.0010,
+            label="Kick Noise Peak Floor",
+            min_value=0.0,
+            max_value=0.1,
+            step=0.0005,
+            description="Reject kick candidates whose source window never reaches this peak level.",
+            maps_to_block="classify_drums",
+        ),
+        "kick_min_event_rms": knob(
+            0.0002,
+            label="Kick Noise RMS Floor",
+            min_value=0.0,
+            max_value=0.05,
+            step=0.0001,
+            description="Reject kick candidates whose source window energy is below this RMS level.",
+            maps_to_block="classify_drums",
+        ),
+        "kick_min_separation_ms": knob(
+            80.0,
+            label="Kick Dedup Window (ms)",
+            min_value=0.0,
+            max_value=500.0,
+            step=1.0,
+            description="Demote duplicate kick hits that land within this window of a stronger hit.",
+            maps_to_block="classify_drums",
+        ),
+        "snare_min_event_peak": knob(
+            0.0010,
+            label="Snare Noise Peak Floor",
+            min_value=0.0,
+            max_value=0.1,
+            step=0.0005,
+            description="Reject snare candidates whose source window never reaches this peak level.",
+            maps_to_block="classify_drums",
+        ),
+        "snare_min_event_rms": knob(
+            0.0002,
+            label="Snare Noise RMS Floor",
+            min_value=0.0,
+            max_value=0.05,
+            step=0.0001,
+            description="Reject snare candidates whose source window energy is below this RMS level.",
+            maps_to_block="classify_drums",
+        ),
+        "snare_min_separation_ms": knob(
+            50.0,
+            label="Snare Dedup Window (ms)",
+            min_value=0.0,
+            max_value=500.0,
+            step=1.0,
+            description="Demote duplicate snare hits that land within this window of a stronger hit.",
+            maps_to_block="classify_drums",
+        ),
+        "clap_min_event_peak": knob(
+            0.0015,
+            label="Clap Noise Peak Floor",
+            min_value=0.0,
+            max_value=0.1,
+            step=0.0005,
+            description="Reject clap candidates whose source window never reaches this peak level.",
+            maps_to_block="classify_drums",
+        ),
+        "clap_min_event_rms": knob(
+            0.0003,
+            label="Clap Noise RMS Floor",
+            min_value=0.0,
+            max_value=0.05,
+            step=0.0001,
+            description="Reject clap candidates whose source window energy is below this RMS level.",
+            maps_to_block="classify_drums",
+        ),
+        "clap_min_separation_ms": knob(
+            55.0,
+            label="Clap Dedup Window (ms)",
+            min_value=0.0,
+            max_value=500.0,
+            step=1.0,
+            description="Demote duplicate clap hits that land within this window of a stronger hit.",
+            maps_to_block="classify_drums",
+        ),
+        "cymbal_min_event_peak": knob(
+            0.0008,
+            label="Cymbal Noise Peak Floor",
+            min_value=0.0,
+            max_value=0.1,
+            step=0.0005,
+            description="Reject cymbal candidates whose source window never reaches this peak level.",
+            maps_to_block="classify_drums",
+        ),
+        "cymbal_min_event_rms": knob(
+            0.00015,
+            label="Cymbal Noise RMS Floor",
+            min_value=0.0,
+            max_value=0.05,
+            step=0.0001,
+            description="Reject cymbal candidates whose source window energy is below this RMS level.",
+            maps_to_block="classify_drums",
+        ),
+        "cymbal_min_separation_ms": knob(
+            90.0,
+            label="Cymbal Dedup Window (ms)",
+            min_value=0.0,
+            max_value=500.0,
+            step=1.0,
+            description="Demote duplicate cymbal hits that land within this window of a stronger hit.",
             maps_to_block="classify_drums",
         ),
         "kick_filter_enabled": knob(
@@ -127,6 +297,60 @@ from echozero.pipelines.templates.drum_extraction import (
                 " classification. Lower values create more candidate events."
             ),
             maps_to_block="snare_onsets",
+            maps_to_setting="threshold",
+        ),
+        "clap_filter_enabled": knob(
+            True,
+            label="Clap Filter Enabled",
+            widget=KnobWidget.TOGGLE,
+            maps_to_block="clap_filter",
+            maps_to_setting="enabled",
+        ),
+        "clap_filter_freq": knob(
+            1_200.0,
+            label="Clap Filter Center",
+            widget=KnobWidget.FREQUENCY,
+            min_value=100.0,
+            max_value=8_000.0,
+            step=10.0,
+            maps_to_block="clap_filter",
+            maps_to_setting="freq",
+        ),
+        "clap_onset_threshold": knob(
+            0.35,
+            label="Clap Detection Threshold",
+            min_value=0.0,
+            max_value=1.0,
+            step=0.05,
+            description="Stage 1 (detection): onset sensitivity for clap candidates before classification.",
+            maps_to_block="clap_onsets",
+            maps_to_setting="threshold",
+        ),
+        "cymbal_filter_enabled": knob(
+            True,
+            label="Cymbal Filter Enabled",
+            widget=KnobWidget.TOGGLE,
+            maps_to_block="cymbal_filter",
+            maps_to_setting="enabled",
+        ),
+        "cymbal_filter_freq": knob(
+            3_200.0,
+            label="Cymbal Filter Cutoff",
+            widget=KnobWidget.FREQUENCY,
+            min_value=200.0,
+            max_value=16_000.0,
+            step=10.0,
+            maps_to_block="cymbal_filter",
+            maps_to_setting="freq",
+        ),
+        "cymbal_onset_threshold": knob(
+            0.40,
+            label="Cymbal Detection Threshold",
+            min_value=0.0,
+            max_value=1.0,
+            step=0.05,
+            description="Stage 1 (detection): onset sensitivity for cymbal candidates before classification.",
+            maps_to_block="cymbal_onsets",
             maps_to_setting="threshold",
         ),
         "kick_filter_type": knob(
@@ -219,6 +443,116 @@ from echozero.pipelines.templates.drum_extraction import (
             maps_to_block="snare_onsets",
             maps_to_setting="timing_offset_ms",
         ),
+        "clap_filter_type": knob(
+            "bandpass",
+            label="Clap Filter",
+            widget=KnobWidget.DROPDOWN,
+            options=("lowpass", "highpass", "bandpass"),
+            advanced=True,
+            maps_to_block="clap_filter",
+            maps_to_setting="filter_type",
+        ),
+        "clap_filter_q": knob(
+            1.2,
+            label="Clap Filter Q",
+            min_value=0.2,
+            max_value=10.0,
+            step=0.1,
+            advanced=True,
+            maps_to_block="clap_filter",
+            maps_to_setting="Q",
+        ),
+        "clap_onset_min_gap": knob(
+            0.055,
+            label="Clap Onset Min Gap",
+            min_value=0.0,
+            max_value=1.0,
+            step=0.005,
+            advanced=True,
+            maps_to_block="clap_onsets",
+            maps_to_setting="min_gap",
+        ),
+        "clap_onset_method": knob(
+            "hfc",
+            label="Clap Onset Method",
+            widget=KnobWidget.DROPDOWN,
+            options=("default", "hfc", "complex"),
+            advanced=True,
+            maps_to_block="clap_onsets",
+            maps_to_setting="method",
+        ),
+        "clap_onset_backtrack": knob(
+            True,
+            label="Clap Onset Backtrack",
+            advanced=True,
+            maps_to_block="clap_onsets",
+            maps_to_setting="backtrack",
+        ),
+        "clap_onset_timing_offset_ms": knob(
+            0.0,
+            label="Clap Onset Timing Offset (ms)",
+            min_value=-100.0,
+            max_value=100.0,
+            step=1.0,
+            advanced=True,
+            maps_to_block="clap_onsets",
+            maps_to_setting="timing_offset_ms",
+        ),
+        "cymbal_filter_type": knob(
+            "highpass",
+            label="Cymbal Filter",
+            widget=KnobWidget.DROPDOWN,
+            options=("lowpass", "highpass", "bandpass"),
+            advanced=True,
+            maps_to_block="cymbal_filter",
+            maps_to_setting="filter_type",
+        ),
+        "cymbal_filter_q": knob(
+            1.0,
+            label="Cymbal Filter Q",
+            min_value=0.2,
+            max_value=10.0,
+            step=0.1,
+            advanced=True,
+            maps_to_block="cymbal_filter",
+            maps_to_setting="Q",
+        ),
+        "cymbal_onset_min_gap": knob(
+            0.09,
+            label="Cymbal Onset Min Gap",
+            min_value=0.0,
+            max_value=1.0,
+            step=0.005,
+            advanced=True,
+            maps_to_block="cymbal_onsets",
+            maps_to_setting="min_gap",
+        ),
+        "cymbal_onset_method": knob(
+            "hfc",
+            label="Cymbal Onset Method",
+            widget=KnobWidget.DROPDOWN,
+            options=("default", "hfc", "complex"),
+            advanced=True,
+            maps_to_block="cymbal_onsets",
+            maps_to_setting="method",
+        ),
+        "cymbal_onset_backtrack": knob(
+            True,
+            label="Cymbal Onset Backtrack",
+            advanced=True,
+            maps_to_block="cymbal_onsets",
+            maps_to_setting="backtrack",
+        ),
+        "cymbal_onset_timing_offset_ms": knob(
+            0.0,
+            label="Cymbal Onset Timing Offset (ms)",
+            min_value=-100.0,
+            max_value=100.0,
+            step=1.0,
+            advanced=True,
+            maps_to_block="cymbal_onsets",
+            maps_to_setting="timing_offset_ms",
+        ),
         "assignment_mode": knob(
             "independent",
             label="Assignment Mode",
@@ -249,17 +583,42 @@ from echozero.pipelines.templates.drum_extraction import (
 )
 def build_extract_classified_drums(
     audio_file="",
+    target_drum_labels=("kick", "snare"),
+    sensitivity_preset="balanced",
     kick_model_path="",
     snare_model_path="",
+    clap_model_path="",
+    cymbal_model_path="",
     classify_device="auto",
     kick_positive_threshold=0.50,
     snare_positive_threshold=0.65,
+    positive_threshold=0.60,
+    clap_positive_threshold=0.60,
+    cymbal_positive_threshold=0.60,
+    kick_min_event_peak=0.0010,
+    kick_min_event_rms=0.0002,
+    kick_min_separation_ms=80.0,
+    snare_min_event_peak=0.0010,
+    snare_min_event_rms=0.0002,
+    snare_min_separation_ms=50.0,
+    clap_min_event_peak=0.0015,
+    clap_min_event_rms=0.0003,
+    clap_min_separation_ms=55.0,
+    cymbal_min_event_peak=0.0008,
+    cymbal_min_event_rms=0.00015,
+    cymbal_min_separation_ms=90.0,
     kick_filter_enabled=True,
     kick_filter_freq=180.0,
     kick_onset_threshold=0.150,
     snare_filter_enabled=True,
     snare_filter_freq=180.0,
     snare_onset_threshold=0.150,
+    clap_filter_enabled=True,
+    clap_filter_freq=1_200.0,
+    clap_onset_threshold=0.35,
+    cymbal_filter_enabled=True,
+    cymbal_filter_freq=3_200.0,
+    cymbal_onset_threshold=0.40,
     kick_filter_type="lowpass",
     kick_onset_min_gap=0.08,
     kick_onset_method="default",
@@ -270,11 +629,58 @@ def build_extract_classified_drums(
     snare_onset_method="default",
     snare_onset_backtrack=True,
     snare_onset_timing_offset_ms=0.0,
+    clap_filter_type="bandpass",
+    clap_filter_q=1.2,
+    clap_onset_min_gap=0.055,
+    clap_onset_method="hfc",
+    clap_onset_backtrack=True,
+    clap_onset_timing_offset_ms=0.0,
+    cymbal_filter_type="highpass",
+    cymbal_filter_q=1.0,
+    cymbal_onset_min_gap=0.09,
+    cymbal_onset_method="hfc",
+    cymbal_onset_backtrack=True,
+    cymbal_onset_timing_offset_ms=0.0,
     assignment_mode="independent",
     winner_margin=0.05,
     event_match_window_ms=40.0,
 ) -> Pipeline:
-    """Build split kick/snare branches over one drums source."""
+    """Build split per-label branches over one drums source."""
+    if isinstance(target_drum_labels, str):
+        target_labels = tuple(
+            _normalize_drum_label(label)
+            for label in target_drum_labels.split(",")
+            if label.strip()
+        )
+    else:
+        target_labels = tuple(
+            _normalize_drum_label(label) for label in target_drum_labels if str(label).strip()
+        )
+    if not target_labels:
+        raise ValueError("Select at least one drum label to extract.")
+    compiled_values = apply_drum_event_sensitivity_preset(
+        {
+            "positive_threshold": positive_threshold,
+            "kick_positive_threshold": kick_positive_threshold,
+            "snare_positive_threshold": snare_positive_threshold,
+            "clap_positive_threshold": clap_positive_threshold,
+            "cymbal_positive_threshold": cymbal_positive_threshold,
+            "kick_onset_threshold": kick_onset_threshold,
+            "snare_onset_threshold": snare_onset_threshold,
+            "clap_onset_threshold": clap_onset_threshold,
+            "cymbal_onset_threshold": cymbal_onset_threshold,
+        },
+        sensitivity=sensitivity_preset,
+    )
+    positive_threshold = compiled_values["positive_threshold"]
+    kick_positive_threshold = compiled_values["kick_positive_threshold"]
+    snare_positive_threshold = compiled_values["snare_positive_threshold"]
+    clap_positive_threshold = compiled_values["clap_positive_threshold"]
+    cymbal_positive_threshold = compiled_values["cymbal_positive_threshold"]
+    kick_onset_threshold = compiled_values["kick_onset_threshold"]
+    snare_onset_threshold = compiled_values["snare_onset_threshold"]
+    clap_onset_threshold = compiled_values["clap_onset_threshold"]
+    cymbal_onset_threshold = compiled_values["cymbal_onset_threshold"]
     pipeline = Pipeline("extract_classified_drums", name="Extract Classified Drums")
     audio = pipeline.add(
         LoadAudio(file_path=audio_file, target_sample_rate=44100),
@@ -284,17 +690,41 @@ def build_extract_classified_drums(
         pipeline,
         audio_in=audio.audio_out,
         settings=ClassifiedDrumBranchSettings(
+            target_labels=target_labels,
             kick_model_path=kick_model_path,
             snare_model_path=snare_model_path,
+            clap_model_path=clap_model_path,
+            cymbal_model_path=cymbal_model_path,
             device=classify_device,
+            positive_threshold=positive_threshold,
             kick_positive_threshold=kick_positive_threshold,
             snare_positive_threshold=snare_positive_threshold,
+            clap_positive_threshold=clap_positive_threshold,
+            cymbal_positive_threshold=cymbal_positive_threshold,
+            kick_min_event_peak=kick_min_event_peak,
+            kick_min_event_rms=kick_min_event_rms,
+            kick_min_separation_ms=kick_min_separation_ms,
+            snare_min_event_peak=snare_min_event_peak,
+            snare_min_event_rms=snare_min_event_rms,
+            snare_min_separation_ms=snare_min_separation_ms,
+            clap_min_event_peak=clap_min_event_peak,
+            clap_min_event_rms=clap_min_event_rms,
+            clap_min_separation_ms=clap_min_separation_ms,
+            cymbal_min_event_peak=cymbal_min_event_peak,
+            cymbal_min_event_rms=cymbal_min_event_rms,
+            cymbal_min_separation_ms=cymbal_min_separation_ms,
             kick_filter_enabled=kick_filter_enabled,
             kick_filter_freq=kick_filter_freq,
             kick_onset_threshold=kick_onset_threshold,
             snare_filter_enabled=snare_filter_enabled,
             snare_filter_freq=snare_filter_freq,
             snare_onset_threshold=snare_onset_threshold,
+            clap_filter_enabled=clap_filter_enabled,
+            clap_filter_freq=clap_filter_freq,
+            clap_onset_threshold=clap_onset_threshold,
+            cymbal_filter_enabled=cymbal_filter_enabled,
+            cymbal_filter_freq=cymbal_filter_freq,
+            cymbal_onset_threshold=cymbal_onset_threshold,
             kick_filter_type=kick_filter_type,
             kick_onset_min_gap=kick_onset_min_gap,
             kick_onset_method=kick_onset_method,
@@ -305,6 +735,18 @@ def build_extract_classified_drums(
             snare_onset_method=snare_onset_method,
             snare_onset_backtrack=snare_onset_backtrack,
             snare_onset_timing_offset_ms=snare_onset_timing_offset_ms,
+            clap_filter_type=clap_filter_type,
+            clap_filter_q=clap_filter_q,
+            clap_onset_min_gap=clap_onset_min_gap,
+            clap_onset_method=clap_onset_method,
+            clap_onset_backtrack=clap_onset_backtrack,
+            clap_onset_timing_offset_ms=clap_onset_timing_offset_ms,
+            cymbal_filter_type=cymbal_filter_type,
+            cymbal_filter_q=cymbal_filter_q,
+            cymbal_onset_min_gap=cymbal_onset_min_gap,
+            cymbal_onset_method=cymbal_onset_method,
+            cymbal_onset_backtrack=cymbal_onset_backtrack,
+            cymbal_onset_timing_offset_ms=cymbal_onset_timing_offset_ms,
             assignment_mode=assignment_mode,
             winner_margin=winner_margin,
             event_match_window_ms=event_match_window_ms,
@@ -312,3 +754,11 @@ def build_extract_classified_drums(
     )
     pipeline.output("classified_drums", classified.events_out, data_type="event")
     return pipeline
+
+
+def _normalize_drum_label(raw_label: object) -> str:
+    """Normalize operator-facing percussion aliases to runtime bundle labels."""
+    label = str(raw_label).strip().lower()
+    if label in {"symbol", "cymbol"}:
+        return "cymbal"
+    return label

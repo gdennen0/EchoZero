@@ -6,6 +6,7 @@ Connects the compatibility wrapper to the bounded object-info support slice.
 from echozero.ui.qt.timeline.object_info_panel_text import (
     rendered_contract_text as _rendered_object_info_text,
 )
+from echozero.ui.qt.timeline.find_similar_dialog import FindSimilarSoundsDialog
 from tests.ui.timeline_shell_shared_support import *  # noqa: F401,F403
 
 
@@ -220,6 +221,57 @@ def test_object_info_panel_mix_buttons_dispatch_mute_and_solo_intents():
         app.processEvents()
 
 
+def test_object_info_panel_audio_batch_controls_apply_to_all_selected_layers():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    base = _selection_test_presentation()
+    kick_layer = replace(
+        base.layers[0],
+        kind=LayerKind.AUDIO,
+        source_audio_path="kick.wav",
+        playback_source_ref="kick.wav",
+    )
+    snare_layer = replace(
+        base.layers[0],
+        layer_id=LayerId("layer_snare"),
+        title="Snare",
+        kind=LayerKind.AUDIO,
+        source_audio_path="snare.wav",
+        playback_source_ref="snare.wav",
+    )
+    presentation = replace(
+        base,
+        layers=[kick_layer, snare_layer],
+        selected_layer_id=LayerId("layer_kick"),
+        selected_layer_ids=[LayerId("layer_kick"), LayerId("layer_snare")],
+    )
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+
+        widget._object_info._panel_mute_btn.click()
+        widget._object_info._panel_solo_btn.click()
+        widget._object_info._gain_up_btn.click()
+        widget._object_info._gain_spin.setValue(1.5)
+        widget._object_info._gain_apply_btn.click()
+
+        assert intents == [
+            SetLayerMute(layer_id=LayerId("layer_kick"), muted=True),
+            SetLayerMute(layer_id=LayerId("layer_snare"), muted=True),
+            SetLayerSolo(layer_id=LayerId("layer_kick"), soloed=True),
+            SetLayerSolo(layer_id=LayerId("layer_snare"), soloed=True),
+            SetGain(layer_id=LayerId("layer_kick"), gain_db=6.0),
+            SetGain(layer_id=LayerId("layer_snare"), gain_db=6.0),
+            SetGain(layer_id=LayerId("layer_kick"), gain_db=1.5),
+            SetGain(layer_id=LayerId("layer_snare"), gain_db=1.5),
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_object_info_panel_event_layer_hides_mix_buttons():
     app = QApplication.instance() or QApplication([])
     base = _selection_test_presentation()
@@ -396,38 +448,54 @@ def test_object_info_panel_batch_buttons_dispatch_scoped_event_intents():
     )
 
     class _FindSimilarDialog:
-        _responses = [
-            ("This Take", True),
-            ("Balanced", True),
-            ("Use Strength Default", True),
-        ]
+        DialogCode = type("DialogCode", (), {"Accepted": 1})
 
-        @classmethod
-        def getItem(cls, *_args, **_kwargs):
-            if cls._responses:
-                return cls._responses.pop(0)
-            return ("Use Strength Default", True)
+        def __init__(self, **_kwargs):
+            self._payload = {
+                "event_refs": [
+                    EventRef(
+                        layer_id=LayerId("layer_kick"),
+                        take_id=TakeId("take_main"),
+                        event_id=EventId("main_evt"),
+                    )
+                ],
+                "event_ids": [EventId("main_evt")],
+                "anchor_layer_id": LayerId("layer_kick"),
+                "anchor_take_id": TakeId("take_main"),
+                "selected_layer_ids": [LayerId("layer_kick")],
+            }
 
-    widget._action_router._input_dialog = _FindSimilarDialog
+        def exec(self):
+            return self.DialogCode.Accepted
+
+        def selected_payload(self):
+            return self._payload
+
+    widget._action_router._find_similar_dialog_class = _FindSimilarDialog
     try:
         _render_for_hit_testing(widget)
 
-        assert "selection.find_similar_sounding" in widget._object_info._action_buttons
+        assert "selection.compare_events" in widget._object_info._action_buttons
         assert "selection.select_every_other" in widget._object_info._action_buttons
         assert "selection.renumber_cues_from_one" in widget._object_info._action_buttons
 
-        widget._object_info._action_buttons["selection.find_similar_sounding"].click()
+        widget._object_info._action_buttons["selection.compare_events"].click()
         widget._object_info._action_buttons["selection.select_every_other"].click()
         widget._object_info._action_buttons["selection.renumber_cues_from_one"].click()
 
         assert intents == [
-            SelectSimilarSoundingEvents(
-                layer_id=LayerId("layer_kick"),
-                take_id=TakeId("take_main"),
-                event_id=EventId("main_evt"),
-                scope_mode="take",
-                match_strength="balanced",
-                similarity_threshold_override=None,
+            SetSelectedEvents(
+                event_ids=[EventId("main_evt")],
+                event_refs=[
+                    EventRef(
+                        layer_id=LayerId("layer_kick"),
+                        take_id=TakeId("take_main"),
+                        event_id=EventId("main_evt"),
+                    )
+                ],
+                anchor_layer_id=LayerId("layer_kick"),
+                anchor_take_id=TakeId("take_main"),
+                selected_layer_ids=[LayerId("layer_kick")],
             ),
             SelectEveryOtherEvents(scope=EventBatchScope(mode="selected_events")),
             RenumberEventCueNumbers(
@@ -523,6 +591,52 @@ def test_object_info_panel_event_clip_button_routes_to_runtime_preview():
         assert runtime.preview_calls == [
             (LayerId("layer_kick"), TakeId("take_main"), EventId("main_evt"))
         ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_object_info_panel_event_preview_variant_buttons_switch_render_mode():
+    app = QApplication.instance() or QApplication([])
+    base = _selection_test_presentation()
+    presentation = replace(
+        base,
+        layers=[
+            replace(
+                base.layers[0],
+                source_audio_path="kick.wav",
+                playback_source_ref="kick.wav",
+            )
+        ],
+    )
+
+    class _Runtime(_SelectionInspectorHarness):
+        def __init__(self, preview_presentation: TimelinePresentation):
+            super().__init__(preview_presentation)
+            self.runtime_audio = None
+
+    runtime = _Runtime(presentation)
+    widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
+    try:
+        _render_for_hit_testing(widget)
+        _click_event_rect(widget, "main_evt")
+
+        buttons = widget._object_info._event_preview_variant_buttons
+        assert tuple(buttons) == ("bars", "filled", "outline")
+        assert buttons["outline"].isEnabled() is True
+        assert buttons["bars"].property("active") is True
+
+        buttons["outline"].click()
+        app.processEvents()
+        assert widget._object_info._event_preview_variant == "outline"
+        assert buttons["outline"].property("active") is True
+        assert buttons["bars"].property("active") is False
+
+        buttons["filled"].click()
+        app.processEvents()
+        assert widget._object_info._event_preview_variant == "filled"
+        assert buttons["filled"].property("active") is True
+        assert buttons["outline"].property("active") is False
     finally:
         widget.close()
         app.processEvents()
@@ -1040,19 +1154,30 @@ def test_fix_mode_demoted_event_context_menu_exposes_and_dispatches_find_similar
     )
 
     class _FindSimilarDialog:
-        _responses = [
-            ("This Take", True),
-            ("Balanced", True),
-            ("Use Strength Default", True),
-        ]
+        DialogCode = type("DialogCode", (), {"Accepted": 1})
 
-        @classmethod
-        def getItem(cls, *_args, **_kwargs):
-            if cls._responses:
-                return cls._responses.pop(0)
-            return ("Use Strength Default", True)
+        def __init__(self, **_kwargs):
+            self._payload = {
+                "event_refs": [
+                    EventRef(
+                        layer_id=LayerId("layer_kick"),
+                        take_id=TakeId("take_main"),
+                        event_id=EventId("demoted_evt"),
+                    )
+                ],
+                "event_ids": [EventId("demoted_evt")],
+                "anchor_layer_id": LayerId("layer_kick"),
+                "anchor_take_id": TakeId("take_main"),
+                "selected_layer_ids": [LayerId("layer_kick")],
+            }
 
-    widget._action_router._input_dialog = _FindSimilarDialog
+        def exec(self):
+            return self.DialogCode.Accepted
+
+        def selected_payload(self):
+            return self._payload
+
+    widget._action_router._find_similar_dialog_class = _FindSimilarDialog
     try:
         _render_for_hit_testing(widget)
         widget._editor_bar._mode_buttons["fix"].click()
@@ -1081,27 +1206,54 @@ def test_fix_mode_demoted_event_context_menu_exposes_and_dispatches_find_similar
         )
         menu = widget._canvas._build_context_menu(contract, hit_kind="event")
         labels = [action.text() for action in menu.actions() if not action.isSeparator()]
-        assert "Find Similar Sounds" in labels
+        assert "Compare Events..." in labels
 
         find_similar_action = next(
             action
             for section in contract.context_sections
             for action in section.actions
-            if action.action_id == "selection.find_similar_sounding"
+            if action.action_id == "selection.compare_events"
         )
         widget._trigger_contract_action(find_similar_action)
 
         assert intents
-        assert intents[-1] == SelectSimilarSoundingEvents(
-            layer_id=layer_id,
-            take_id=take_id,
-            event_id=event_id,
-            scope_mode="take",
-            match_strength="balanced",
-            similarity_threshold_override=None,
+        assert intents[-1] == SetSelectedEvents(
+            event_ids=[EventId("demoted_evt")],
+            event_refs=[
+                EventRef(
+                    layer_id=LayerId("layer_kick"),
+                    take_id=TakeId("take_main"),
+                    event_id=EventId("demoted_evt"),
+                )
+            ],
+            anchor_layer_id=LayerId("layer_kick"),
+            anchor_take_id=TakeId("take_main"),
+            selected_layer_ids=[LayerId("layer_kick")],
         )
     finally:
         widget.close()
+        app.processEvents()
+
+
+def test_find_similar_shapes_dialog_constructs_for_real_event():
+    app = QApplication.instance() or QApplication([])
+    presentation = _selection_test_presentation()
+    dialog = FindSimilarSoundsDialog(
+        presentation=presentation,
+        layer_id=LayerId("layer_kick"),
+        take_id=TakeId("take_main"),
+        event_id=EventId("main_evt"),
+        default_scope_mode="take",
+        parent=None,
+    )
+    try:
+        assert dialog.windowTitle() == "Compare Events"
+        assert "candidate events across" in dialog._summary.text()
+        assert dialog._mode_combo.count() == 2
+        assert dialog._mode_combo.itemText(0) == "Shape Envelope"
+        assert dialog._mode_combo.itemText(1) == "Timbre Fingerprint"
+    finally:
+        dialog.close()
         app.processEvents()
 
 

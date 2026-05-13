@@ -234,6 +234,9 @@ def decode_playback_state(payload: dict[str, object]) -> PlaybackState:
         last_device_reinit_reason=str(
             _mapping_get(diagnostics_payload, "last_device_reinit_reason", "") or ""
         ),
+        recent_audio_runtime_events=_decode_recent_audio_runtime_events(
+            _mapping_get(diagnostics_payload, "recent_audio_runtime_events", ())
+        ),
     )
     active_sources_payload = payload.get("active_sources", ()) or ()
     active_sources = [
@@ -281,6 +284,24 @@ def _mapping_get(mapping: object, key: str, default: object) -> Any:
     if not isinstance(mapping, dict):
         return default
     return mapping.get(key, default)
+
+
+def _decode_recent_audio_runtime_events(value: object) -> tuple[dict[str, object], ...]:
+    if not isinstance(value, (list, tuple)):
+        return ()
+    events: list[dict[str, object]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        event: dict[str, object] = {}
+        for key, raw_value in item.items():
+            key_text = str(key)
+            if raw_value is None or isinstance(raw_value, (str, bool, int, float)):
+                event[key_text] = raw_value
+            else:
+                event[key_text] = str(raw_value)
+        events.append(event)
+    return tuple(events)
 
 
 __all__ = [

@@ -6,13 +6,11 @@ Connects live probe + ping checks to editable OSC settings values from the prefe
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
 from datetime import datetime
-from threading import Event
-from time import monotonic, sleep
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QFormLayout,
     QGroupBox,
@@ -25,31 +23,14 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from echozero.infrastructure.osc import (
-    OscInboundMessage,
-    OscReceiveServer,
-    OscReceiveServiceConfig,
-    OscUdpSendTransport,
-)
-from echozero.infrastructure.sync.ma3_osc import (
-    format_ma3_lua_command,
-    parse_ma3_osc_payload,
-    resolve_ma3_target_host,
+from echozero.application.sync.ma3_connection_check import (
+    MA3OscLiveBridge,
+    MA3OscConnectionCheckResult,
+    MA3OscConnectionCheckService,
+    MA3OscConnectionState,
 )
 
-_PING_TIMEOUT_SECONDS = 1.5
-_PING_SETTLE_SECONDS = 0.25
 _MONITOR_REFRESH_MS = 500
-
-
-@dataclass(frozen=True, slots=True)
-class _OscProbeConfig:
-    receive_enabled: bool
-    receive_host: str
-    receive_port: int
-    send_enabled: bool
-    send_host: str
-    send_port: int
 
 
 class OscSettingsPanel(QWidget):
@@ -61,24 +42,31 @@ class OscSettingsPanel(QWidget):
         values_provider: Callable[[], Mapping[str, object]],
         monitor_provider: Callable[[], list[Mapping[str, object]]] | None = None,
         clear_monitor: Callable[[], None] | None = None,
+        connection_checker: MA3OscConnectionCheckService | None = None,
+        live_bridge_provider: Callable[[], MA3OscLiveBridge | None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._values_provider = values_provider
         self._monitor_provider = monitor_provider
         self._clear_monitor = clear_monitor
+        self._connection_checker = connection_checker or MA3OscConnectionCheckService()
+        self._live_bridge_provider = live_bridge_provider
+        self._has_dirty_settings = False
+        self._last_check_request = None
+        self._last_check_result: MA3OscConnectionCheckResult | None = None
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setSpacing(6)
 
         group = QGroupBox("OSC Connection", self)
         group.setProperty("section", True)
         group.setProperty("compact", True)
         group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         group_layout = QVBoxLayout(group)
-        group_layout.setContentsMargins(8, 8, 8, 8)
-        group_layout.setSpacing(6)
+        group_layout.setContentsMargins(8, 10, 8, 8)
+        group_layout.setSpacing(5)
 
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
@@ -89,10 +77,15 @@ class OscSettingsPanel(QWidget):
 
         self._status_value = QLabel("Unknown", group)
         self._status_detail = QLabel(
-            "Run Check Status to validate OSC receive/send settings.",
+            "Run Connection Check to validate the MA3 OSC round trip.",
             group,
         )
         self._status_detail.setWordWrap(True)
+        self._status_detail.setMinimumHeight(68)
+        self._status_detail.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.MinimumExpanding,
+        )
         self._ping_value = QLabel("Not measured", group)
 
         form.addRow("Status", self._status_value)
@@ -103,20 +96,22 @@ class OscSettingsPanel(QWidget):
         actions = QHBoxLayout()
         actions.setContentsMargins(0, 0, 0, 0)
         actions.setSpacing(6)
-        actions.addStretch(1)
-        self._check_status_button = QPushButton("Check Status", group)
+        self._check_status_button = QPushButton("Run Check", group)
         self._check_status_button.setProperty("appearance", "subtle")
-        self._check_status_button.clicked.connect(self._on_check_status)
+        self._check_status_button.setToolTip("Run the full MA3 OSC round-trip connection check.")
+        self._check_status_button.clicked.connect(self._on_run_connection_check)
         actions.addWidget(self._check_status_button)
-        self._ping_button = QPushButton("Ping", group)
-        self._ping_button.setProperty("appearance", "subtle")
-        self._ping_button.clicked.connect(self._on_ping)
-        actions.addWidget(self._ping_button)
+        self._copy_report_button = QPushButton("Copy Report", group)
+        self._copy_report_button.setProperty("appearance", "subtle")
+        self._copy_report_button.setToolTip("Copy the full MA3 OSC diagnostic report.")
+        self._copy_report_button.setEnabled(False)
+        self._copy_report_button.clicked.connect(self._copy_diagnostic_report)
+        actions.addWidget(self._copy_report_button)
         group_layout.addLayout(actions)
 
         layout.addWidget(group, 1)
         layout.addWidget(self._build_monitor_group(), 2)
-        self._set_status("unknown", "Unknown", "Run Check Status to validate OSC endpoints.")
+        self._set_status("unknown", "Unknown", "Run Connection Check to validate OSC endpoints.")
         self._sync_monitor_state()
 
     def _build_monitor_group(self) -> QGroupBox:
@@ -125,8 +120,8 @@ class OscSettingsPanel(QWidget):
         group.setProperty("compact", True)
         group.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         layout = QVBoxLayout(group)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
+        layout.setContentsMargins(8, 10, 8, 8)
+        layout.setSpacing(5)
 
         self._monitor_status = QLabel(
             "Monitor unavailable in this shell.",
@@ -138,11 +133,11 @@ class OscSettingsPanel(QWidget):
         self._monitor_output = QPlainTextEdit(group)
         self._monitor_output.setReadOnly(True)
         self._monitor_output.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
-        self._monitor_output.setMinimumHeight(72)
-        self._monitor_output.setMaximumHeight(92)
+        self._monitor_output.setMinimumHeight(110)
+        self._monitor_output.setMaximumHeight(140)
         self._monitor_output.setSizePolicy(
             QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Fixed,
+            QSizePolicy.Policy.MinimumExpanding,
         )
         self._monitor_output.setPlainText("No inbound OSC messages yet.")
         layout.addWidget(self._monitor_output)
@@ -150,11 +145,11 @@ class OscSettingsPanel(QWidget):
         actions = QHBoxLayout()
         actions.setContentsMargins(0, 0, 0, 0)
         actions.setSpacing(6)
-        actions.addStretch(1)
         self._monitor_auto = QCheckBox("Auto Refresh", group)
         self._monitor_auto.setChecked(True)
         self._monitor_auto.toggled.connect(self._sync_monitor_state)
         actions.addWidget(self._monitor_auto)
+        actions.addStretch(1)
         self._monitor_clear = QPushButton("Clear Log", group)
         self._monitor_clear.setProperty("appearance", "subtle")
         self._monitor_clear.clicked.connect(self._clear_monitor_log)
@@ -174,10 +169,14 @@ class OscSettingsPanel(QWidget):
         """Reset connection health to unknown after OSC form edits."""
 
         self._ping_value.setText("Not measured")
+        self._has_dirty_settings = True
+        self._last_check_request = None
+        self._last_check_result = None
+        self._copy_report_button.setEnabled(False)
         self._set_status(
             "unknown",
             "Pending Check",
-            "OSC settings changed. Run Check Status or Ping to refresh health.",
+            "OSC settings changed. Run Connection Check to refresh health.",
         )
 
     def _set_status(self, tone: str, title: str, detail: str) -> None:
@@ -289,180 +288,58 @@ class OscSettingsPanel(QWidget):
             parts.append(f"{key}={value}")
         return " ".join(parts)
 
-    def _on_check_status(self) -> None:
-        config = self._resolve_config()
-        probes: list[str] = []
-        failures: list[str] = []
+    def _on_run_connection_check(self) -> None:
+        request = self._connection_checker.request_from_values(dict(self._values_provider()))
+        live_bridge = self._live_bridge_for_current_values()
+        result = self._connection_checker.ping(request, live_bridge=live_bridge)
+        self._last_check_request = request
+        self._last_check_result = result
+        self._copy_report_button.setEnabled(True)
+        self._apply_connection_result(result)
 
-        if config.receive_enabled:
-            receive_ok, receive_detail = self._probe_receive_endpoint(config)
-            probes.append(receive_detail)
-            if not receive_ok:
-                failures.append(receive_detail)
-        if config.send_enabled:
-            send_ok, send_detail = self._probe_send_endpoint(config)
-            probes.append(send_detail)
-            if not send_ok:
-                failures.append(send_detail)
+    def _live_bridge_for_current_values(self) -> MA3OscLiveBridge | None:
+        if self._has_dirty_settings or self._live_bridge_provider is None:
+            return None
+        try:
+            return self._live_bridge_provider()
+        except Exception:
+            return None
 
-        if not probes:
-            self._set_status(
-                "warn",
-                "Disabled",
-                "Enable OSC Receive and/or Send to run connection checks.",
-            )
-            return
-        if failures:
-            self._set_status("error", "Issue Detected", " ".join(probes))
-            return
-        self._set_status("ok", "Ready", " ".join(probes))
-
-    def _on_ping(self) -> None:
-        config = self._resolve_config()
-        success, detail, latency_ms = self._run_ping(config)
-        if latency_ms is None:
+    def _apply_connection_result(self, result: MA3OscConnectionCheckResult) -> None:
+        if result.latency_ms is None:
             self._ping_value.setText("Not measured")
         else:
-            self._ping_value.setText(f"{latency_ms:.1f} ms")
-        if success:
-            self._set_status("ok", "Connected", detail)
+            self._ping_value.setText(f"{result.latency_ms:.1f} ms")
+        tone, title = self._status_tone_and_title(result.state)
+        self._set_status(tone, title, self._format_result_detail(result))
+
+    def _copy_diagnostic_report(self) -> None:
+        if self._last_check_request is None or self._last_check_result is None:
             return
-        self._set_status("error", "Ping Failed", detail)
-
-    def _resolve_config(self) -> _OscProbeConfig:
-        values = dict(self._values_provider())
-        receive_enabled = bool(values.get("osc_receive.enabled", False))
-        send_enabled = bool(values.get("osc_send.enabled", False))
-        receive_host = str(values.get("osc_receive.host") or "127.0.0.1").strip() or "127.0.0.1"
-        send_host = str(values.get("osc_send.host") or "127.0.0.1").strip() or "127.0.0.1"
-        receive_port = self._coerce_port(values.get("osc_receive.port"))
-        send_port = self._coerce_port(values.get("osc_send.port"))
-        return _OscProbeConfig(
-            receive_enabled=receive_enabled,
-            receive_host=receive_host,
-            receive_port=receive_port,
-            send_enabled=send_enabled,
-            send_host=send_host,
-            send_port=send_port,
-        )
+        clipboard = QApplication.clipboard()
+        clipboard.setText(self._last_check_result.diagnostic_report(self._last_check_request))
 
     @staticmethod
-    def _coerce_port(raw_value: object) -> int:
-        try:
-            return max(0, min(65_535, int(raw_value)))
-        except (TypeError, ValueError):
-            return 0
+    def _format_result_detail(result: MA3OscConnectionCheckResult) -> str:
+        lines = [result.detail] if result.detail else []
+        for check in result.checks:
+            prefix = "OK" if check.ok else "FAIL"
+            if check.ok:
+                lines.append(f"{prefix} {check.stage}")
+            else:
+                lines.append(f"{prefix} {check.stage}: {check.detail}")
+        if result.recommended_action:
+            lines.append(f"Next: {result.recommended_action}")
+        return "\n".join(lines)
 
     @staticmethod
-    def _probe_receive_endpoint(config: _OscProbeConfig) -> tuple[bool, str]:
-        if not config.receive_host:
-            return False, "Receive host is empty."
-
-        server = OscReceiveServer(
-            OscReceiveServiceConfig(
-                host=config.receive_host,
-                port=config.receive_port,
-                path="/ez/message",
-            ),
-            on_message=lambda _message: None,
-            thread_name="echozero-osc-status-receive-probe",
-        )
-        try:
-            server.start()
-            host, port = server.endpoint
-            return True, f"Receive OK ({host}:{port})."
-        except OSError as exc:
-            return False, f"Receive failed ({config.receive_host}:{config.receive_port}): {exc}"
-        finally:
-            server.stop()
-
-    @staticmethod
-    def _probe_send_endpoint(config: _OscProbeConfig) -> tuple[bool, str]:
-        if not config.send_host:
-            return False, "Send host is empty."
-        if config.send_port <= 0:
-            return False, "Send port must be greater than 0."
-        transport = OscUdpSendTransport(
-            host=config.send_host,
-            port=config.send_port,
-            path="/cmd",
-        )
-        try:
-            transport.send(format_ma3_lua_command("EZ.Status()"))
-            return True, f"Send OK ({config.send_host}:{config.send_port})."
-        except OSError as exc:
-            return False, f"Send failed ({config.send_host}:{config.send_port}): {exc}"
-        finally:
-            transport.close()
-
-    @staticmethod
-    def _run_ping(config: _OscProbeConfig) -> tuple[bool, str, float | None]:
-        if not config.send_enabled:
-            return False, "Enable OSC Send before pinging.", None
-        if not config.receive_enabled:
-            return False, "Enable OSC Receive before pinging for a round-trip result.", None
-        if config.send_port <= 0:
-            return False, "Set a valid OSC Send port before pinging.", None
-        if not config.send_host:
-            return False, "Set OSC Send host before pinging.", None
-
-        response_event = Event()
-        response_status = {"status": "unknown"}
-
-        def _on_message(message: OscInboundMessage) -> None:
-            payload = message.first_text_arg()
-            if not payload:
-                return
-            parsed = parse_ma3_osc_payload(payload)
-            if parsed.message_type != "connection":
-                return
-            if parsed.change not in {"ping", "status"}:
-                return
-            status = str(parsed.fields.get("status") or "ok").strip() or "ok"
-            response_status["status"] = status
-            response_event.set()
-
-        receive_server = OscReceiveServer(
-            OscReceiveServiceConfig(
-                host=config.receive_host,
-                port=config.receive_port,
-                path="/ez/message",
-            ),
-            on_message=_on_message,
-            thread_name="echozero-osc-status-ping",
-        )
-        send_transport = OscUdpSendTransport(
-            host=config.send_host,
-            port=config.send_port,
-            path="/cmd",
-        )
-        try:
-            receive_server.start()
-            listen_host, listen_port = receive_server.endpoint
-            target_host = resolve_ma3_target_host(
-                listen_host=listen_host,
-                command_host=config.send_host,
-            )
-            set_target_command = (
-                f"EZ.SetTarget({OscSettingsPanel._lua_text(target_host)}, {int(listen_port)})"
-            )
-            send_transport.send(format_ma3_lua_command(set_target_command))
-            sleep(_PING_SETTLE_SECONDS)
-
-            started_at = monotonic()
-            send_transport.send(format_ma3_lua_command("EZ.Ping()"))
-            if not response_event.wait(timeout=_PING_TIMEOUT_SECONDS):
-                return False, "Timed out waiting for OSC ping response.", None
-            latency_ms = (monotonic() - started_at) * 1000.0
-            status = str(response_status.get("status") or "ok")
-            return True, f"Ping response received (status={status}).", latency_ms
-        except OSError as exc:
-            return False, f"OSC ping failed: {exc}", None
-        finally:
-            send_transport.close()
-            receive_server.stop()
-
-    @staticmethod
-    def _lua_text(value: str) -> str:
-        escaped = str(value).replace("\\", "\\\\").replace("'", "\\'")
-        return f"'{escaped}'"
+    def _status_tone_and_title(state: MA3OscConnectionState) -> tuple[str, str]:
+        if state is MA3OscConnectionState.CONNECTED:
+            return "ok", "Connected"
+        if state is MA3OscConnectionState.DISABLED:
+            return "warn", "Disabled"
+        if state is MA3OscConnectionState.LOCAL_READY:
+            return "warn", "Local Ready"
+        if state is MA3OscConnectionState.ROUND_TRIP_FAILED:
+            return "error", "Reply Failed"
+        return "error", "Issue Detected"

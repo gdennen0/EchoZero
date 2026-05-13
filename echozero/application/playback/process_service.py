@@ -339,6 +339,33 @@ class PlaybackProcessService:
         if operation == "drain_events":
             return {"events": self._drain_rt_events()}
 
+        if operation == "start_audio_diagnostics_capture":
+            output_dir = params.get("output_dir")
+            result = self._controller.start_audio_diagnostics_capture(
+                output_dir=str(output_dir) if output_dir is not None else None,
+                include_audio_buffers=bool(params.get("include_audio_buffers", True)),
+                max_audio_blocks=int(params.get("max_audio_blocks", 64) or 64),
+            )
+            self._push_rt_event(
+                "audio-diagnostics-capture-started",
+                {"capture_id": str(result.get("capture_id", "") or "")},
+            )
+            return dict(result)
+
+        if operation == "stop_audio_diagnostics_capture":
+            result = self._controller.stop_audio_diagnostics_capture()
+            self._push_rt_event(
+                "audio-diagnostics-capture-stopped",
+                {
+                    "capture_id": str(result.get("capture_id", "") or ""),
+                    "bundle_path": str(result.get("bundle_path", "") or ""),
+                },
+            )
+            return dict(result)
+
+        if operation == "audio_diagnostics_capture_status":
+            return dict(self._controller.audio_diagnostics_capture_status())
+
         if operation == "current_time_seconds":
             return {"value": float(self._controller.current_time_seconds())}
 
@@ -614,6 +641,7 @@ class PlaybackProcessService:
                     else True
                 ),
                 output_device=(base.output_device if base is not None else None),
+                master_output_bus=(base.master_output_bus if base is not None else None),
             )
 
         return PlaybackController(
@@ -659,6 +687,10 @@ class PlaybackProcessService:
                 if device_spec.get("channels") is not None
                 else current.channels
             ),
+            master_output_bus=str(
+                device_spec.get("master_output_bus", current.master_output_bus)
+                or current.master_output_bus
+            ),
             stream_latency=device_spec.get("stream_latency", current.stream_latency),
             stream_blocksize=(
                 int(device_spec["stream_blocksize"])
@@ -698,6 +730,7 @@ class PlaybackProcessService:
                 "stream_latency",
                 "stream_blocksize",
                 "prime_output_buffers_using_stream_callback",
+                "master_output_bus",
             )
         ):
             return "settings-change"

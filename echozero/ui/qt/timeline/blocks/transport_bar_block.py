@@ -21,13 +21,13 @@ class TransportBarBlock:
     ) -> dict[str, object]:
         painter.fillRect(layout.rect, QColor(self.style.background_hex))
 
-        panel_rect = layout.rect.adjusted(6.0, 3.0, -6.0, -3.0)
-        panel_fill = QColor(self.style.background_hex).lighter(112)
+        panel_rect = layout.rect.adjusted(3.0, 1.5, -3.0, -1.5)
+        panel_fill = QColor(self.style.background_hex).lighter(108)
         panel_border = QColor(self.style.button.border_hex)
-        panel_border.setAlpha(220)
+        panel_border.setAlpha(170)
         painter.setPen(QPen(panel_border, 1))
         painter.setBrush(QBrush(panel_fill))
-        painter.drawRoundedRect(panel_rect, 10, 10)
+        painter.drawRoundedRect(panel_rect, 8, 8)
 
         play_rect, stop_rect, follow_rect = self._button_rects(layout.controls_rect)
         self._draw_button(
@@ -96,13 +96,22 @@ class TransportBarBlock:
         status_text = "PLAYING" if presentation.is_playing else "STOPPED"
         layer_count = len(presentation.layers)
         zoom_speed = f"{presentation.pixels_per_second:.0f}px/s"
+        bpm_text = _format_bpm_text(
+            bpm=presentation.bpm,
+            bpm_confidence=presentation.bpm_confidence,
+        )
         separator = "\u2022"
         candidates = (
+            f"{bpm_text}  {separator}  {status_text}  {separator}  {layer_count} layers  {separator}  Zoom: {zoom_speed}",
+            f"{bpm_text}  {separator}  {status_text}  {separator}  {layer_count}L  {separator}  {zoom_speed}",
+            f"{bpm_text}  {separator}  {status_text}  {separator}  {layer_count}L",
+            f"{bpm_text}  {separator}  {status_text}",
             f"{status_text}  {separator}  {layer_count} layers  {separator}  Zoom: {zoom_speed}",
             f"{status_text}  {separator}  {layer_count} layers  {separator}  {zoom_speed}",
             f"{status_text}  {separator}  {layer_count}L  {separator}  {zoom_speed}",
             f"{status_text}  {separator}  {layer_count}L",
             status_text,
+            bpm_text,
         )
         max_text_width = max(0, int(available_width) - 4)
         if max_text_width < 8:
@@ -117,7 +126,7 @@ class TransportBarBlock:
         )
 
     def _button_rects(self, controls_rect: QRectF) -> tuple[QRectF, QRectF, QRectF]:
-        button_gap = 12.0
+        button_gap = 10.0
         button_width = max(0.0, (controls_rect.width() - (button_gap * 2.0)) / 3.0)
         play_rect = QRectF(
             controls_rect.left(),
@@ -200,3 +209,12 @@ class TransportBarBlock:
             label,
         )
         painter.setFont(prior_font)
+
+
+def _format_bpm_text(*, bpm: float | None, bpm_confidence: float | None) -> str:
+    if bpm is None or float(bpm) <= 0.0:
+        return "No BPM"
+    rounded_bpm = f"{float(bpm):.1f}".rstrip("0").rstrip(".")
+    if bpm_confidence is not None and float(bpm_confidence) < 0.6:
+        return f"~{rounded_bpm} BPM"
+    return f"{rounded_bpm} BPM"

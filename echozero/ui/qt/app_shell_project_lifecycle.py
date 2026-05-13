@@ -194,9 +194,13 @@ def add_song_from_path(
 ) -> TimelinePresentation:
     carried_draft_layers = bool(shell._draft_layers)
     audio_import_options = _resolve_audio_import_options(shell)
+    seed_default_song_id = (
+        str(shell.session.active_song_id) if shell.session.active_song_id is not None else None
+    )
     song, version = shell.project_storage.import_song(
         title=title,
         audio_source=Path(audio_path),
+        seed_default_song_id=seed_default_song_id,
         audio_import_options=audio_import_options,
     )
     shell._materialize_draft_layers(song_version_id=str(version.id))
@@ -468,6 +472,35 @@ def set_song_version_ma3_timecode_pool(
     normalized_pool_no = _optional_positive_int(timecode_pool_no)
     shell.project_storage.song_versions.update(
         replace(version_record, ma3_timecode_pool_no=normalized_pool_no)
+    )
+    shell.project_storage.commit()
+    shell.project_storage.dirty_tracker.mark_dirty(song_record.id)
+    refresh_from_storage(
+        shell,
+        active_song_id=SongId(song_record.id),
+        active_song_version_id=SongVersionId(version_record.id),
+    )
+    shell._is_dirty = True
+    shell._clear_history()
+    return shell.presentation()
+
+
+def set_song_version_beat_anchor_seconds(
+    shell: ProjectLifecycleShell,
+    song_version_id: str | SongVersionId,
+    beat_anchor_seconds: float,
+) -> TimelinePresentation:
+    version_record = shell.project_storage.song_versions.get(str(song_version_id))
+    if version_record is None:
+        raise ValueError(f"SongVersionRecord not found: {song_version_id}")
+
+    song_record = shell.project_storage.songs.get(version_record.song_id)
+    if song_record is None:
+        raise RuntimeError(f"SongRecord not found for SongVersionRecord '{version_record.id}'")
+
+    normalized_anchor = max(0.0, float(beat_anchor_seconds))
+    shell.project_storage.song_versions.update(
+        replace(version_record, beat_anchor_seconds=normalized_anchor)
     )
     shell.project_storage.commit()
     shell.project_storage.dirty_tracker.mark_dirty(song_record.id)

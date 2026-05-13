@@ -47,6 +47,7 @@ from echozero.domain.types import AudioData
 from echozero.domain.types import Event as DomainEvent
 from echozero.domain.types import EventData
 from echozero.persistence.session import ProjectStorage
+from echozero.output_routing import canonical_layer_output_bus
 from echozero.ui.qt.app_shell_layer_storage import (
     STATE_FLAG_MA3_CHANNEL_NO,
     STATE_FLAG_MA3_TRACK_COORD,
@@ -184,7 +185,7 @@ def build_storage_layer(
         timeline_id=timeline_id,
         name=layer_record.name.title(),
         kind=main_kind,
-        order_index=int(layer_record.order) + 1,
+        order_index=int(layer_record.order),
         parent_layer_id=_parent_layer_id_from_record(layer_record),
         object_id=TimelineObjectId(object_record.id),
         main_content_id=ObjectContentId(object_record.main_content_id),
@@ -294,11 +295,7 @@ def _state_flag_ma3_track_coord(state_flags: dict[str, object]) -> str | None:
 
 
 def _state_flag_output_bus(state_flags: dict[str, object]) -> str | None:
-    raw_value = state_flags.get(STATE_FLAG_OUTPUT_BUS)
-    if raw_value is None:
-        return None
-    output_bus = str(raw_value).strip()
-    return output_bus or None
+    return canonical_layer_output_bus(state_flags.get(STATE_FLAG_OUTPUT_BUS))
 
 
 def _state_flag_ma3_channel_no(state_flags: dict[str, object]) -> int | None:

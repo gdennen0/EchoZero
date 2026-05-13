@@ -195,10 +195,31 @@ def build_object_action_setting_fields(
             )
             for option in (knob.options or ())
         )
-        model_options = build_runtime_model_picker_options(knob=knob, value=value)
+        widget_name, options, value, persisted_value = _apply_custom_drum_output_field_behavior(
+            key=key,
+            widget_name=widget_name,
+            options=options,
+            value=value,
+            persisted_value=persisted_value,
+        )
+        field_description = knob.description
+        field_enabled = True
+        model_options = build_runtime_model_picker_options(
+            knob=knob,
+            value=value,
+            key=key,
+            action_id=action_id,
+        )
         if model_options:
             widget_name = "dropdown"
             options = model_options
+            if _is_missing_binary_drum_model_picker(model_options):
+                field_enabled = False
+            field_description = _model_picker_description(
+                key=key,
+                options=model_options,
+                fallback=field_description,
+            )
         fields.append(
             ObjectActionSettingField(
                 key=key,
@@ -208,7 +229,8 @@ def build_object_action_setting_fields(
                 persisted_value=persisted_value,
                 is_dirty=value != persisted_value,
                 widget=widget_name,
-                description=knob.description,
+                description=field_description,
+                enabled=field_enabled,
                 advanced=knob.advanced,
                 placeholder=knob.placeholder,
                 units=knob.units,
@@ -237,15 +259,77 @@ def has_prior_outputs_for_action(
     )
 
 
+def _is_missing_binary_drum_model_picker(
+    options: tuple[ObjectActionSettingOption, ...],
+) -> bool:
+    return len(options) == 1 and options[0].metadata.get("status") == "missing"
+
+
+def _model_picker_description(
+    *,
+    key: str,
+    options: tuple[ObjectActionSettingOption, ...],
+    fallback: str,
+) -> str:
+    label = _model_label_from_key(key)
+    if label is None:
+        return fallback
+    ready_options = tuple(
+        option for option in options if option.metadata.get("status") == "ready"
+    )
+    if not ready_options:
+        return (
+            f"No compatible {label.title()} classifier is installed. "
+            f"Install a Foundry export with classes [{label}, other] to enable this output."
+        )
+    current_default_count = sum(
+        1 for option in ready_options if option.metadata.get("is_current_default") is True
+    )
+    default_note = " Current default is listed first." if current_default_count else ""
+    return (
+        f"{len(ready_options)} compatible {label.title()} classifier model"
+        f"{'s' if len(ready_options) != 1 else ''} available."
+        f"{default_note} Only [{label}, other] bundles are shown."
+    )
+
+
+def _model_label_from_key(key: str) -> str | None:
+    text = str(key or "").strip().lower()
+    if not text.endswith("_model_path"):
+        return None
+    label = text[: -len("_model_path")]
+    if label in {"symbol", "cymbol"}:
+        return "cymbal"
+    if label in {"kick", "snare", "clap", "cymbal"}:
+        return label
+    return None
+
+
 def format_locked_binding_value(value: object) -> str:
     text = str(value)
     return text if len(text) <= 72 else f"{text[:69]}..."
 
 
 def _option_label_for_setting(*, key: str, option: str) -> str:
+    if key == "sensitivity_preset":
+        if option == "more_events":
+            return "More Events"
+        if option == "balanced":
+            return "Balanced"
+        if option == "fewer_events":
+            return "Fewer Events"
+        if option == "custom":
+            return "Custom / Advanced"
+    if key == "assignment_mode":
+        if option == "independent":
+            return "Independent (Allow Overlaps)"
+        if option == "exclusive_max":
+            return "Winner Takes Similar Hits"
     if key == "detect_method":
+        if option == "mir_self_similarity":
+            return "MIR Self-Similarity (Recommended)"
         if option == "mfcc_sequence_pooling":
-            return "Balanced (Recommended)"
+            return "MFCC Sequence Pooling (Legacy)"
         if option == "determine_sections_style":
             return "Experimental (determine_sections-style)"
     return option.replace("_", " ").title()
@@ -257,11 +341,19 @@ def extract_classified_drums_model_defaults() -> dict[str, object]:
         resolve_installed_binary_drum_bundles,
         upgrade_installed_runtime_bundles,
     )
+    from echozero.models.classifier_model_catalog import build_runtime_classifier_model_catalog
 
     models_dir = ensure_installed_models_dir()
     upgrade_installed_runtime_bundles(models_dir)
+    catalog = build_runtime_classifier_model_catalog(models_dir=models_dir)
     defaults: dict[str, object] = {}
-    for label in ("kick", "snare"):
+    installed_labels: list[str] = []
+    for label in ("kick", "snare", "clap", "cymbal"):
+        candidates = catalog.candidates_for_label(label)
+        if candidates:
+            defaults[f"{label}_model_path"] = str(candidates[0].manifest_path)
+            installed_labels.append(label)
+            continue
         try:
             bundles = _resolve_installed_binary_drum_bundles_compat(
                 resolve_installed_binary_drum_bundles,
@@ -270,7 +362,13 @@ def extract_classified_drums_model_defaults() -> dict[str, object]:
             )
         except FileNotFoundError:
             continue
-        defaults[f"{label}_model_path"] = str(bundles[label].manifest_path)
+        bundle = bundles.get(label)
+        if bundle is None:
+            continue
+        defaults[f"{label}_model_path"] = str(bundle.manifest_path)
+        installed_labels.append(label)
+    if installed_labels:
+        defaults["target_drum_labels"] = tuple(installed_labels)
     return defaults
 
 
@@ -347,6 +445,11 @@ def _object_action_binding_resolvers(
             layer=layer,
             params=params,
         ),
+        "extract_note_contour": lambda *, layer, params: _resolve_extract_note_contour_object_bindings(
+            shell,
+            layer=layer,
+            params=params,
+        ),
         "extract_drum_events": lambda *, layer, params: _resolve_extract_drum_events_object_bindings(
             shell,
             layer=layer,
@@ -417,6 +520,17 @@ def _resolve_extract_song_sections_object_bindings(
     return _bindings_for_extract_song_sections(shell, layer=layer)
 
 
+def _resolve_extract_note_contour_object_bindings(
+    shell: ObjectActionSettingsRuntimeShell,
+    *,
+    layer: LayerPresentation | None,
+    params: dict[str, object],
+) -> dict[str, object]:
+    del shell, params
+    assert layer is not None
+    return _bindings_for_extract_note_contour(layer)
+
+
 def _resolve_classify_drum_events_object_bindings(
     shell: ObjectActionSettingsRuntimeShell,
     *,
@@ -458,6 +572,7 @@ def _coerce_classify_drum_events_runtime_params(params: dict[str, object]) -> di
 
 def _knob_widget_name(widget: KnobWidget) -> str:
     mapping = {
+        KnobWidget.MULTI_SELECT: "checkbox_group",
         KnobWidget.TOGGLE: "toggle",
         KnobWidget.DROPDOWN: "dropdown",
         KnobWidget.FILE_PICKER: "file",
@@ -468,6 +583,70 @@ def _knob_widget_name(widget: KnobWidget) -> str:
         KnobWidget.GAIN: "number",
     }
     return mapping.get(widget, "text")
+
+
+def _apply_custom_drum_output_field_behavior(
+    *,
+    key: str,
+    widget_name: str,
+    options: tuple[ObjectActionSettingOption, ...],
+    value: object,
+    persisted_value: object,
+) -> tuple[str, tuple[ObjectActionSettingOption, ...], object, object]:
+    if key != "target_drum_labels":
+        return widget_name, options, value, persisted_value
+
+    installed_labels = _installed_drum_output_labels()
+    resolved_value = _normalize_drum_label_values(value)
+    resolved_persisted = _normalize_drum_label_values(persisted_value)
+    fallback_selection = installed_labels or ("kick", "snare")
+    option_values = tuple(
+        dict.fromkeys(
+            tuple(_normalize_drum_label_value(option.value) for option in options if option.value)
+            + installed_labels
+        )
+    )
+    label_options = tuple(
+        ObjectActionSettingOption(
+            value=label,
+            label=label.replace("_", " ").title(),
+        )
+        for label in option_values
+        if label
+    )
+    default_value: object = resolved_value or fallback_selection
+    persisted = resolved_persisted or fallback_selection
+    return "checkbox_group", label_options or options, default_value, persisted
+
+
+def _normalize_drum_label_values(value: object) -> tuple[str, ...]:
+    if isinstance(value, str):
+        raw_values: tuple[object, ...] = tuple(value.split(","))
+    elif isinstance(value, (list, tuple, set)):
+        raw_values = tuple(value)
+    else:
+        raw_values = () if value is None else (value,)
+    return tuple(
+        dict.fromkeys(
+            label for label in (_normalize_drum_label_value(item) for item in raw_values) if label
+        )
+    )
+
+
+def _normalize_drum_label_value(value: object) -> str:
+    label = str(value or "").strip().lower()
+    if label in {"symbol", "cymbol"}:
+        return "cymbal"
+    return label
+
+
+def _installed_drum_output_labels() -> tuple[str, ...]:
+    from echozero.models.runtime_bundle_selection import list_installed_binary_drum_bundle_labels
+
+    try:
+        return list_installed_binary_drum_bundle_labels()
+    except FileNotFoundError:
+        return ()
 
 
 def _bindings_for_extract_stems(layer: LayerPresentation) -> dict[str, object]:
@@ -562,6 +741,11 @@ def _bindings_for_extract_drum_events(layer: LayerPresentation) -> dict[str, obj
     return {"audio_file": str(layer.source_audio_path)}
 
 
+def _bindings_for_extract_note_contour(layer: LayerPresentation) -> dict[str, object]:
+    _validate_audio_layer(layer, action_name="timeline.extract_note_contour")
+    return {"audio_file": str(layer.source_audio_path)}
+
+
 def _bindings_for_classify_drum_events(
     layer: LayerPresentation,
     *,
@@ -604,6 +788,13 @@ def _validate_drum_derived_audio_layer(layer: LayerPresentation, *, action_name:
             f"{action_name} currently runs only from drum-derived audio layers. "
             "Select a drums layer produced by stem separation."
         )
+
+
+def _validate_audio_layer(layer: LayerPresentation, *, action_name: str) -> None:
+    if layer.kind is not LayerKind.AUDIO:
+        raise ValueError(f"{action_name} requires an audio layer, got {layer.kind.name.lower()}.")
+    if not layer.source_audio_path:
+        raise RuntimeError(f"{action_name} requires a source audio path on the selected layer.")
 
 
 def _validate_stem_derived_audio_layer(layer: LayerPresentation, *, action_name: str) -> None:

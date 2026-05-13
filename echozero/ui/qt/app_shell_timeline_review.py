@@ -54,6 +54,7 @@ from echozero.foundry.services.review_event_state import (
 from echozero.foundry.services.review_commit_mapper import (
     build_review_commit_command,
 )
+from echozero.foundry.services.review_audio_clip_service import ReviewAudioClipService
 from echozero.foundry.services.review_pipeline_controller import ReviewPipelineController
 from echozero.foundry.services.review_signal_service import ReviewSignalService
 from echozero.persistence.session import ProjectStorage
@@ -245,6 +246,8 @@ def commit_verified_review(
     review_context: ReviewCommitContext | None = None,
     resolved_target: ReviewEventContext | None = None,
     resolved_review_context: tuple[object, object, object, object, object] | None = None,
+    runtime_event: TimelineEvent | None = None,
+    clip_service: ReviewAudioClipService | None = None,
     apply_project_writeback: bool = True,
 ) -> TimelinePresentation:
     """Record one explicit verified event review signal without changing event truth."""
@@ -324,9 +327,11 @@ def commit_verified_review(
         end_seconds=float(target.event.end),
         event_id=str(target.event.event_id),
         decision_kind=ReviewDecisionKind.VERIFIED,
+        clip_service=clip_service,
     )
     _apply_runtime_review_state(
-        _require_runtime_event(
+        runtime_event
+        or _require_runtime_event(
             shell,
             layer_id=target.layer.layer_id,
             event_id=target.event.event_id,
@@ -364,6 +369,8 @@ def commit_rejected_review(
     review_context: ReviewCommitContext | None = None,
     resolved_target: ReviewEventContext | None = None,
     resolved_review_context: tuple[object, object, object, object, object] | None = None,
+    runtime_event: TimelineEvent | None = None,
+    clip_service: ReviewAudioClipService | None = None,
     apply_project_writeback: bool = True,
 ) -> TimelinePresentation:
     """Demote one false-positive event and emit one canonical rejection signal."""
@@ -443,9 +450,11 @@ def commit_rejected_review(
         end_seconds=float(target.event.end),
         event_id=str(target.event.event_id),
         decision_kind=ReviewDecisionKind.REJECTED,
+        clip_service=clip_service,
     )
     _apply_runtime_review_state(
-        _require_runtime_event(
+        runtime_event
+        or _require_runtime_event(
             shell,
             layer_id=target.layer.layer_id,
             event_id=target.event.event_id,
@@ -515,6 +524,8 @@ def commit_verified_events_review(
     controller = ReviewPipelineController(Path(shell.project_storage.working_dir).resolve())
     presentation = shell.presentation()
     resolved_context = (project, active_song_id, active_song_version_id, version, song)
+    clip_service = ReviewAudioClipService()
+    runtime_events = _runtime_event_index(shell)
     touched_layer_ids: set[LayerId] = set()
     for event_ref in intent.event_refs:
         target = _resolve_review_event_context_on_presentation(
@@ -539,6 +550,8 @@ def commit_verified_events_review(
             review_context=review_context,
             resolved_target=target,
             resolved_review_context=resolved_context,
+            runtime_event=runtime_events.get(_event_context_key(event_ref)),
+            clip_service=clip_service,
             apply_project_writeback=False,
         )
     shell._sync_storage_backed_layers(list(touched_layer_ids))
@@ -556,6 +569,8 @@ def commit_rejected_events_review(
     controller = ReviewPipelineController(Path(shell.project_storage.working_dir).resolve())
     presentation = shell.presentation()
     resolved_context = (project, active_song_id, active_song_version_id, version, song)
+    clip_service = ReviewAudioClipService()
+    runtime_events = _runtime_event_index(shell)
     touched_layer_ids: set[LayerId] = set()
     for event_ref in intent.event_refs:
         target = _resolve_review_event_context_on_presentation(
@@ -580,6 +595,8 @@ def commit_rejected_events_review(
             review_context=review_context,
             resolved_target=target,
             resolved_review_context=resolved_context,
+            runtime_event=runtime_events.get(_event_context_key(event_ref)),
+            clip_service=clip_service,
             apply_project_writeback=False,
         )
     shell._sync_storage_backed_layers(list(touched_layer_ids))
@@ -1101,6 +1118,27 @@ def _require_runtime_event(
             return resolved
         break
     raise ValueError(f"Timeline review runtime event not found: {event_id}")
+
+
+def _runtime_event_index(
+    shell: TimelineReviewShell,
+) -> dict[tuple[str, str | None, str], TimelineEvent]:
+    index: dict[tuple[str, str | None, str], TimelineEvent] = {}
+    for layer in shell._app.timeline.layers:
+        layer_id = str(layer.id)
+        for take in layer.takes:
+            take_id = str(take.id)
+            for event in take.events:
+                index[(layer_id, take_id, str(event.id))] = event
+    return index
+
+
+def _event_context_key(event_ref: EventRef) -> tuple[str, str | None, str]:
+    return (
+        str(event_ref.layer_id),
+        None if event_ref.take_id is None else str(event_ref.take_id),
+        str(event_ref.event_id),
+    )
 
 
 def _event_from_runtime_layer(

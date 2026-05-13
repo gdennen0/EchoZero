@@ -236,7 +236,7 @@ def _sync_runtime_layers(
                 shell,
                 layer,
                 song_version_id=song_version_id,
-                order=max(0, int(layer.order_index) - 1),
+                order=int(layer.order_index) - 1,
             )
         else:
             shell.project_storage.layers.update(runtime_layer_record(layer, existing=existing))

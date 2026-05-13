@@ -25,6 +25,7 @@ from echozero.application.settings.models import (
     SongImportPreferences,
     import_safe_pipeline_action_descriptors,
 )
+from echozero.output_routing import output_bus_options
 
 
 def list_audio_output_device_options() -> tuple[SettingsOption, ...]:
@@ -34,18 +35,69 @@ def list_audio_output_device_options() -> tuple[SettingsOption, ...]:
     try:
         import sounddevice as sd
 
-        default_device = sd.default.device[1]
-        for index, raw_info in enumerate(sd.query_devices()):
+        try:
+            default_device = int(sd.default.device[1])
+        except (TypeError, ValueError):
+            default_device = -1
+        devices = tuple(sd.query_devices())
+        if 0 <= default_device < len(devices):
+            default_channels = int(
+                dict(devices[default_device]).get("max_output_channels", 0) or 0
+            )
+            if default_channels > 0:
+                options[0] = SettingsOption(
+                    value="",
+                    label="System Default",
+                    metadata={"max_output_channels": default_channels},
+                )
+        for index, raw_info in enumerate(devices):
             device = dict(raw_info)
-            if int(device.get("max_output_channels", 0)) <= 0:
+            max_output_channels = int(device.get("max_output_channels", 0) or 0)
+            if max_output_channels <= 0:
                 continue
             label = str(device.get("name") or f"Output Device {index}")
             if index == default_device:
                 label = f"{label} (System Default)"
-            options.append(SettingsOption(value=str(index), label=label))
+            options.append(
+                SettingsOption(
+                    value=str(index),
+                    label=label,
+                    metadata={"max_output_channels": max_output_channels},
+                )
+            )
     except Exception:
         pass
     return tuple(options)
+
+
+def _audio_master_output_bus_options(channel_count: int) -> tuple[SettingsOption, ...]:
+    return tuple(
+        SettingsOption(value=route.token, label=route.label)
+        for route in output_bus_options(channel_count)
+    )
+
+
+def _master_output_bus_channel_count(
+    audio: AudioOutputPreferences,
+    device_options: tuple[SettingsOption, ...],
+    selected_device: str,
+) -> int:
+    for option in device_options:
+        if str(option.value) != selected_device:
+            continue
+        max_output_channels = _option_max_output_channels(option)
+        if max_output_channels > 0:
+            return max_output_channels
+    if audio.output_channels is not None:
+        return audio.output_channels
+    return 2
+
+
+def _option_max_output_channels(option: SettingsOption) -> int:
+    try:
+        return max(0, int(option.metadata.get("max_output_channels", 0) or 0))
+    except Exception:
+        return 0
 
 
 def _audio_output_channel_options() -> tuple[SettingsOption, ...]:
@@ -122,6 +174,11 @@ def _audio_section(
         device_options.append(
             SettingsOption(value=selected_device, label=f"Saved Device ({selected_device})")
         )
+    master_output_channel_count = _master_output_bus_channel_count(
+        audio,
+        tuple(device_options),
+        selected_device,
+    )
 
     fields = (
         SettingsField(
@@ -173,6 +230,20 @@ def _audio_section(
             surface=SettingsFieldSurface.ADVANCED,
         ),
         SettingsField(
+            key="audio.master_output_bus",
+            label="Master Output Buses",
+            value=audio.master_output_bus,
+            default_value="outputs_1_1",
+            widget=SettingsFieldWidget.CHECKBOX_GROUP,
+            description=(
+                "Default route for un-routed song/master playback. Explicit layer/timecode "
+                "routes stay unchanged. Select one or more physical outputs to mirror the master. "
+                "Options are limited to the selected audio device's reported output count."
+            ),
+            options=_audio_master_output_bus_options(master_output_channel_count),
+            surface=SettingsFieldSurface.ADVANCED,
+        ),
+        SettingsField(
             key="audio.blocksize",
             label="Blocksize Override",
             value=audio.blocksize or 0,
@@ -201,6 +272,8 @@ def _audio_section(
         description="Saved playback defaults for this machine.",
         fields=fields,
         include_hidden=include_hidden,
+        preferred_columns=2,
+        always_show_advanced=True,
     )
 
 
@@ -336,6 +409,8 @@ def _section(
     description: str,
     fields: tuple[SettingsField, ...],
     include_hidden: bool,
+    preferred_columns: int = 1,
+    always_show_advanced: bool = False,
 ) -> SettingsSection:
     resolved_fields = tuple(
         field
@@ -347,4 +422,6 @@ def _section(
         title=title,
         description=description,
         fields=resolved_fields,
+        preferred_columns=max(1, preferred_columns),
+        always_show_advanced=always_show_advanced,
     )

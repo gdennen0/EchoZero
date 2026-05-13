@@ -5,6 +5,9 @@ Connects object-action settings flows to typed ProjectStorage config records.
 
 from __future__ import annotations
 
+import json
+from dataclasses import replace
+from datetime import datetime, timezone
 from typing import Protocol, TypeAlias
 
 from echozero.application.session.models import Session
@@ -223,17 +226,101 @@ def hydrate_object_action_config_defaults(
             default_value=value,
         )
     }
+    target_label_default = defaults.get("target_drum_labels")
+    if "target_drum_labels" in template.knobs and _should_refresh_target_label_default(
+        current_value=config.knob_values.get("target_drum_labels"),
+        default_value=target_label_default,
+    ):
+        updates["target_drum_labels"] = target_label_default
     assignment_mode = str(config.knob_values.get("assignment_mode", "")).strip().lower()
     if "assignment_mode" in template.knobs and assignment_mode not in {
         "independent",
         "exclusive_max",
     }:
         updates["assignment_mode"] = "independent"
-    if not updates:
+
+    graph_sync_updates = {
+        key: value
+        for key, value in config.knob_values.items()
+        if key in template.knobs
+    }
+    graph_sync_updates.update(updates)
+    if not graph_sync_updates:
         return config
-    updated = config.with_knob_values(updates, knob_metadata=template.knobs)
+    updated = config.with_knob_values(graph_sync_updates, knob_metadata=template.knobs)
+    updated = _refresh_drum_event_template_graph_if_needed(updated, template=template)
+    if updated.graph_json == config.graph_json and updated.knob_values == config.knob_values:
+        return config
     store_scoped_action_config(shell, updated, scope=scope)
     return updated
+
+
+def _refresh_drum_event_template_graph_if_needed(
+    config: ObjectActionConfigRecord,
+    *,
+    template: object,
+) -> ObjectActionConfigRecord:
+    if config.template_id not in {"extract_classified_drums", "extract_song_drum_events"}:
+        return config
+    if not _drum_event_graph_needs_template_refresh(config):
+        return config
+
+    from echozero.serialization import serialize_graph
+
+    knob_defaults = {
+        key: knob.default
+        for key, knob in getattr(template, "knobs", {}).items()
+    }
+    values = {**knob_defaults, **config.knob_values}
+    pipeline = template.build_pipeline(values)
+    outputs_json = json.dumps(
+        [
+            {
+                "name": output.name,
+                "block_id": output.port_ref.block_id,
+                "port_name": output.port_ref.port_name,
+            }
+            for output in pipeline.outputs
+        ]
+    )
+    return replace(
+        config,
+        graph_json=json.dumps(serialize_graph(pipeline.graph)),
+        outputs_json=outputs_json,
+        updated_at=datetime.now(timezone.utc),
+    )
+
+
+def _drum_event_graph_needs_template_refresh(config: ObjectActionConfigRecord) -> bool:
+    try:
+        graph_data = json.loads(config.graph_json)
+    except (TypeError, ValueError):
+        return True
+    blocks = graph_data.get("blocks")
+    connections = graph_data.get("connections")
+    if not isinstance(blocks, list) or not isinstance(connections, list):
+        return True
+    block_ids = {str(block.get("id")) for block in blocks if isinstance(block, dict)}
+    connection_inputs = {
+        str(connection.get("target_input_name"))
+        for connection in connections
+        if isinstance(connection, dict)
+        and str(connection.get("target_block_id")) == "classify_drums"
+    }
+    target_labels = _normalize_target_label_values(config.knob_values.get("target_drum_labels"))
+    if "clap" in target_labels and (
+        "clap_filter" not in block_ids
+        or "clap_onsets" not in block_ids
+        or "clap_events_in" not in connection_inputs
+    ):
+        return True
+    if "cymbal" in target_labels and (
+        "cymbal_filter" not in block_ids
+        or "cymbal_onsets" not in block_ids
+        or "cymbal_events_in" not in connection_inputs
+    ):
+        return True
+    return False
 
 
 def _should_refresh_binary_model_default(
@@ -245,3 +332,38 @@ def _should_refresh_binary_model_default(
     if current_text:
         return False
     return bool(str(default_value or "").strip())
+
+
+def _should_refresh_target_label_default(
+    *,
+    current_value: object,
+    default_value: object,
+) -> bool:
+    default_labels = _normalize_target_label_values(default_value)
+    if not default_labels:
+        return False
+    current_labels = _normalize_target_label_values(current_value)
+    if not current_labels:
+        return True
+    legacy_auto_defaults = {
+        ("kick", "snare"),
+        ("kick", "snare", "clap"),
+    }
+    return current_labels in legacy_auto_defaults and set(current_labels) < set(default_labels)
+
+
+def _normalize_target_label_values(value: object) -> tuple[str, ...]:
+    if isinstance(value, str):
+        raw_values: tuple[object, ...] = tuple(value.split(","))
+    elif isinstance(value, (list, tuple, set)):
+        raw_values = tuple(value)
+    else:
+        raw_values = () if value is None else (value,)
+    normalized: list[str] = []
+    for raw_value in raw_values:
+        label = str(raw_value or "").strip().lower()
+        if label in {"symbol", "cymbol"}:
+            label = "cymbal"
+        if label and label not in normalized:
+            normalized.append(label)
+    return tuple(normalized)
