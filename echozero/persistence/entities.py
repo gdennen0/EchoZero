@@ -82,6 +82,9 @@ class SongVersionRecord:
     original_sample_rate: int
     audio_hash: str
     created_at: datetime
+    bpm: float | None = None
+    bpm_confidence: float | None = None
+    beat_anchor_seconds: float | None = None
     ma3_timecode_pool_no: int | None = None
     rebuild_plan: dict[str, Any] = field(default_factory=dict)
 
@@ -212,6 +215,27 @@ class PipelineConfigRecord:
         mapped_key = getattr(knob_metadata[key], "maps_to_setting", None)
         return str(mapped_key) if mapped_key else key
 
+    @staticmethod
+    def _coerce_knob_setting_value(key: str, target_setting_key: str, value: Any) -> Any:
+        if key != "target_drum_labels" and target_setting_key != "target_labels":
+            return value
+        raw_values: tuple[Any, ...]
+        if isinstance(value, str):
+            raw_values = tuple(part.strip() for part in value.split(","))
+        elif isinstance(value, (list, tuple)):
+            raw_values = tuple(value)
+        else:
+            return value
+        normalized_values: list[str] = []
+        for raw_value in raw_values:
+            label = str(raw_value).strip().lower()
+            if label in {"symbol", "cymbol"}:
+                label = "cymbal"
+            if not label or label in normalized_values:
+                continue
+            normalized_values.append(label)
+        return normalized_values
+
     def with_knob_value(
         self,
         key: str,
@@ -238,6 +262,9 @@ class PipelineConfigRecord:
         from echozero.domain.types import BlockSettings
         from echozero.serialization import deserialize_graph, serialize_graph
 
+        if key == "sensitivity_preset":
+            return self.with_knob_values({key: value}, knob_metadata=knob_metadata)
+
         new_knob_values = dict(self.knob_values)
         new_knob_values[key] = value
 
@@ -246,11 +273,12 @@ class PipelineConfigRecord:
 
         target_block_id = self._target_block_id_for_knob(key, knob_metadata)
         target_setting_key = self._target_setting_key_for_knob(key, knob_metadata)
+        target_setting_value = self._coerce_knob_setting_value(key, target_setting_key, value)
 
         for block_id, block in graph.blocks.items():
-            if target_setting_key not in block.settings:
-                continue
             if target_block_id is not None and block_id != target_block_id:
+                continue
+            if target_block_id is None and target_setting_key not in block.settings:
                 continue
             # Skip blocks where this setting has been overridden per-block
             if (
@@ -259,7 +287,7 @@ class PipelineConfigRecord:
             ):
                 continue
             new_settings = dict(block.settings)
-            new_settings[target_setting_key] = value
+            new_settings[target_setting_key] = target_setting_value
             graph.replace_block(_replace(block, settings=BlockSettings(new_settings)))
 
         return replace(
@@ -281,6 +309,11 @@ class PipelineConfigRecord:
         from echozero.domain.types import BlockSettings
         from echozero.serialization import deserialize_graph, serialize_graph
 
+        updates = self._compile_compact_knob_values(
+            current_values=self.knob_values,
+            updates=updates,
+            knob_metadata=knob_metadata,
+        )
         new_knob_values = {**self.knob_values, **updates}
 
         graph_data = json.loads(self.graph_json)
@@ -292,15 +325,19 @@ class PipelineConfigRecord:
             overridden_keys = self.block_overrides.get(block_id, [])
             for key, value in updates.items():
                 target_setting_key = self._target_setting_key_for_knob(key, knob_metadata)
-                if target_setting_key not in block.settings:
-                    continue
                 target = self._target_block_id_for_knob(key, knob_metadata)
                 if target is not None and block_id != target:
+                    continue
+                if target is None and target_setting_key not in block.settings:
                     continue
                 # Skip overridden settings
                 if target_setting_key in overridden_keys:
                     continue
-                changed[target_setting_key] = value
+                changed[target_setting_key] = self._coerce_knob_setting_value(
+                    key,
+                    target_setting_key,
+                    value,
+                )
             if changed:
                 new_settings = {**dict(block.settings), **changed}
                 graph.replace_block(_replace(block, settings=BlockSettings(new_settings)))
@@ -311,6 +348,47 @@ class PipelineConfigRecord:
             graph_json=json.dumps(serialize_graph(graph)),
             updated_at=datetime.now(timezone.utc),
         )
+
+    @staticmethod
+    def _compile_compact_knob_values(
+        *,
+        current_values: dict[str, Any],
+        updates: dict[str, Any],
+        knob_metadata: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        if "sensitivity_preset" not in updates or knob_metadata is None:
+            return updates
+        if "sensitivity_preset" not in knob_metadata:
+            return updates
+
+        from echozero.application.event_flows.drum_events import (
+            apply_drum_event_sensitivity_preset,
+        )
+
+        candidate_values = {
+            key: current_values.get(key)
+            for key in knob_metadata
+            if key.endswith("_onset_threshold")
+            or key.endswith("_positive_threshold")
+            or key == "positive_threshold"
+        }
+        candidate_values.update(
+            {
+                key: value
+                for key, value in updates.items()
+                if key in candidate_values or key == "positive_threshold"
+            }
+        )
+        compiled_values = apply_drum_event_sensitivity_preset(
+            candidate_values,
+            sensitivity=updates["sensitivity_preset"],
+        )
+        compiled_updates = {
+            key: value
+            for key, value in compiled_values.items()
+            if key in knob_metadata
+        }
+        return {**updates, **compiled_updates}
 
     def with_block_setting(
         self,

@@ -2024,6 +2024,142 @@ def test_contract_add_event_layer_action_calls_runtime():
         app.processEvents()
 
 
+def test_contract_move_selected_events_action_dispatches_target_take(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = TimelinePresentation(
+        timeline_id=TimelineId("timeline_move_selection"),
+        title="Move Selection",
+        layers=[
+            LayerPresentation(
+                layer_id=LayerId("layer_kick"),
+                title="Kick",
+                main_take_id=TakeId("take_kick_main"),
+                kind=LayerKind.EVENT,
+                is_expanded=True,
+                events=[
+                    EventPresentation(
+                        event_id=EventId("kick_main_evt"),
+                        start=1.0,
+                        end=1.2,
+                        label="Kick Main",
+                        is_selected=True,
+                    )
+                ],
+                takes=[
+                    TakeLanePresentation(
+                        take_id=TakeId("take_kick_alt"),
+                        name="Take 2",
+                        kind=LayerKind.EVENT,
+                        events=[],
+                    )
+                ],
+                status=LayerStatusPresentation(),
+            ),
+            LayerPresentation(
+                layer_id=LayerId("layer_snare"),
+                title="Snare",
+                main_take_id=TakeId("take_snare_main"),
+                kind=LayerKind.EVENT,
+                events=[],
+                takes=[
+                    TakeLanePresentation(
+                        take_id=TakeId("take_snare_alt"),
+                        name="Take 2",
+                        kind=LayerKind.EVENT,
+                        events=[],
+                    )
+                ],
+                status=LayerStatusPresentation(),
+            ),
+        ],
+        selected_layer_id=LayerId("layer_kick"),
+        selected_layer_ids=[LayerId("layer_kick")],
+        selected_take_id=TakeId("take_kick_main"),
+        selected_event_ids=[EventId("kick_main_evt")],
+        selected_event_refs=[
+            EventRef(
+                layer_id=LayerId("layer_kick"),
+                take_id=TakeId("take_kick_main"),
+                event_id=EventId("kick_main_evt"),
+            )
+        ],
+        end_time_label="00:05.00",
+    )
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QInputDialog.getItem",
+        lambda *args, **kwargs: ("Snare -> Take 2", True),
+    )
+    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    try:
+        widget._trigger_contract_action(
+            InspectorAction(
+                action_id="selection.move_to_destination",
+                label="Move To...",
+            )
+        )
+
+        assert intents == [
+            MoveSelectedEvents(
+                delta_seconds=0.0,
+                target_layer_id=LayerId("layer_snare"),
+                target_take_id=TakeId("take_snare_alt"),
+            )
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_contract_move_selected_events_action_can_create_new_layer(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = _selection_test_presentation()
+    presentation.selected_layer_id = LayerId("layer_kick")
+    presentation.selected_layer_ids = [LayerId("layer_kick")]
+    presentation.selected_take_id = TakeId("take_main")
+    presentation.selected_event_ids = [EventId("main_evt")]
+    presentation.selected_event_refs = [
+        EventRef(
+            layer_id=LayerId("layer_kick"),
+            take_id=TakeId("take_main"),
+            event_id=EventId("main_evt"),
+        )
+    ]
+    responses = iter(
+        [
+            ("Create New Event Layer...", True),
+            ("Percussion Details", True),
+        ]
+    )
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QInputDialog.getItem",
+        lambda *args, **kwargs: next(responses),
+    )
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QInputDialog.getText",
+        lambda *args, **kwargs: next(responses),
+    )
+    widget = TimelineWidget(presentation, on_intent=lambda intent: intents.append(intent) or presentation)
+    try:
+        widget._trigger_contract_action(
+            InspectorAction(
+                action_id="selection.move_to_destination",
+                label="Move To...",
+            )
+        )
+
+        assert intents == [
+            MoveSelectedEvents(
+                delta_seconds=0.0,
+                create_layer_title="Percussion Details",
+            )
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_contract_add_section_layer_action_calls_runtime():
     app = QApplication.instance() or QApplication([])
 
@@ -2488,14 +2624,15 @@ def test_contract_classify_pipeline_action_prompts_for_model_and_calls_runtime(m
         app.processEvents()
 
 
-def test_contract_extract_classified_drums_calls_runtime_without_picker(monkeypatch):
+def test_contract_extract_classified_drums_opens_confirmation_settings_before_run(monkeypatch):
     app = QApplication.instance() or QApplication([])
 
     class _Runtime:
         def __init__(self):
             self.runtime_audio = None
             self._presentation = _audio_pipeline_presentation()
-            self.calls: list[tuple[str, dict[str, object]]] = []
+            self.opened: list[tuple[str, dict[str, object], str, str]] = []
+            self.dispatched: list[tuple[str, object]] = []
 
         def presentation(self):
             return self._presentation
@@ -2503,38 +2640,77 @@ def test_contract_extract_classified_drums_calls_runtime_without_picker(monkeypa
         def dispatch(self, intent):
             return self._presentation
 
-        def run_object_action(self, action_id, params, *, object_id=None, object_type=None):
-            self.calls.append((action_id, params))
-            return self._presentation
+        def open_object_action_session(
+            self,
+            action_id,
+            params,
+            *,
+            object_id=None,
+            object_type=None,
+        ):
+            self.opened.append((action_id, params, str(object_id), str(object_type)))
+            return object()
+
+        def dispatch_object_action_command(self, session_id, command):
+            self.dispatched.append((session_id, command))
+            return object()
+
+    class _Dialog:
+        instances: list["_Dialog"] = []
+
+        def __init__(
+            self,
+            session,
+            *,
+            dispatch_command,
+            parent=None,
+        ):
+            self.session = session
+            self.dispatch_command = dispatch_command
+            self.parent = parent
+            self.exec_count = 0
+            _Dialog.instances.append(self)
+
+        def exec(self):
+            self.exec_count += 1
+            return 0
 
     runtime = _Runtime()
     widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
     try:
+        widget._action_router._action_settings_dialog_class = _Dialog
         handled = widget._handle_runtime_pipeline_action(
             "timeline.extract_classified_drums",
             {"layer_id": LayerId("layer_drums")},
         )
 
         assert handled is True
-        assert runtime.calls == [
+        assert runtime.opened == [
             (
                 "timeline.extract_classified_drums",
                 {"layer_id": LayerId("layer_drums")},
+                "layer_drums",
+                "layer",
             )
         ]
+        assert runtime.dispatched == []
+        assert len(_Dialog.instances) == 1
+        assert runtime.opened[0][0] == "timeline.extract_classified_drums"
+        assert _Dialog.instances[0].exec_count == 1
     finally:
         widget.close()
         app.processEvents()
 
 
-def test_contract_extract_song_drum_events_calls_runtime_without_picker(monkeypatch):
+def test_contract_extract_song_drum_events_opens_confirmation_settings_before_run(monkeypatch):
     app = QApplication.instance() or QApplication([])
 
     class _Runtime:
         def __init__(self):
             self.runtime_audio = None
             self._presentation = _audio_pipeline_presentation()
-            self.calls: list[tuple[str, dict[str, object]]] = []
+            self.opened: list[tuple[str, dict[str, object], str, str]] = []
+            self.dispatched: list[tuple[str, object]] = []
 
         def presentation(self):
             return self._presentation
@@ -2542,25 +2718,56 @@ def test_contract_extract_song_drum_events_calls_runtime_without_picker(monkeypa
         def dispatch(self, intent):
             return self._presentation
 
-        def run_object_action(self, action_id, params, *, object_id=None, object_type=None):
-            self.calls.append((action_id, params))
-            return self._presentation
+        def open_object_action_session(
+            self,
+            action_id,
+            params,
+            *,
+            object_id=None,
+            object_type=None,
+        ):
+            self.opened.append((action_id, params, str(object_id), str(object_type)))
+            return object()
+
+        def dispatch_object_action_command(self, session_id, command):
+            self.dispatched.append((session_id, command))
+            return object()
+
+    class _Dialog:
+        instances: list["_Dialog"] = []
+
+        def __init__(self, session, *, dispatch_command, parent=None):
+            self.session = session
+            self.dispatch_command = dispatch_command
+            self.parent = parent
+            self.exec_count = 0
+            _Dialog.instances.append(self)
+
+        def exec(self):
+            self.exec_count += 1
+            return 0
 
     runtime = _Runtime()
     widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
     try:
+        widget._action_router._action_settings_dialog_class = _Dialog
         handled = widget._handle_runtime_pipeline_action(
             "timeline.extract_song_drum_events",
             {"layer_id": LayerId("layer_song")},
         )
 
         assert handled is True
-        assert runtime.calls == [
+        assert runtime.opened == [
             (
                 "timeline.extract_song_drum_events",
                 {"layer_id": LayerId("layer_song")},
+                "layer_song",
+                "layer",
             )
         ]
+        assert runtime.dispatched == []
+        assert len(_Dialog.instances) == 1
+        assert _Dialog.instances[0].exec_count == 1
     finally:
         widget.close()
         app.processEvents()

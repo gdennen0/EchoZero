@@ -1186,6 +1186,162 @@ def test_fix_mode_shortcuts_switch_fix_tools() -> None:
         app.processEvents()
 
 
+def test_primary_c_copies_selected_events_to_runtime_clipboard() -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class _Runtime:
+        def __init__(self) -> None:
+            self.copy_calls = 0
+            self._presentation = replace(
+                _selection_test_presentation(),
+                selected_layer_id=LayerId("layer_kick"),
+                selected_layer_ids=[LayerId("layer_kick")],
+                selected_take_id=TakeId("take_main"),
+                selected_event_ids=[EventId("main_evt")],
+                selected_event_refs=[
+                    EventRef(
+                        layer_id=LayerId("layer_kick"),
+                        take_id=TakeId("take_main"),
+                        event_id=EventId("main_evt"),
+                    )
+                ],
+            )
+
+        def presentation(self):
+            return self._presentation
+
+        def dispatch(self, intent):
+            return self._presentation
+
+        def copy_selected_events_to_clipboard(self) -> int:
+            self.copy_calls += 1
+            return 1
+
+    runtime = _Runtime()
+    widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
+    try:
+        _render_for_hit_testing(widget)
+
+        QTest.keyClick(widget._canvas, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+        QApplication.processEvents()
+
+        assert runtime.copy_calls == 1
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_primary_v_pastes_runtime_clipboard_into_selected_lane() -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class _Runtime:
+        def __init__(self) -> None:
+            self.paste_calls: list[tuple[str | None, str | None, float | None]] = []
+            self._presentation = replace(
+                _selection_test_presentation(),
+                playhead=6.0,
+                selected_layer_id=LayerId("layer_kick"),
+                selected_layer_ids=[LayerId("layer_kick")],
+                selected_take_id=TakeId("take_alt"),
+            )
+
+        def presentation(self):
+            return self._presentation
+
+        def dispatch(self, intent):
+            return self._presentation
+
+        def has_copied_events(self) -> bool:
+            return True
+
+        def paste_event_clipboard(
+            self,
+            *,
+            target_layer_id: str | None = None,
+            target_take_id: str | None = None,
+            insert_at_seconds: float | None = None,
+        ):
+            self.paste_calls.append((target_layer_id, target_take_id, insert_at_seconds))
+            self._presentation = replace(
+                self._presentation,
+                selected_event_ids=[EventId("pasted_evt")],
+            )
+            return self._presentation
+
+    runtime = _Runtime()
+    widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
+    try:
+        _render_for_hit_testing(widget)
+
+        QTest.keyClick(widget._canvas, Qt.Key.Key_V, Qt.KeyboardModifier.ControlModifier)
+        QApplication.processEvents()
+
+        assert runtime.paste_calls == [("layer_kick", "take_alt", 6.0)]
+        assert widget.presentation.selected_event_ids == [EventId("pasted_evt")]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_primary_x_cuts_selected_events_after_copying_to_runtime_clipboard() -> None:
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+
+    class _Runtime:
+        def __init__(self) -> None:
+            self.copy_calls = 0
+            self._presentation = replace(
+                _selection_test_presentation(),
+                selected_layer_id=LayerId("layer_kick"),
+                selected_layer_ids=[LayerId("layer_kick")],
+                selected_take_id=TakeId("take_main"),
+                selected_event_ids=[EventId("main_evt")],
+                selected_event_refs=[
+                    EventRef(
+                        layer_id=LayerId("layer_kick"),
+                        take_id=TakeId("take_main"),
+                        event_id=EventId("main_evt"),
+                    )
+                ],
+            )
+
+        def presentation(self):
+            return self._presentation
+
+        def dispatch(self, intent):
+            intents.append(intent)
+            return self._presentation
+
+        def copy_selected_events_to_clipboard(self) -> int:
+            self.copy_calls += 1
+            return 1
+
+    runtime = _Runtime()
+    widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
+    try:
+        _render_for_hit_testing(widget)
+
+        QTest.keyClick(widget._canvas, Qt.Key.Key_X, Qt.KeyboardModifier.ControlModifier)
+        QApplication.processEvents()
+
+        assert runtime.copy_calls == 1
+        assert intents == [
+            DeleteEvents(
+                event_ids=[EventId("main_evt")],
+                event_refs=[
+                    EventRef(
+                        layer_id=LayerId("layer_kick"),
+                        take_id=TakeId("take_main"),
+                        event_id=EventId("main_evt"),
+                    )
+                ],
+            )
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_fix_mode_shift_z_demotes_selected_event() -> None:
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
@@ -1759,7 +1915,7 @@ def test_select_mode_shift_space_triggers_event_clip_preview_action(monkeypatch)
         app.processEvents()
 
 
-def test_space_dispatches_stop_transport_intent_when_timeline_is_playing(monkeypatch):
+def test_space_dispatches_pause_transport_intent_when_timeline_is_playing(monkeypatch):
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
     base = _selection_test_presentation()
@@ -1769,7 +1925,7 @@ def test_space_dispatches_stop_transport_intent_when_timeline_is_playing(monkeyp
     def _on_intent(intent):
         nonlocal presentation_state
         intents.append(intent)
-        if isinstance(intent, Stop):
+        if isinstance(intent, Pause):
             presentation_state = replace(presentation_state, is_playing=False)
         return presentation_state
 
@@ -1784,7 +1940,7 @@ def test_space_dispatches_stop_transport_intent_when_timeline_is_playing(monkeyp
         QTest.keyClick(widget._canvas, Qt.Key.Key_Space)
         QApplication.processEvents()
 
-        assert intents == [Stop()]
+        assert intents == [Pause()]
         assert captured_actions == []
     finally:
         widget.close()

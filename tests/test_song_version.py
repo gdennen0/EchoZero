@@ -18,6 +18,7 @@ import pytest
 from echozero.domain.types import AudioData
 from echozero.errors import PersistenceError
 from echozero.persistence.audio import AudioImportOptions, AudioMetadata
+from echozero.persistence.audio_tempo import AudioTempoMetadata
 from echozero.persistence.entities import (
     LayerRecord,
     PipelineConfigRecord,
@@ -207,6 +208,33 @@ class TestAudioMetadata:
 
         assert v2.duration_seconds == 240.0
         assert v2.original_sample_rate == 48000
+        session.close()
+
+    def test_import_song_detects_and_persists_tempo_metadata(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        session = _create_session(tmp_path)
+        audio = _create_audio_file(tmp_path)
+
+        monkeypatch.setattr(
+            "echozero.persistence.audio_tempo.detect_audio_tempo",
+            lambda _path: AudioTempoMetadata(
+                bpm=126.4,
+                bpm_confidence=0.82,
+                beat_anchor_seconds=0.37,
+            ),
+        )
+
+        _song, version = session.import_song("Test", audio, scan_fn=_mock_scan)
+        persisted = session.song_versions.get(version.id)
+
+        assert version.bpm == pytest.approx(126.4)
+        assert version.bpm_confidence == pytest.approx(0.82)
+        assert version.beat_anchor_seconds == pytest.approx(0.37)
+        assert persisted is not None
+        assert persisted.bpm == pytest.approx(126.4)
+        assert persisted.bpm_confidence == pytest.approx(0.82)
+        assert persisted.beat_anchor_seconds == pytest.approx(0.37)
         session.close()
 
     def test_shared_version_factory_scans_each_import_source_once(self, tmp_path: Path) -> None:

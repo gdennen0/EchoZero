@@ -626,6 +626,7 @@ class DatasetService:
         *,
         positive_label: str,
         negative_label: str = "other",
+        positive_aliases: tuple[str, ...] = (),
     ) -> DatasetVersion:
         """Create a binary one-vs-rest dataset version from an existing labeled review dataset."""
         source_version = self.get_version(source_version_id)
@@ -637,17 +638,25 @@ class DatasetService:
 
         normalized_positive = positive_label.strip().lower()
         normalized_negative = negative_label.strip().lower()
+        normalized_positive_source_labels = self._normalize_positive_source_labels(
+            positive_label=normalized_positive,
+            positive_aliases=positive_aliases,
+        )
         if not normalized_positive:
             raise ValueError("positive_label must be non-empty")
         if normalized_positive == normalized_negative:
             raise ValueError("positive_label and negative_label must be different")
 
         source_labels = {sample.label.strip().lower() for sample in source_version.samples}
-        if normalized_positive not in source_labels:
+        missing_positive_labels = sorted(
+            label for label in normalized_positive_source_labels if label not in source_labels
+        )
+        if missing_positive_labels:
             raise ValueError(
-                f"Source dataset version '{source_version_id}' does not contain label '{normalized_positive}'."
+                "Source dataset version "
+                f"'{source_version_id}' does not contain label(s): {', '.join(missing_positive_labels)}."
             )
-        if source_labels == {normalized_positive}:
+        if source_labels <= set(normalized_positive_source_labels):
             raise ValueError(
                 "Binary dataset derivation requires at least one non-positive sample."
             )
@@ -655,6 +664,7 @@ class DatasetService:
         target_dataset = self._get_or_create_binary_dataset(
             source_dataset=source_dataset,
             positive_label=normalized_positive,
+            positive_source_labels=normalized_positive_source_labels,
         )
         existing_versions = self._versions.list_for_dataset(target_dataset.id)
         derived_samples = [
@@ -663,6 +673,7 @@ class DatasetService:
                 label=self._binary_label_for_sample(
                     sample,
                     positive_label=normalized_positive,
+                    positive_source_labels=normalized_positive_source_labels,
                     negative_label=normalized_negative,
                 ),
             )
@@ -703,6 +714,7 @@ class DatasetService:
                 "derivation": {
                     "kind": "positive_vs_other",
                     "positive_label": normalized_positive,
+                    "positive_source_labels": list(normalized_positive_source_labels),
                     "negative_label": normalized_negative,
                 },
             },
@@ -712,6 +724,7 @@ class DatasetService:
                 derived_samples,
                 source_version_id=source_version.id,
                 positive_label=normalized_positive,
+                positive_source_labels=normalized_positive_source_labels,
                 negative_label=normalized_negative,
             ),
             lineage={
@@ -719,6 +732,7 @@ class DatasetService:
                 "source_dataset_id": source_dataset.id,
                 "source_version_id": source_version.id,
                 "positive_label": normalized_positive,
+                "positive_source_labels": list(normalized_positive_source_labels),
                 "negative_label": normalized_negative,
             },
         )
@@ -1344,8 +1358,13 @@ class DatasetService:
         *,
         source_dataset: Dataset,
         positive_label: str,
+        positive_source_labels: tuple[str, ...],
     ) -> Dataset:
-        dataset_key = f"{source_dataset.id}:{positive_label}"
+        dataset_key = self._binary_dataset_key(
+            source_dataset_id=source_dataset.id,
+            positive_label=positive_label,
+            positive_source_labels=positive_source_labels,
+        )
         for dataset in self._datasets.list():
             if dataset.source_kind != "derived_binary_review":
                 continue
@@ -1360,8 +1379,36 @@ class DatasetService:
                 "binary_dataset_key": dataset_key,
                 "source_dataset_id": source_dataset.id,
                 "positive_label": positive_label,
+                "positive_source_labels": list(positive_source_labels),
             },
         )
+
+    @staticmethod
+    def _binary_dataset_key(
+        *,
+        source_dataset_id: str,
+        positive_label: str,
+        positive_source_labels: tuple[str, ...],
+    ) -> str:
+        joined_sources = ",".join(positive_source_labels)
+        return f"{source_dataset_id}:{positive_label}:{joined_sources}"
+
+    @staticmethod
+    def _normalize_positive_source_labels(
+        *,
+        positive_label: str,
+        positive_aliases: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        raw_labels = positive_aliases or (positive_label,)
+        normalized_labels: list[str] = []
+        for raw_label in raw_labels:
+            label = str(raw_label).strip().lower()
+            if not label or label in normalized_labels:
+                continue
+            normalized_labels.append(label)
+        if not normalized_labels:
+            raise ValueError("positive_label must be non-empty")
+        return tuple(normalized_labels)
 
     @staticmethod
     def _build_binary_taxonomy(*, positive_label: str, negative_label: str) -> dict[str, object]:
@@ -1400,13 +1447,14 @@ class DatasetService:
         sample: DatasetSample,
         *,
         positive_label: str,
+        positive_source_labels: tuple[str, ...],
         negative_label: str,
     ) -> str:
         review_polarity = str(sample.source_provenance.get("review_polarity", "")).strip().lower()
         sample_label = sample.label.strip().lower()
         if review_polarity == "negative":
             return negative_label
-        if sample_label == positive_label:
+        if sample_label in positive_source_labels:
             return positive_label
         return negative_label
 
@@ -1416,6 +1464,7 @@ class DatasetService:
         *,
         source_version_id: str,
         positive_label: str,
+        positive_source_labels: tuple[str, ...],
         negative_label: str,
     ) -> dict[str, object]:
         return {
@@ -1427,6 +1476,7 @@ class DatasetService:
                 negative_label: sum(1 for sample in samples if sample.label == negative_label),
             },
             "source_version_id": source_version_id,
+            "positive_source_labels": list(positive_source_labels),
         }
 
     @staticmethod

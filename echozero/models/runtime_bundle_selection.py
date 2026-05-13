@@ -12,6 +12,7 @@ from pathlib import Path
 
 from echozero.errors import ValidationError
 
+from .classifier_model_catalog import build_runtime_classifier_model_catalog
 from .paths import ensure_installed_models_dir
 from .runtime_bundle_index import IndexedBinaryDrumBundle, load_binary_drum_bundle_index
 
@@ -75,6 +76,16 @@ def resolve_installed_binary_drum_bundles(
     return bundles
 
 
+def list_installed_binary_drum_bundle_labels(
+    *,
+    models_dir: Path | None = None,
+) -> tuple[str, ...]:
+    """List every installed binary drum label discoverable from the runtime catalog."""
+
+    catalog = build_runtime_classifier_model_catalog(models_dir=models_dir)
+    return catalog.labels()
+
+
 def _resolve_indexed_bundle(
     root: Path,
     record: IndexedBinaryDrumBundle | None,
@@ -110,17 +121,23 @@ def _load_manifest(path: Path) -> dict[str, object] | None:
 
 
 def _manifest_matches_label(manifest: dict[str, object] | None, *, label: str) -> bool:
+    resolved_label = _manifest_binary_label(manifest)
+    return resolved_label == label
+
+
+def _manifest_binary_label(manifest: dict[str, object] | None) -> str | None:
     if manifest is None:
-        return False
+        return None
     classes = manifest.get("classes")
     if not isinstance(classes, list):
-        return False
-    normalized_classes = tuple(str(value).strip().lower() for value in classes)
-    return (
-        len(normalized_classes) == 2
-        and label in normalized_classes
-        and "other" in normalized_classes
-    )
+        return None
+    normalized_classes = tuple(_normalize_label(value) for value in classes)
+    if len(normalized_classes) != 2 or "other" not in normalized_classes:
+        return None
+    for candidate in normalized_classes:
+        if candidate != "other":
+            return candidate
+    return None
 
 
 def _resolve_weights_path(manifest_path: Path, raw_weights_path: object) -> Path | None:
@@ -130,3 +147,10 @@ def _resolve_weights_path(manifest_path: Path, raw_weights_path: object) -> Path
     if weights_path.is_absolute():
         return weights_path
     return manifest_path.parent / weights_path
+
+
+def _normalize_label(value: object) -> str:
+    label = str(value or "").strip().lower()
+    if label in {"symbol", "cymbol"}:
+        return "cymbal"
+    return label

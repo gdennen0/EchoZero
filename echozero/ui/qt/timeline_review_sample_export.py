@@ -30,6 +30,7 @@ def export_timeline_review_sample(
     end_seconds: float,
     event_id: str,
     decision_kind: ReviewDecisionKind,
+    clip_service: ReviewAudioClipService | None = None,
 ) -> dict[str, object]:
     """Materialize one committed timeline-review sample clip into its class folder."""
 
@@ -44,7 +45,7 @@ def export_timeline_review_sample(
             "source_audio_path": str(source_audio),
         }
 
-    clip_path = ReviewAudioClipService().materialize_event_clip(
+    clip_path = (clip_service or ReviewAudioClipService()).materialize_event_clip(
         source_audio_path=source_audio,
         clip_cache_dir=class_dir,
         clip_stem=_clip_stem(
@@ -98,6 +99,7 @@ def safe_export_timeline_review_sample(
     end_seconds: float,
     event_id: str,
     decision_kind: ReviewDecisionKind,
+    clip_service: ReviewAudioClipService | None = None,
 ) -> dict[str, object]:
     """Best-effort wrapper that never interrupts timeline review commit workflows."""
 
@@ -110,6 +112,7 @@ def safe_export_timeline_review_sample(
             end_seconds=end_seconds,
             event_id=event_id,
             decision_kind=decision_kind,
+            clip_service=clip_service,
         )
     except Exception as exc:  # pragma: no cover - defensive guard for runtime-only failures
         logger.warning("Timeline review sample export failed: %s", exc, exc_info=True)

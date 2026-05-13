@@ -71,6 +71,7 @@ class PlaybackDiagnostics:
     rt_last_seek_apply_latency_ms: float = 0.0
     device_reinit_count: int = 0
     last_device_reinit_reason: str = ""
+    recent_audio_runtime_events: tuple[dict[str, object], ...] = field(default_factory=tuple)
 
 
 @dataclass(slots=True)

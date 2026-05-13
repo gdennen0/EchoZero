@@ -136,6 +136,9 @@ def _make_version(song_id: str, **kw) -> SongVersionRecord:
         original_sample_rate=44100,
         audio_hash="abc123",
         created_at=_now(),
+        bpm=None,
+        bpm_confidence=None,
+        beat_anchor_seconds=None,
     )
     defaults.update(kw)
     return SongVersionRecord(**defaults)

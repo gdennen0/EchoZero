@@ -24,6 +24,7 @@ from echozero.application.timeline.intents import (
 from echozero.application.timeline.models import EventRef
 from echozero.foundry.domain.review import ReviewDecisionKind
 from echozero.foundry.persistence import ReviewSignalRepository
+from echozero.foundry.services.review_audio_clip_service import ReviewAudioClipService
 from echozero.foundry.services.review_pipeline_controller import ReviewPipelineController
 from echozero.testing.analysis_mocks import build_mock_analysis_service, write_test_wav
 from echozero.ui.qt.app_shell import AppShellRuntime, build_app_shell
@@ -365,6 +366,64 @@ def test_app_shell_runtime_commit_rejected_events_review_batches_signals(tmp_pat
             runtime_event = _runtime_event(runtime, layer_id=layer_id, event_id=target_id)
             assert runtime_event.metadata["review"]["promotion_state"] == "demoted"
             assert runtime_event.metadata["review"]["review_state"] == "corrected"
+    finally:
+        runtime.shutdown()
+
+
+def test_app_shell_runtime_batch_rejected_review_reuses_clip_audio_cache(
+    tmp_path: Path,
+    monkeypatch,
+):
+    export_root = tmp_path / "review-sample-export"
+    monkeypatch.setenv("ECHOZERO_REVIEW_SAMPLE_EXPORT_ROOT", str(export_root))
+    runtime, layer_id, event_id, _start, _end = _build_timeline_review_runtime(tmp_path)
+    try:
+        layer, target_ids = _ensure_two_review_target_ids(
+            runtime,
+            layer_id=layer_id,
+            seed_event_id=event_id,
+        )
+        read_count = 0
+        soundfile_module = ReviewAudioClipService._soundfile()
+
+        class CountingSoundfile:
+            @staticmethod
+            def read(*args, **kwargs):
+                nonlocal read_count
+                read_count += 1
+                return soundfile_module.read(*args, **kwargs)
+
+            @staticmethod
+            def write(*args, **kwargs):
+                return soundfile_module.write(*args, **kwargs)
+
+        monkeypatch.setattr(
+            ReviewAudioClipService,
+            "_soundfile",
+            staticmethod(lambda: CountingSoundfile),
+        )
+
+        runtime.dispatch(
+            CommitRejectedEventsReview(
+                event_refs=[
+                    EventRef(
+                        layer_id=layer_id,
+                        take_id=layer.main_take_id,
+                        event_id=EventId(target_ids[0]),
+                    ),
+                    EventRef(
+                        layer_id=layer_id,
+                        take_id=layer.main_take_id,
+                        event_id=EventId(target_ids[1]),
+                    ),
+                ],
+                review_note="batch reject cache",
+            )
+        )
+
+        assert read_count == 1
+        exported = sorted((export_root / "kick").glob("*.wav"))
+        assert len(exported) >= 2
     finally:
         runtime.shutdown()
 

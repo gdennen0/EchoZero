@@ -183,6 +183,13 @@ class AutomationBridgeServer:
                 target_id=None if target_id is None else str(target_id),
                 params=payload.get("params"),
             )
+        if action == "sequence":
+            result = None
+            for step in payload.get("steps", ()): 
+                if not isinstance(step, dict):
+                    raise ValueError("sequence steps must be action payload objects")
+                result = self._dispatch_action(step)
+            return result if result is not None else bridge._backend.snapshot()
         raise ValueError(f"unsupported automation action: {action}")
 
 

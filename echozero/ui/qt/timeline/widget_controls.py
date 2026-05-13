@@ -69,7 +69,7 @@ class TimelineEditorModeBar(QWidget):
     settings_requested = pyqtSignal()
     osc_settings_requested = pyqtSignal()
     pipeline_settings_requested = pyqtSignal()
-    _COMPACT_WIDTH_THRESHOLD_PX = 1400
+    _COMPACT_WIDTH_THRESHOLD_PX = 1180
     _PRIMARY_VISIBLE_MODES: tuple[str, ...] = ("select", "draw", "fix")
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -422,8 +422,8 @@ class TimelineEditorModeBar(QWidget):
         self._refresh_settings_button_icon()
         if compact:
             self._settings_button.setText("")
-            self._osc_settings_button.setText("O")
-            self._pipeline_settings_button.setText("P")
+            self._osc_settings_button.setText("OSC")
+            self._pipeline_settings_button.setText("Pipe")
             return
         self._settings_button.setText("Settings")
         self._osc_settings_button.setText("OSC")
@@ -467,7 +467,7 @@ class TimelineEditorModeBar(QWidget):
         mode_width = 32 if compact else 58
         snap_width = 34 if compact else 64
         grid_width = 44 if compact else 84
-        shell_width = 34 if compact else 88
+        shell_width = 44 if compact else 88
         fix_small_width = 22 if compact else 30
         fix_select_width = 28 if compact else 36
         fix_toggle_width = 48 if compact else 90

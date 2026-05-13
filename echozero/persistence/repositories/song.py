@@ -104,6 +104,15 @@ class SongVersionRepository(BaseRepository[SongVersionRecord]):
             original_sample_rate=row["original_sample_rate"],
             audio_hash=row["audio_hash"],
             created_at=datetime.fromisoformat(row["created_at"]),
+            bpm=_optional_float(row["bpm"]) if "bpm" in row.keys() else None,
+            bpm_confidence=(
+                _optional_float(row["bpm_confidence"]) if "bpm_confidence" in row.keys() else None
+            ),
+            beat_anchor_seconds=(
+                _optional_float(row["beat_anchor_seconds"])
+                if "beat_anchor_seconds" in row.keys()
+                else None
+            ),
             ma3_timecode_pool_no=_optional_positive_int(row["ma3_timecode_pool_no"]),
             rebuild_plan=rebuild_plan,
         )
@@ -112,9 +121,10 @@ class SongVersionRepository(BaseRepository[SongVersionRecord]):
         """Insert a new song version row."""
         self._execute(
             "INSERT INTO song_versions "
-            "(id, song_id, label, audio_file, duration_seconds, "
-            "original_sample_rate, audio_hash, ma3_timecode_pool_no, rebuild_plan_json, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "(id, song_id, label, audio_file, duration_seconds, original_sample_rate, "
+            "audio_hash, bpm, bpm_confidence, beat_anchor_seconds, ma3_timecode_pool_no, "
+            "rebuild_plan_json, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 version.id,
                 version.song_id,
@@ -123,6 +133,9 @@ class SongVersionRepository(BaseRepository[SongVersionRecord]):
                 version.duration_seconds,
                 version.original_sample_rate,
                 version.audio_hash,
+                version.bpm,
+                version.bpm_confidence,
+                version.beat_anchor_seconds,
                 version.ma3_timecode_pool_no,
                 json.dumps(version.rebuild_plan or {}),
                 version.created_at.isoformat(),
@@ -132,8 +145,9 @@ class SongVersionRepository(BaseRepository[SongVersionRecord]):
     def get(self, version_id: str) -> SongVersionRecord | None:
         """Return a song version by ID, or None if not found."""
         row = self._fetchone(
-            "SELECT id, song_id, label, audio_file, duration_seconds, "
-            "original_sample_rate, audio_hash, ma3_timecode_pool_no, rebuild_plan_json, created_at "
+            "SELECT id, song_id, label, audio_file, duration_seconds, original_sample_rate, "
+            "audio_hash, bpm, bpm_confidence, beat_anchor_seconds, ma3_timecode_pool_no, "
+            "rebuild_plan_json, created_at "
             "FROM song_versions WHERE id = ?",
             (version_id,),
         )
@@ -144,8 +158,9 @@ class SongVersionRepository(BaseRepository[SongVersionRecord]):
     def list_by_song(self, song_id: str) -> list[SongVersionRecord]:
         """Return all versions for a song, ordered by creation time."""
         rows = self._fetchall(
-            "SELECT id, song_id, label, audio_file, duration_seconds, "
-            "original_sample_rate, audio_hash, ma3_timecode_pool_no, rebuild_plan_json, created_at "
+            "SELECT id, song_id, label, audio_file, duration_seconds, original_sample_rate, "
+            "audio_hash, bpm, bpm_confidence, beat_anchor_seconds, ma3_timecode_pool_no, "
+            "rebuild_plan_json, created_at "
             "FROM song_versions WHERE song_id = ? ORDER BY created_at",
             (song_id,),
         )
@@ -155,14 +170,18 @@ class SongVersionRepository(BaseRepository[SongVersionRecord]):
         """Overwrite a song version's mutable fields (label, audio_file, duration, sample_rate, hash)."""
         self._execute(
             "UPDATE song_versions SET label = ?, audio_file = ?, duration_seconds = ?, "
-            "original_sample_rate = ?, audio_hash = ?, ma3_timecode_pool_no = ?, "
-            "rebuild_plan_json = ? WHERE id = ?",
+            "original_sample_rate = ?, audio_hash = ?, bpm = ?, bpm_confidence = ?, "
+            "beat_anchor_seconds = ?, ma3_timecode_pool_no = ?, rebuild_plan_json = ? "
+            "WHERE id = ?",
             (
                 version.label,
                 version.audio_file,
                 version.duration_seconds,
                 version.original_sample_rate,
                 version.audio_hash,
+                version.bpm,
+                version.bpm_confidence,
+                version.beat_anchor_seconds,
                 version.ma3_timecode_pool_no,
                 json.dumps(version.rebuild_plan or {}),
                 version.id,
@@ -180,3 +199,10 @@ def _optional_positive_int(value: object) -> int | None:
     except (TypeError, ValueError):
         return None
     return resolved if resolved > 0 else None
+
+
+def _optional_float(value: object) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None

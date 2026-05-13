@@ -707,6 +707,18 @@ class _TimelineCanvasInteractionMixin:
             self.select_all_requested.emit()
             event.accept()
             return
+        if event.key() == Qt.Key.Key_C and has_primary:
+            self.copy_requested.emit()
+            event.accept()
+            return
+        if event.key() == Qt.Key.Key_X and has_primary:
+            self.cut_requested.emit()
+            event.accept()
+            return
+        if event.key() == Qt.Key.Key_V and has_primary:
+            self.paste_requested.emit()
+            event.accept()
+            return
         if event.key() == Qt.Key.Key_D and has_primary:
             self.duplicate_requested.emit(steps)
             event.accept()
@@ -1463,6 +1475,7 @@ class _TimelineCanvasInteractionMixin:
             pixels_per_second=self.presentation.pixels_per_second,
             mode=self._grid_mode,
             bpm=self.presentation.bpm,
+            beat_anchor_seconds=self.presentation.beat_anchor_seconds,
             threshold_px=float(SNAP_MAGNETISM_RADIUS_PX),
             event_times=self._event_times(exclude_event_ids=exclude_event_ids),
             playhead_time=self.presentation.playhead,

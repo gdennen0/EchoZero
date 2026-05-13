@@ -10,6 +10,8 @@ from math import gcd
 
 import numpy as np
 
+from echozero.output_routing import canonical_layer_output_bus
+
 try:
     from scipy.signal import resample_poly as _resample_poly
 except ImportError:
@@ -131,9 +133,7 @@ class AudioTrack:
         self.volume: float = volume
         self.muted: bool = False
         self.solo: bool = False
-        self.output_bus: str | None = (
-            output_bus.strip() if isinstance(output_bus, str) and output_bus.strip() else None
-        )
+        self.output_bus: str | None = canonical_layer_output_bus(output_bus)
 
     @property
     def duration_samples(self) -> int:

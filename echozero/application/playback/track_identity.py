@@ -8,6 +8,11 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from echozero.output_routing import (
+    canonical_layer_output_bus,
+    parse_output_bus_token as _parse_output_bus_route,
+)
+
 
 def normalize_output_bus(value: object) -> str | None:
     """Normalize one output-bus token to the canonical lowercase form."""
@@ -21,17 +26,10 @@ def normalize_output_bus(value: object) -> str | None:
 def parse_output_bus_token(output_bus: str | None) -> tuple[int, int] | None:
     """Parse one `outputs_X_Y` token into one inclusive channel span."""
 
-    token = normalize_output_bus(output_bus)
-    if token is None or not token.startswith("outputs_"):
+    route = _parse_output_bus_route(output_bus)
+    if route is None:
         return None
-    parts = token.split("_")
-    if len(parts) != 3 or (not parts[1].isdigit()) or (not parts[2].isdigit()):
-        return None
-    start_channel = int(parts[1])
-    end_channel = int(parts[2])
-    if start_channel < 1 or end_channel < start_channel:
-        return None
-    return start_channel, end_channel
+    return route.start_channel, route.end_channel
 
 
 def sanitize_output_bus_for_channels(
@@ -39,16 +37,14 @@ def sanitize_output_bus_for_channels(
     *,
     playback_output_channels: int,
 ) -> str | None:
-    """Return one route token only when it fits within the active output width."""
+    """Return one explicit layer route when it fits within the active output width."""
 
-    parsed = parse_output_bus_token(normalize_output_bus(value))
-    if parsed is None:
-        return None
-    start_channel, end_channel = parsed
-    channel_count = max(1, int(playback_output_channels))
-    if start_channel > channel_count or end_channel > channel_count:
-        return None
-    return f"outputs_{start_channel}_{end_channel}"
+    return canonical_layer_output_bus(
+        value,
+        max_channel=max(1, int(playback_output_channels)),
+        clamp_to_channels=True,
+        reject_invalid=True,
+    )
 
 
 def event_slice_signature(events: Sequence[object]) -> str:

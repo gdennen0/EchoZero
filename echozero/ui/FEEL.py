@@ -58,6 +58,9 @@ WAVEFORM_COLUMN_STEP_REFERENCE_PPS = (
     20.0  # Below this zoom level, bucket waveform columns more aggressively
 )
 WAVEFORM_COLUMN_STEP_MAX_PX = 4  # Maximum horizontal bucket size when heavily zoomed out
+NOTE_CONTOUR_ROW_PADDING_PX = 8  # Vertical padding for note contour overlays in audio lanes
+NOTE_CONTOUR_PEN_WIDTH_PX = 2.0  # Stroke width for note contour overlays
+NOTE_CONTOUR_ALPHA = 205  # Opacity for note contour overlays
 
 # =============================================================================
 # EVENTS (Timeline)
@@ -96,19 +99,21 @@ MOVE_DRAG_SNAP_LOCK_MULTIPLIER = (
 # TIME RULER
 # =============================================================================
 
-TIMELINE_TRANSPORT_HEIGHT_PX = 74  # Playback strip height below the timeline viewport
-TIMELINE_TRANSPORT_BUTTON_HEIGHT_PX = 42  # Painted play/stop button height in transport
-TIMELINE_TRANSPORT_TOP_GAP_PX = 3  # Vertical gap between timeline scroller and transport strip
-TIMELINE_EDITOR_BAR_PADDING_X_PX = 6  # Horizontal padding around the editor toolbar strip
-TIMELINE_EDITOR_BAR_PADDING_Y_PX = 2  # Vertical padding around the editor toolbar strip
-TIMELINE_EDITOR_GROUP_PADDING_X_PX = 4  # Horizontal padding inside each toolbar group
-TIMELINE_EDITOR_GROUP_PADDING_Y_PX = 2  # Vertical padding inside each toolbar group
-TIMELINE_EDITOR_GROUP_SPACING_PX = 3  # Gap between toolbar labels and controls
+TIMELINE_TRANSPORT_HEIGHT_PX = 62  # Playback strip height below the timeline viewport
+TIMELINE_TRANSPORT_BUTTON_HEIGHT_PX = 36  # Painted play/stop button height in transport
+TIMELINE_TRANSPORT_TOP_GAP_PX = 1  # Vertical gap between timeline scroller and transport strip
+TIMELINE_EDITOR_BAR_PADDING_X_PX = 5  # Horizontal padding around the editor toolbar strip
+TIMELINE_EDITOR_BAR_PADDING_Y_PX = 1  # Vertical padding around the editor toolbar strip
+TIMELINE_EDITOR_GROUP_PADDING_X_PX = 3  # Horizontal padding inside each toolbar group
+TIMELINE_EDITOR_GROUP_PADDING_Y_PX = 1  # Vertical padding inside each toolbar group
+TIMELINE_EDITOR_GROUP_SPACING_PX = 4  # Gap between toolbar labels and controls
 TIMELINE_EDITOR_BUTTON_MIN_HEIGHT_PX = 20  # Dense minimum button height in the editor toolbar
+TIMELINE_LAUNCHER_SUBMENU_ARROW_SIZE_PX = 6  # Compact submenu chevron size in launcher menus
+TIMELINE_LAUNCHER_SUBMENU_ARROW_RIGHT_PADDING_PX = 8  # Right gutter for launcher submenu chevrons
 TIMELINE_OBJECT_INFO_METADATA_MIN_HEIGHT_PX = (
     28  # Compact starting body height for inspector facts
 )
-TIMELINE_OBJECT_INFO_METADATA_DEFAULT_HEIGHT_PX = 106  # Initial inspector metadata pane height
+TIMELINE_OBJECT_INFO_METADATA_DEFAULT_HEIGHT_PX = 90  # Initial inspector metadata pane height
 TIMELINE_OBJECT_INFO_SPLITTER_HANDLE_PX = 6  # Grab area for resizing inspector metadata vs actions
 RULER_HEIGHT_PX = 24  # Ruler bar height
 RULER_MIN_TICK_SPACING_PX = 60  # Minimum pixels between major ticks

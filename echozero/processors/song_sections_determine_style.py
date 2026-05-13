@@ -11,6 +11,7 @@ from typing import Any
 
 MFCC_SEQUENCE_POOLING_METHOD = "mfcc_sequence_pooling"
 DETERMINE_SECTIONS_STYLE_METHOD = "determine_sections_style"
+MIR_SELF_SIMILARITY_METHOD = "mir_self_similarity"
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,8 @@ def resolve_detect_method(value: Any) -> str:
     token = str(value or "").strip().lower().replace("-", "_")
     if token in {DETERMINE_SECTIONS_STYLE_METHOD, "determine_sections"}:
         return DETERMINE_SECTIONS_STYLE_METHOD
+    if token in {MIR_SELF_SIMILARITY_METHOD, "mir", "self_similarity", "mir_structure"}:
+        return MIR_SELF_SIMILARITY_METHOD
     return MFCC_SEQUENCE_POOLING_METHOD
 
 

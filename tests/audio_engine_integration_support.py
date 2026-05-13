@@ -448,6 +448,60 @@ class TestAudioEngine:
         assert np.max(np.abs(outdata)) > 0.0
         np.testing.assert_allclose(outdata[:, 0], outdata[:, 1])
 
+    def test_callback_defaults_master_output_to_outputs_1_2_on_four_channel_engine(self) -> None:
+        engine = AudioEngine(sample_rate=44100, channels=4, stream_factory=fake_stream_factory)
+        engine.add_layer("song", np.ones(2048, dtype=np.float32), 44100)
+
+        engine.play()
+        outdata = np.zeros((256, 4), dtype=np.float32)
+        engine._audio_callback(outdata, 256, None, None)
+
+        assert np.max(np.abs(outdata[:, 0])) > 0.0
+        np.testing.assert_allclose(outdata[:, 0], outdata[:, 1])
+        np.testing.assert_array_equal(outdata[:, 2], np.zeros(256, dtype=np.float32))
+        np.testing.assert_array_equal(outdata[:, 3], np.zeros(256, dtype=np.float32))
+
+    def test_callback_mirrors_master_output_to_multiple_buses_on_four_channel_engine(self) -> None:
+        engine = AudioEngine(
+            sample_rate=44100,
+            channels=4,
+            master_output_bus="outputs_1_2,outputs_3_4",
+            stream_factory=fake_stream_factory,
+        )
+        engine.add_layer("song", np.ones(2048, dtype=np.float32), 44100)
+
+        engine.play()
+        outdata = np.zeros((256, 4), dtype=np.float32)
+        engine._audio_callback(outdata, 256, None, None)
+
+        assert np.max(np.abs(outdata[:, 0])) > 0.0
+        np.testing.assert_allclose(outdata[:, 0], outdata[:, 1])
+        np.testing.assert_allclose(outdata[:, 0], outdata[:, 2])
+        np.testing.assert_allclose(outdata[:, 0], outdata[:, 3])
+
+    def test_master_output_mirroring_does_not_duplicate_explicit_output_bus_tracks(self) -> None:
+        engine = AudioEngine(
+            sample_rate=44100,
+            channels=4,
+            master_output_bus="outputs_1_2,outputs_3_4",
+            stream_factory=fake_stream_factory,
+        )
+        engine.add_layer(
+            "timecode",
+            np.ones(2048, dtype=np.float32),
+            44100,
+            output_bus="outputs_3_4",
+        )
+
+        engine.play()
+        outdata = np.zeros((256, 4), dtype=np.float32)
+        engine._audio_callback(outdata, 256, None, None)
+
+        np.testing.assert_array_equal(outdata[:, 0], np.zeros(256, dtype=np.float32))
+        np.testing.assert_array_equal(outdata[:, 1], np.zeros(256, dtype=np.float32))
+        assert np.max(np.abs(outdata[:, 2])) > 0.0
+        np.testing.assert_allclose(outdata[:, 2], outdata[:, 3])
+
     def test_callback_preserves_stereo_source_channels(self) -> None:
         engine = AudioEngine(sample_rate=44100, channels=2, stream_factory=fake_stream_factory)
         stereo = np.column_stack(
@@ -467,11 +521,18 @@ class TestAudioEngine:
             None,
         )
 
-        expected_fade = np.linspace(0.0, 1.0, 64, dtype=np.float32)
-        np.testing.assert_allclose(outdata[:64, 0], expected_fade, atol=1e-6)
-        np.testing.assert_allclose(outdata[:64, 1], -expected_fade, atol=1e-6)
-        np.testing.assert_array_equal(outdata[64:, 0], np.ones(192, dtype=np.float32))
-        np.testing.assert_array_equal(outdata[64:, 1], -np.ones(192, dtype=np.float32))
+        ramp_samples = _declick_ramp_samples(44100)
+        expected_fade = np.linspace(0.0, 1.0, ramp_samples, dtype=np.float32)
+        np.testing.assert_allclose(outdata[:ramp_samples, 0], expected_fade, atol=1e-6)
+        np.testing.assert_allclose(outdata[:ramp_samples, 1], -expected_fade, atol=1e-6)
+        np.testing.assert_array_equal(
+            outdata[ramp_samples:, 0],
+            np.ones(256 - ramp_samples, dtype=np.float32),
+        )
+        np.testing.assert_array_equal(
+            outdata[ramp_samples:, 1],
+            -np.ones(256 - ramp_samples, dtype=np.float32),
+        )
 
     def test_callback_handles_large_variable_frame_sizes_with_preallocated_scratch(self) -> None:
         engine = AudioEngine(stream_factory=fake_stream_factory)

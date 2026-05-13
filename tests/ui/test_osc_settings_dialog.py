@@ -16,8 +16,15 @@ from echozero.application.settings import (
     OscSendPreferences,
     SettingsOption,
 )
+from echozero.application.sync.ma3_connection_check import (
+    MA3OscConnectionCheckRequest,
+    MA3OscConnectionCheckResult,
+    MA3OscConnectionCheckService,
+    MA3OscConnectionState,
+    MA3OscEndpointCheck,
+)
 from echozero.ui.qt.osc_settings_dialog import OscSettingsDialog
-from echozero.ui.qt.osc_settings_panel import OscSettingsPanel, _OscProbeConfig
+from echozero.ui.qt.osc_settings_panel import OscSettingsPanel
 from echozero.testing.ma3.simulator import _SimulatedMA3OSCServer
 
 
@@ -41,6 +48,23 @@ def _device_options() -> tuple[SettingsOption, ...]:
         SettingsOption(value="", label="System Default"),
         SettingsOption(value="7", label="Studio Output"),
     )
+
+
+class _FakeConnectionChecker:
+    """Connection-check double for panel rendering tests."""
+
+    def __init__(self, result: MA3OscConnectionCheckResult) -> None:
+        self.result = result
+        self.values: dict[str, object] | None = None
+        self.live_bridge = None
+
+    def request_from_values(self, values: dict[str, object]):
+        self.values = dict(values)
+        return object()
+
+    def ping(self, _request, *, live_bridge=None):
+        self.live_bridge = live_bridge
+        return self.result
 
 
 def test_osc_settings_dialog_restore_defaults_resets_form_values() -> None:
@@ -107,21 +131,36 @@ def test_osc_settings_dialog_save_persists_settings_and_calls_saved_hook(monkeyp
         app.processEvents()
 
 
-def test_osc_settings_dialog_panel_reports_ready_after_status_check(monkeypatch) -> None:
+def test_osc_settings_dialog_panel_reports_connected_after_connection_check() -> None:
     app = QApplication.instance() or QApplication([])
     service = AppSettingsService(_MemoryStore(), audio_device_options_provider=_device_options)
+    checker = _FakeConnectionChecker(
+        MA3OscConnectionCheckResult(
+            state=MA3OscConnectionState.CONNECTED,
+            detail="Ping response received (status=ok).",
+            recommended_action="MA3 round trip is connected.",
+            latency_ms=12.34,
+            checks=(
+                MA3OscEndpointCheck(
+                    stage="Receive Listener",
+                    ok=True,
+                    detail="Receive Listener OK (127.0.0.1:7100).",
+                ),
+                MA3OscEndpointCheck(
+                    stage="Command Send",
+                    ok=True,
+                    detail="Command Send OK (127.0.0.1:9000).",
+                ),
+                MA3OscEndpointCheck(
+                    stage="MA3 Reply",
+                    ok=True,
+                    detail="Ping response received (status=ok).",
+                ),
+            ),
+        )
+    )
     dialog = OscSettingsDialog(service)
-
-    monkeypatch.setattr(
-        dialog._panel,
-        "_probe_receive_endpoint",
-        lambda _config: (True, "Receive OK (127.0.0.1:7100)."),
-    )
-    monkeypatch.setattr(
-        dialog._panel,
-        "_probe_send_endpoint",
-        lambda _config: (True, "Send OK (127.0.0.1:9000)."),
-    )
+    dialog._panel._connection_checker = checker
 
     try:
         dialog._form.set_values(
@@ -135,11 +174,13 @@ def test_osc_settings_dialog_panel_reports_ready_after_status_check(monkeypatch)
             }
         )
 
-        dialog._panel._on_check_status()
+        dialog._panel._on_run_connection_check()
 
-        assert dialog._panel._status_value.text() == "Ready"
-        assert "Receive OK" in dialog._panel._status_detail.text()
-        assert "Send OK" in dialog._panel._status_detail.text()
+        assert dialog._panel._status_value.text() == "Connected"
+        assert dialog._panel._ping_value.text() == "12.3 ms"
+        assert "OK Receive Listener" in dialog._panel._status_detail.text()
+        assert "OK Command Send" in dialog._panel._status_detail.text()
+        assert "Next: MA3 round trip is connected." in dialog._panel._status_detail.text()
     finally:
         dialog.close()
         app.processEvents()
@@ -158,38 +199,35 @@ def test_osc_settings_dialog_keeps_settings_and_feedback_in_separate_panes() -> 
         form_bottom = dialog._form.geometry().bottom()
         panel_top = dialog._panel.geometry().top()
         assert form_bottom < panel_top
-        assert dialog._form.height() >= 230
-        assert dialog._panel._monitor_output.maximumHeight() == 92
+        assert 148 <= dialog._form.height() <= 250
+        assert dialog._panel.height() > dialog._form.height()
+        assert dialog._panel._monitor_output.maximumHeight() == 140
         assert dialog._panel._monitor_output.lineWrapMode().name == "WidgetWidth"
     finally:
         dialog.close()
         app.processEvents()
 
 
-def test_osc_settings_dialog_panel_ping_updates_connection_and_latency(monkeypatch) -> None:
+def test_osc_settings_dialog_panel_uses_live_bridge_when_settings_are_clean() -> None:
     app = QApplication.instance() or QApplication([])
     service = AppSettingsService(_MemoryStore(), audio_device_options_provider=_device_options)
-    dialog = OscSettingsDialog(service)
-
-    monkeypatch.setattr(
-        dialog._panel,
-        "_run_ping",
-        lambda _config: (True, "Ping response received (status=ok).", 12.34),
+    bridge = object()
+    checker = _FakeConnectionChecker(
+        MA3OscConnectionCheckResult(
+            state=MA3OscConnectionState.CONNECTED,
+            detail="Ping response received (status=ok).",
+        )
     )
+    dialog = OscSettingsDialog(
+        service,
+        live_bridge_provider=lambda: bridge,
+    )
+    dialog._panel._connection_checker = checker
 
     try:
-        dialog._form.set_values(
-            {
-                "osc_receive.enabled": True,
-                "osc_send.enabled": True,
-            }
-        )
+        dialog._panel._on_run_connection_check()
 
-        dialog._panel._on_ping()
-
-        assert dialog._panel._status_value.text() == "Connected"
-        assert dialog._panel._ping_value.text() == "12.3 ms"
-        assert "status=ok" in dialog._panel._status_detail.text()
+        assert checker.live_bridge is bridge
     finally:
         dialog.close()
         app.processEvents()
@@ -198,8 +236,8 @@ def test_osc_settings_dialog_panel_ping_updates_connection_and_latency(monkeypat
 def test_osc_settings_panel_ping_uses_routable_target_for_wildcard_receive_host() -> None:
     server = _SimulatedMA3OSCServer().start()
     try:
-        success, detail, latency_ms = OscSettingsPanel._run_ping(
-            _OscProbeConfig(
+        result = MA3OscConnectionCheckService().ping(
+            MA3OscConnectionCheckRequest(
                 receive_enabled=True,
                 receive_host="0.0.0.0",
                 receive_port=0,
@@ -209,9 +247,9 @@ def test_osc_settings_panel_ping_uses_routable_target_for_wildcard_receive_host(
             )
         )
 
-        assert success is True
-        assert latency_ms is not None and latency_ms >= 0.0
-        assert "status=ok" in detail
+        assert result.is_connected is True
+        assert result.latency_ms is not None and result.latency_ms >= 0.0
+        assert "status=ok" in result.detail
         target_command = next(
             (command for command in server.commands if command.startswith("EZ.SetTarget(")),
             "",

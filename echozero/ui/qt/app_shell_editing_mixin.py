@@ -6,18 +6,20 @@ Connects AppShellRuntime to undo/history helpers and the timeline edit contract.
 from __future__ import annotations
 
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 from typing import Literal, Protocol
 
 from echozero.application.presentation.models import TimelinePresentation
 from echozero.application.session.models import Session
-from echozero.application.shared.ids import LayerId
+from echozero.application.shared.ids import LayerId, TakeId
 from echozero.application.shared.enums import LayerKind
 from echozero.application.timeline.app import TimelineApplication
 from echozero.application.timeline.intents import (
     ApplyPullFromMA3,
     ApplyTransferPlan,
+    CopiedEventClip,
     CommitBoundaryCorrectedEventReview,
     CommitMissedEventsReview,
     CommitMissedEventReview,
@@ -34,6 +36,7 @@ from echozero.application.timeline.intents import (
     MoveEvent,
     MoveSelectedEvents,
     NudgeSelectedEvents,
+    PasteCopiedEvents,
     ReplaceSectionCues,
     ReorderLayer,
     SetGain,
@@ -100,6 +103,7 @@ _DIRTYING_INTENT_TYPES = (
     MoveEvent,
     MoveSelectedEvents,
     NudgeSelectedEvents,
+    PasteCopiedEvents,
     ReplaceSectionCues,
     ReorderLayer,
     SetGain,
@@ -124,6 +128,7 @@ def _object_content_kind_for_layer(layer: Layer) -> str:
 class AppShellEditingShell(Protocol):
     _app: TimelineApplication
     _is_dirty: bool
+    _event_clipboard: list[CopiedEventClip]
 
     @property
     def session(self) -> Session: ...
@@ -162,6 +167,52 @@ class AppShellEditingShell(Protocol):
 
 
 class AppShellEditingMixin:
+    def copy_selected_events_to_clipboard(
+        self: AppShellEditingShell,
+    ) -> int:
+        timeline = self._app.timeline
+        selected_refs = self._app.orchestrator._selected_event_refs(timeline)
+        if not selected_refs:
+            return 0
+        records = self._app.orchestrator._selected_event_records(timeline, selected_refs)
+        if not records:
+            return 0
+        self._event_clipboard = [
+            CopiedEventClip(
+                source_layer_id=record.layer.id,
+                source_take_id=record.take.id,
+                source_layer_kind=record.layer.kind,
+                event=deepcopy(record.event),
+            )
+            for record in records
+        ]
+        return len(self._event_clipboard)
+
+    def has_copied_events(self: AppShellEditingShell) -> bool:
+        return bool(self._event_clipboard)
+
+    def paste_event_clipboard(
+        self: AppShellEditingShell,
+        *,
+        target_layer_id: str | None = None,
+        target_take_id: str | None = None,
+        insert_at_seconds: float | None = None,
+    ) -> TimelinePresentation | None:
+        if not self._event_clipboard:
+            return None
+        return self.dispatch(
+            PasteCopiedEvents(
+                clips=deepcopy(self._event_clipboard),
+                target_layer_id=(
+                    None if target_layer_id is None else LayerId(str(target_layer_id).strip())
+                ),
+                target_take_id=(
+                    None if target_take_id is None else TakeId(str(target_take_id).strip())
+                ),
+                insert_at_seconds=insert_at_seconds,
+            )
+        )
+
     def add_smpte_layer_from_import_split(
         self: AppShellEditingShell,
     ) -> TimelinePresentation:

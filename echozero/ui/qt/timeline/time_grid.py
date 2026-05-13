@@ -38,6 +38,12 @@ _AUTO_GRID_STEPS_SECONDS = (
 _BEAT_GRID_MULTIPLIERS = (0.25, 0.5, 1.0, 2.0, 4.0)
 
 
+def _normalize_grid_mode(mode: TimelineGridMode | str) -> TimelineGridMode:
+    if isinstance(mode, TimelineGridMode):
+        return mode
+    return TimelineGridMode(str(mode))
+
+
 def grid_step_seconds(
     *,
     pixels_per_second: float,
@@ -45,7 +51,7 @@ def grid_step_seconds(
     bpm: float | None = None,
     min_spacing_px: float = 60.0,
 ) -> float | None:
-    normalized_mode = TimelineGridMode(str(mode))
+    normalized_mode = _normalize_grid_mode(mode)
     if normalized_mode is TimelineGridMode.OFF:
         return None
 
@@ -71,6 +77,7 @@ def visible_grid_lines(
     content_width: float,
     mode: TimelineGridMode | str,
     bpm: float | None = None,
+    beat_anchor_seconds: float | None = None,
     min_spacing_px: float = 60.0,
 ) -> list[GridLine]:
     step = grid_step_seconds(
@@ -85,18 +92,24 @@ def visible_grid_lines(
     pps = max(1.0, float(pixels_per_second))
     start_second = max(0.0, float(scroll_x) / pps)
     end_second = max(start_second, (float(scroll_x) + max(1.0, float(content_width))) / pps)
-    start_index = max(0, int(floor(start_second / step)) - 1)
-    end_index = int(ceil(end_second / step)) + 1
 
-    normalized_mode = TimelineGridMode(str(mode))
+    normalized_mode = _normalize_grid_mode(mode)
+    beat_anchor = max(0.0, float(beat_anchor_seconds or 0.0))
+    if normalized_mode is TimelineGridMode.BEAT and bpm and bpm > 0:
+        start_index = max(0, int(floor((start_second - beat_anchor) / step)) - 1)
+        end_index = int(ceil((end_second - beat_anchor) / step)) + 1
+    else:
+        start_index = max(0, int(floor(start_second / step)) - 1)
+        end_index = int(ceil(end_second / step)) + 1
     lines: list[GridLine] = []
     for index in range(start_index, max(start_index, end_index) + 1):
-        time_seconds = float(index) * step
+        time_seconds = beat_anchor + (float(index) * step)
         role = "minor"
         if normalized_mode is TimelineGridMode.BEAT and bpm and bpm > 0:
             beat_seconds = 60.0 / float(bpm)
-            beats = round(time_seconds / beat_seconds) if beat_seconds else 0
-            if abs(time_seconds - (beats * beat_seconds)) <= 1e-6:
+            relative_time = max(0.0, time_seconds - beat_anchor)
+            beats = round(relative_time / beat_seconds) if beat_seconds else 0
+            if abs(relative_time - (beats * beat_seconds)) <= 1e-6:
                 role = "bar" if beats % 4 == 0 else "beat"
         elif index % 4 == 0:
             role = "major"
@@ -110,6 +123,7 @@ def resolve_snap_time(
     pixels_per_second: float,
     mode: TimelineGridMode | str,
     bpm: float | None = None,
+    beat_anchor_seconds: float | None = None,
     threshold_px: float,
     event_times: tuple[float, ...] = (),
     playhead_time: float | None = None,
@@ -128,7 +142,8 @@ def resolve_snap_time(
         min_spacing_px=min_spacing_px,
     )
     if step is not None and step > 0.0:
-        snapped = round(float(time_seconds) / step) * step
+        anchor = max(0.0, float(beat_anchor_seconds or 0.0))
+        snapped = anchor + (round((float(time_seconds) - anchor) / step) * step)
         candidates.append(SnapResolution(time_seconds=max(0.0, snapped), kind="grid"))
 
     for event_time in event_times:

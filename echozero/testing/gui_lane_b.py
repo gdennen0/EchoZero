@@ -258,6 +258,11 @@ class GuiLaneBRunner:
             trigger_layer_contract_action(
                 harness, layer.layer_id, "timeline.extract_song_sections"
             )
+        elif action == "timeline.extract_note_contour":
+            layer = resolve_layer(harness, params)
+            trigger_layer_contract_action(
+                harness, layer.layer_id, "timeline.extract_note_contour"
+            )
         elif action == "timeline.extract_classified_drums":
             layer = resolve_layer(harness, params)
             trigger_layer_contract_action(

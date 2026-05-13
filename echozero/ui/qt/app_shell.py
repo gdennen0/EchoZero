@@ -49,6 +49,7 @@ from echozero.persistence.session import ProjectStorage
 from echozero.pipelines.registry import get_registry
 from echozero.processors import (
     AudioFilterProcessor,
+    DetectNoteContourProcessor,
     DetectOnsetsProcessor,
     SongSectionsProcessor,
     LoadAudioProcessor,
@@ -144,6 +145,9 @@ from echozero.ui.qt.app_shell_runtime_support import (
 from echozero.ui.qt.app_shell_runtime_support import (
     sync_runtime_audio_from_presentation as _sync_runtime_audio_from_presentation,
 )
+from echozero.ui.qt.app_shell_selection_model_improvement import (
+    AppShellSelectionModelImprovementMixin,
+)
 from echozero.ui.qt.app_shell_storage_sync import (
     materialize_draft_layers as _materialize_draft_layers,
 )
@@ -171,6 +175,7 @@ _T = TypeVar("_T")
 class StageZeroRuntimeController(
     AppShellEditingMixin,
     AppShellObjectActionMixin,
+    AppShellSelectionModelImprovementMixin,
     AppShellSpecializedModelMixin,
 ):
     """Concrete Stage Zero runtime owner for shell lifecycle, session state, and collaborators."""
@@ -197,6 +202,7 @@ class StageZeroRuntimeController(
         self._history = UndoHistory(limit=_DEFAULT_HISTORY_LIMIT)
         self._is_dirty = False
         self._draft_layers: list[Layer] = []
+        self._event_clipboard = []
         self._staged_project_runtime_presentation: TimelinePresentation | None = None
         self._staged_layer_header_width_px: int | None = None
         self._app: TimelineApplication = build_runtime_timeline_application(
@@ -668,6 +674,7 @@ def _build_runtime_orchestrator() -> Orchestrator:
             "LoadAudio": LoadAudioProcessor(),
             "AudioFilter": AudioFilterProcessor(),
             "SeparateAudio": SeparateAudioProcessor(),
+            "DetectNoteContour": DetectNoteContourProcessor(),
             "DetectOnsets": DetectOnsetsProcessor(),
             "DetectSongSections": SongSectionsProcessor(),
             "PyTorchAudioClassify": PyTorchAudioClassifyProcessor(),

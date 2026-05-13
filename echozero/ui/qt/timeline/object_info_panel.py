@@ -36,8 +36,10 @@ from echozero.ui.qt.timeline.object_info_panel_actions_mixin import (
 )
 from echozero.ui.qt.timeline.object_info_panel_preview import (
     EventPreviewWaveform as _EventPreviewWaveform,
-    event_preview_from_action as _event_preview_from_action,
-    event_preview_meta_text as _event_preview_meta_text,
+    audio_event_preview_variant_label as _audio_event_preview_variant_label,
+    audio_event_preview_variants as _audio_event_preview_variants,
+    preview_meta_text as _preview_meta_text,
+    preview_state_from_action as _preview_state_from_action,
 )
 from echozero.ui.qt.timeline.object_info_panel_text import (
     contract_detail_text as _contract_detail_text,
@@ -46,9 +48,9 @@ from echozero.ui.qt.timeline.object_info_panel_text import (
 )
 from echozero.ui.qt.timeline.style import TIMELINE_STYLE
 
-_SECTION_CONTENT_MARGIN_PX = 8
+_SECTION_CONTENT_MARGIN_PX = 6
 _PANEL_COLLAPSED_WIDTH = 28
-_PANEL_DEFAULT_EXPANDED_WIDTH = 320
+_PANEL_DEFAULT_EXPANDED_WIDTH = 296
 
 
 class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
@@ -85,7 +87,7 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         header.setObjectName("timelineObjectInfoHeader")
         self._header_layout = QHBoxLayout(header)
         self._header_layout.setContentsMargins(0, 0, 0, 0)
-        self._header_layout.setSpacing(6)
+        self._header_layout.setSpacing(4)
         self._title = QLabel("Inspector", header)
         self._title.setObjectName(style.title_object_name)
         self._header_layout.addWidget(self._title, 1)
@@ -116,7 +118,7 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
             _SECTION_CONTENT_MARGIN_PX,
             _SECTION_CONTENT_MARGIN_PX,
         )
-        selection_layout.setSpacing(6)
+        selection_layout.setSpacing(4)
 
         selection_header = QHBoxLayout()
         selection_header.setContentsMargins(0, 0, 0, 0)
@@ -150,7 +152,7 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         self._details_container = QWidget(self._content_splitter)
         details_layout = QVBoxLayout(self._details_container)
         details_layout.setContentsMargins(0, 0, 0, 0)
-        details_layout.setSpacing(style.section_spacing_px)
+        details_layout.setSpacing(max(6, style.section_spacing_px - 2))
         self._content_splitter.addWidget(self._details_container)
 
         self._event_preview_card = QFrame(self)
@@ -163,7 +165,7 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
             _SECTION_CONTENT_MARGIN_PX,
             _SECTION_CONTENT_MARGIN_PX,
         )
-        event_preview_layout.setSpacing(6)
+        event_preview_layout.setSpacing(5)
         event_preview_section = QLabel("EVENT PREVIEW", self._event_preview_card)
         event_preview_section.setObjectName("timeline_object_info_section")
         event_preview_layout.addWidget(event_preview_section)
@@ -171,6 +173,25 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         self._event_preview_meta.setObjectName("selectionSecondaryLabel")
         self._event_preview_meta.setWordWrap(True)
         event_preview_layout.addWidget(self._event_preview_meta)
+        preview_variant_row = QHBoxLayout()
+        preview_variant_row.setContentsMargins(0, 0, 0, 0)
+        preview_variant_row.setSpacing(6)
+        self._event_preview_variant_buttons: dict[str, QPushButton] = {}
+        for variant in _audio_event_preview_variants():
+            button = QPushButton(
+                _audio_event_preview_variant_label(variant),
+                self._event_preview_card,
+            )
+            button.setProperty("compact", True)
+            self._set_button_appearance(button, "subtle")
+            button.clicked.connect(
+                lambda _checked=False, preview_variant=variant: self._set_event_preview_variant(
+                    preview_variant
+                )
+            )
+            preview_variant_row.addWidget(button, 1)
+            self._event_preview_variant_buttons[variant] = button
+        event_preview_layout.addLayout(preview_variant_row)
         self._event_preview_waveform = _EventPreviewWaveform(self._event_preview_card)
         event_preview_layout.addWidget(self._event_preview_waveform)
         self._event_preview_button = QPushButton("Play Clip", self._event_preview_card)
@@ -182,6 +203,8 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         details_layout.addWidget(self._event_preview_card)
 
         self._contract = InspectorContract(title="No timeline object selected.")
+        self._event_preview_variant = _audio_event_preview_variants()[0]
+        self._sync_event_preview_variant_buttons()
         self._actions_scroll = QScrollArea(self._details_container)
         self._actions_scroll.setObjectName("timeline_object_info_scroll")
         self._actions_scroll.setWidgetResizable(True)
@@ -196,7 +219,7 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         )
         self._action_sections_layout = QVBoxLayout(self._action_sections)
         self._action_sections_layout.setContentsMargins(0, 0, 0, 0)
-        self._action_sections_layout.setSpacing(max(4, style.section_spacing_px - 6))
+        self._action_sections_layout.setSpacing(max(3, style.section_spacing_px - 7))
         self._action_sections_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self._action_sections_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         self._actions_scroll.setWidget(self._action_sections)
@@ -211,7 +234,7 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
             _SECTION_CONTENT_MARGIN_PX,
             _SECTION_CONTENT_MARGIN_PX,
         )
-        layer_controls_layout.setSpacing(6)
+        layer_controls_layout.setSpacing(5)
         playback_section = QLabel("AUDIO", self._layer_controls)
         playback_section.setObjectName("timeline_object_info_section")
         layer_controls_layout.addWidget(playback_section)
@@ -330,7 +353,7 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
                 self._style.content_padding.bottom,
             )
             self._root_layout.setSpacing(self._style.section_spacing_px)
-            self._header_layout.setSpacing(6)
+            self._header_layout.setSpacing(4)
             self.setMinimumWidth(self._style.min_width_px)
             self.setMaximumWidth(self._style.max_width_px)
             self.resize(self._expanded_width, self.height())
@@ -429,7 +452,7 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         self._body.verticalScrollBar().setValue(0)
 
     def _sync_event_preview(self, action: InspectorAction | None) -> None:
-        preview = _event_preview_from_action(action)
+        preview = _preview_state_from_action(action)
         is_visible = action is not None and action.enabled and preview is not None
         self._event_preview_card.setVisible(is_visible)
         self._action_buttons.pop("preview_event_clip", None)
@@ -437,9 +460,29 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
             self._event_preview_meta.setText("")
             self._event_preview_waveform.set_preview(None)
             self._event_preview_button.setEnabled(False)
+            self._sync_event_preview_variant_buttons(is_enabled=False)
             return
-        self._event_preview_meta.setText(_event_preview_meta_text(preview))
+        self._event_preview_meta.setText(_preview_meta_text(preview))
         self._event_preview_waveform.set_preview(preview)
+        self._event_preview_waveform.set_variant(self._event_preview_variant)
         self._event_preview_button.setText(action.label)
         self._event_preview_button.setEnabled(action.enabled)
+        self._sync_event_preview_variant_buttons(is_enabled=True)
         self._action_buttons["preview_event_clip"] = self._event_preview_button
+
+    def _set_event_preview_variant(self, variant: str) -> None:
+        if variant not in self._event_preview_variant_buttons:
+            return
+        self._event_preview_variant = variant
+        self._event_preview_waveform.set_variant(variant)
+        self._sync_event_preview_variant_buttons(
+            is_enabled=self._event_preview_card.isVisible()
+        )
+
+    def _sync_event_preview_variant_buttons(self, *, is_enabled: bool = False) -> None:
+        for variant, button in self._event_preview_variant_buttons.items():
+            button.setProperty("active", variant == self._event_preview_variant)
+            button.setEnabled(is_enabled)
+            button.style().unpolish(button)
+            button.style().polish(button)
+            button.update()

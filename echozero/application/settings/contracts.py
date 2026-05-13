@@ -5,7 +5,8 @@ Connects settings-owning services to neutral Qt rendering without widget-local s
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field as dataclass_field
 from enum import Enum
 
 
@@ -14,6 +15,7 @@ class SettingsFieldWidget(str, Enum):
 
     TEXT = "text"
     DROPDOWN = "dropdown"
+    CHECKBOX_GROUP = "checkbox_group"
     TOGGLE = "toggle"
     NUMBER = "number"
 
@@ -32,6 +34,7 @@ class SettingsOption:
 
     value: object
     label: str
+    metadata: Mapping[str, object] = dataclass_field(default_factory=dict)
 
 
 @dataclass(slots=True, frozen=True)
@@ -64,6 +67,8 @@ class SettingsSection:
     title: str
     description: str = ""
     fields: tuple[SettingsField, ...] = ()
+    preferred_columns: int = 1
+    always_show_advanced: bool = False
 
 
 @dataclass(slots=True, frozen=True)

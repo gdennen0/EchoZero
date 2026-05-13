@@ -12,6 +12,9 @@ from echozero.foundry.persistence import (
     migrate_foundry_state,
 )
 from echozero.foundry.review_server import serve_review_session
+from echozero.foundry.services.project_specialized_model_service import (
+    ProjectSpecializedModelService,
+)
 from echozero.foundry.ui import run_foundry_ui
 
 
@@ -156,6 +159,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     train_folder.add_argument("--reference-run-id")
     train_folder.add_argument("--reference-artifact-id")
+
+    train_grouped_binary = sub.add_parser("train-grouped-binary-models")
+    train_grouped_binary.add_argument("source_version_id")
+    train_grouped_binary.add_argument(
+        "--model",
+        action="append",
+        required=True,
+        metavar="TARGET=LABEL1,LABEL2",
+        help=(
+            "Repeatable grouped-binary model spec. Use TARGET alone for TARGET vs other, "
+            "or TARGET=LABEL1,LABEL2 to collapse several source labels into one target class."
+        ),
+    )
+    train_grouped_binary.add_argument("--install-runtime", action="store_true")
+    train_grouped_binary.add_argument("--models-dir", type=Path)
 
     run = sub.add_parser("create-run")
     run.add_argument("dataset_version_id")
@@ -437,6 +455,74 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(payload, indent=2))
         return 0 if run.status.value == "completed" else 1
 
+    if args.command == "train-grouped-binary-models":
+        payloads: list[dict[str, object]] = []
+        for target_label, source_labels in _parse_grouped_model_specs(args.model):
+            derived = app.datasets.derive_binary_dataset_version(
+                args.source_version_id,
+                positive_label=target_label,
+                positive_aliases=tuple(source_labels),
+            )
+            if not derived.split_plan.get("assignments"):
+                app.plan_version(
+                    derived.id,
+                    validation_split=0.15,
+                    test_split=0.10,
+                    seed=42,
+                    balance_strategy="none",
+                )
+                refreshed = app.datasets.get_version(derived.id)
+                if refreshed is None:
+                    raise ValueError(f"Derived dataset version disappeared: {derived.id}")
+                derived = refreshed
+            run = app.create_run(derived.id, _monster_binary_run_spec(derived))
+            run = app.start_run(run.id)
+            eval_reports = EvalReportRepository(args.root).list_for_run(run.id)
+            artifacts = ModelArtifactRepository(args.root).list_for_run(run.id)
+            artifact_ids = [artifact.id for artifact in artifacts]
+            installed_bundle = None
+            if args.install_runtime and artifacts:
+                latest_artifact = sorted(artifacts, key=lambda artifact: artifact.created_at)[-1]
+                bundle = app.runtime_bundles.install_binary_drum_artifact(
+                    latest_artifact.id,
+                    bundle_label=target_label,
+                    bundle_name=ProjectSpecializedModelService._bundle_name(
+                        label=target_label,
+                        artifact_id=latest_artifact.id,
+                    ),
+                    models_dir=args.models_dir,
+                )
+                installed_bundle = {
+                    "label": bundle.label,
+                    "bundle_name": bundle.bundle_name,
+                    "bundle_dir": str(bundle.bundle_dir),
+                    "manifest_path": str(bundle.manifest_path),
+                    "weights_path": str(bundle.weights_path),
+                }
+            payloads.append(
+                {
+                    "target_label": target_label,
+                    "source_labels": source_labels,
+                    "dataset_version_id": derived.id,
+                    "run_id": run.id,
+                    "status": run.status.value,
+                    "eval_report_ids": [report.id for report in eval_reports],
+                    "artifact_ids": artifact_ids,
+                    "exports_dir": str(run.exports_dir(args.root)),
+                    "installed_bundle": installed_bundle,
+                }
+            )
+        print(
+            json.dumps(
+                {
+                    "source_version_id": args.source_version_id,
+                    "models": payloads,
+                },
+                indent=2,
+            )
+        )
+        return 0 if all(item["status"] == "completed" for item in payloads) else 1
+
     if args.command == "create-run":
         run = app.create_run(args.dataset_version_id, json.loads(args.spec_json))
         print(json.dumps({"run_id": run.id, "status": run.status.value}, indent=2))
@@ -611,6 +697,66 @@ def _parse_per_class_recall_floors(entries: list[str]) -> dict[str, float]:
             raise ValueError(f"Invalid --gate-per-class-recall-floor value: {entry}")
         floors[label.strip()] = float(raw_value)
     return floors
+
+
+def _monster_binary_run_spec(version) -> dict[str, object]:
+    return {
+        "schema": "foundry.train_run_spec.v1",
+        "classificationMode": "binary",
+        "model": {"type": "crnn"},
+        "data": {
+            "datasetVersionId": version.id,
+            "sampleRate": version.sample_rate,
+            "maxLength": version.sample_rate,
+            "nFft": 2048,
+            "hopLength": 512,
+            "nMels": 128,
+            "fmax": 8000,
+        },
+        "training": {
+            "epochs": 12,
+            "batchSize": 4,
+            "learningRate": 0.001,
+            "seed": 42,
+            "trainerProfile": "stronger_v1",
+            "optimizer": "adamw",
+            "regularizationAlpha": 0.00005,
+            "weightDecay": 0.0001,
+            "averageWeights": True,
+            "earlyStoppingPatience": 4,
+            "minEpochs": 4,
+            "classWeighting": "balanced",
+            "rebalanceStrategy": "oversample",
+            "augmentTrain": True,
+            "augmentNoiseStd": 0.03,
+            "augmentGainJitter": 0.15,
+            "augmentCopies": 2,
+            "syntheticMix": {"enabled": True, "ratio": 0.35, "cap": 400},
+        },
+    }
+
+
+def _parse_grouped_model_specs(raw_specs: list[str]) -> list[tuple[str, list[str]]]:
+    specs: list[tuple[str, list[str]]] = []
+    for raw_spec in raw_specs:
+        spec = str(raw_spec).strip()
+        if not spec:
+            raise ValueError("Grouped model spec must be non-empty.")
+        if "=" not in spec:
+            label = spec.lower()
+            specs.append((label, [label]))
+            continue
+        target_raw, labels_raw = spec.split("=", 1)
+        target_label = target_raw.strip().lower()
+        source_labels = [label.strip().lower() for label in labels_raw.split(",") if label.strip()]
+        if not target_label:
+            raise ValueError(f"Grouped model spec '{raw_spec}' is missing a target label.")
+        if not source_labels:
+            raise ValueError(
+                f"Grouped model spec '{raw_spec}' must include at least one source label."
+            )
+        specs.append((target_label, source_labels))
+    return specs
 
 
 def _print_review_session_summary(session) -> None:

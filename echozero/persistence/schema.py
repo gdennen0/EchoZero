@@ -13,7 +13,7 @@ import json
 
 from echozero.errors import PersistenceError
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 OBJECT_CONTENT_SCHEMA_VERSION = 10
 
 _DDL = """\
@@ -52,6 +52,9 @@ CREATE TABLE IF NOT EXISTS song_versions (
     duration_seconds REAL NOT NULL,
     original_sample_rate INTEGER NOT NULL,
     audio_hash TEXT NOT NULL,
+    bpm REAL,
+    bpm_confidence REAL,
+    beat_anchor_seconds REAL,
     ma3_timecode_pool_no INTEGER,
     rebuild_plan_json TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL
@@ -328,6 +331,22 @@ def _migrate_v9_to_v10(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _migrate_v10_to_v11(conn: sqlite3.Connection) -> None:
+    versions_table = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='song_versions'"
+    ).fetchone()
+    if versions_table is None:
+        return
+
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(song_versions)").fetchall()}
+    if "bpm" not in columns:
+        conn.execute("ALTER TABLE song_versions ADD COLUMN bpm REAL ")
+    if "bpm_confidence" not in columns:
+        conn.execute("ALTER TABLE song_versions ADD COLUMN bpm_confidence REAL ")
+    if "beat_anchor_seconds" not in columns:
+        conn.execute("ALTER TABLE song_versions ADD COLUMN beat_anchor_seconds REAL ")
+
+
 _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _migrate_v1_to_v2,
     3: _migrate_v2_to_v3,
@@ -353,6 +372,7 @@ _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     8: _migrate_v7_to_v8,
     9: _migrate_v8_to_v9,
     10: _migrate_v9_to_v10,
+    11: _migrate_v10_to_v11,
 }
 
 

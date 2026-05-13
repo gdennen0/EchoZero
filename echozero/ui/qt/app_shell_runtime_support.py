@@ -221,6 +221,7 @@ def apply_audio_output_config(
                     "output_device": config.output_device,
                     "sample_rate": config.sample_rate,
                     "channels": config.channels,
+                    "master_output_bus": config.master_output_bus,
                     "stream_latency": config.stream_latency,
                     "stream_blocksize": config.stream_blocksize,
                     "prime_output_buffers_using_stream_callback": (

@@ -344,12 +344,96 @@ local function resolveTargetSequences(rawSequenceNumbers)
     return sequences
 end
 
-local function actualCueNumberFromHandle(cueHandle)
-    local rawCueNumber = EZ.safeNumberProperty(cueHandle, "number") or EZ.safeNumberProperty(cueHandle, "no")
-    if not rawCueNumber then
+local function rawHandleProperty(handle, propertyName)
+    if not handle or not propertyName then
         return nil
     end
-    return tonumber(rawCueNumber) / 1000
+    local okField, fieldValue = pcall(function() return handle[propertyName] end)
+    if okField and fieldValue ~= nil and fieldValue ~= "" then
+        return fieldValue
+    end
+    local getter = handle.Get
+    if getter then
+        local okGet, getValue = pcall(function() return handle:Get(propertyName) end)
+        if okGet and getValue ~= nil and getValue ~= "" then
+            return getValue
+        end
+    end
+    return nil
+end
+
+local function rawHandlePropertyAny(handle, propertyNames)
+    for _, propertyName in ipairs(propertyNames or {}) do
+        local value = rawHandleProperty(handle, propertyName)
+        if value ~= nil and value ~= "" then
+            return value
+        end
+    end
+    return nil
+end
+
+local function handleDisplayName(handle)
+    local value = rawHandlePropertyAny(handle, {"name", "Name", "NAME"})
+    if value ~= nil and type(value) ~= "table" and type(value) ~= "userdata" then
+        local text = trimPresetText(value)
+        if text ~= "" then
+            return text
+        end
+    end
+    return ""
+end
+
+local function handleClassName(handle)
+    if handle and handle.GetClass then
+        local ok, className = pcall(function() return handle:GetClass() end)
+        if ok and className ~= nil then
+            return tostring(className)
+        end
+    end
+    return ""
+end
+
+local function handleAddress(handle)
+    if handle and handle.Addr then
+        local ok, address = pcall(function() return handle:Addr() end)
+        if ok and address ~= nil then
+            return tostring(address)
+        end
+    end
+    return ""
+end
+
+local function normalizeMaCueNumber(rawCueNumber)
+    local numeric = tonumber(rawCueNumber)
+    if not numeric then
+        return nil
+    end
+    if numeric == 0 then
+        return 0
+    end
+    if math.abs(numeric) >= 1000 then
+        return numeric / 1000
+    end
+    return numeric
+end
+
+local function actualCueNumberFromHandle(cueHandle)
+    local rawCueNumber = rawHandlePropertyAny(cueHandle, {"number", "Number", "NUMBER", "no", "No", "NO"})
+    return normalizeMaCueNumber(rawCueNumber)
+end
+
+local function actualPartNumberFromHandle(partHandle, fallbackIndex)
+    local rawPartNumber = rawHandlePropertyAny(partHandle, {"part", "Part", "PART"})
+    local numeric = tonumber(rawPartNumber)
+    if numeric then
+        return numeric
+    end
+    local rawCuePart = rawHandlePropertyAny(partHandle, {"cuepart", "CuePart", "CUEPART"})
+    numeric = normalizeMaCueNumber(rawCuePart)
+    if numeric then
+        return numeric
+    end
+    return tonumber(fallbackIndex) or 0
 end
 
 local function recipeLineReferencesPreset(recipeHandle, normalizedSourcePresetRef)
@@ -395,7 +479,8 @@ local function collectPresetReplacementFindings(targetSequences, filterGroupLook
                                 if recipe then
                                     local matchedGroup = filterGroupLookup[recipe.selection]
                                     if matchedGroup and recipeLineReferencesPreset(recipe, normalizedSourcePresetRef) then
-                                        local partNumber = string.format("%d.%d", partIndex - 1, recipeIndex)
+                                        local partActualNumber = actualPartNumberFromHandle(part, partIndex - 1)
+                                        local partNumber = string.format("%s.%d", tostring(partActualNumber), recipeIndex)
                                         table.insert(findings, {
                                             description = string.format(
                                                 "Seq %d \"%s\" Cue %g Part %s [Group: %s]: %s -> %s",
@@ -429,8 +514,8 @@ local function sendRecipeCuePayload(change, payload)
 end
 
 local function normalizeCueNumberText(value)
-    local cueNumber = tonumber(value)
-    if not cueNumber or cueNumber <= 0 then
+    local cueNumber = normalizeMaCueNumber(value)
+    if cueNumber == nil or cueNumber < 0 then
         return nil
     end
     if math.floor(cueNumber) == cueNumber then
@@ -487,21 +572,198 @@ local function recipeTextProperty(recipeHandle, propertyNames)
     return ""
 end
 
+local function recipeHandleRef(recipeHandle, propertyNames)
+    return rawHandlePropertyAny(recipeHandle, propertyNames)
+end
+
+local function recipeObjectLabel(value)
+    if value == nil then
+        return ""
+    end
+    if type(value) == "table" or type(value) == "userdata" then
+        local className = handleClassName(value)
+        local address = handleAddress(value)
+        local name = handleDisplayName(value)
+        local base = trimPresetText(tostring(value))
+        local pieces = {}
+        if base ~= "" then table.insert(pieces, base) end
+        if name ~= "" then table.insert(pieces, "'" .. name .. "'") end
+        if address ~= "" then table.insert(pieces, "@" .. address) end
+        if #pieces > 0 then return table.concat(pieces, " ") end
+        if className ~= "" then return className end
+    end
+    return trimPresetText(value)
+end
+
+local presetValueSemanticsCache = {}
+
+local function presetRefNumbersFromText(rawText)
+    local text = trimPresetText(rawText)
+    if text == "" then
+        return nil, nil
+    end
+    local typeNo, presetNo = text:match("Preset%s+(%d+)%.(%d+)")
+    if not typeNo then
+        typeNo, presetNo = text:match("^(%d+)%.(%d+)$")
+    end
+    if typeNo and presetNo then
+        return tonumber(typeNo), tonumber(presetNo)
+    end
+    return nil, nil
+end
+
+local function presetRefNumbersFromHandleOrLabel(handleOrLabel)
+    if type(handleOrLabel) == "table" or type(handleOrLabel) == "userdata" then
+        local typeNo, presetNo = presetRefNumbersFromText(tostring(handleOrLabel))
+        if typeNo and presetNo then
+            return typeNo, presetNo
+        end
+        return presetRefNumbersFromText(handleAddress(handleOrLabel):gsub("^.*%.4%.", "Preset "))
+    end
+    return presetRefNumbersFromText(handleOrLabel)
+end
+
+local function presetExportDirectory()
+    local home = os.getenv and os.getenv("HOME") or nil
+    if home and trimPresetText(home) ~= "" then
+        return trimPresetText(home) .. "/MALightingTechnology/gma3_library/datapools/presets"
+    end
+    return "/Users/march/MALightingTechnology/gma3_library/datapools/presets"
+end
+
+local function readAllText(path)
+    local file = io and io.open and io.open(path, "r") or nil
+    if not file then
+        return nil
+    end
+    local data = file:read("*a")
+    file:close()
+    return data
+end
+
+local function derivePresetValueSemanticsFromXml(xmlText)
+    local absoluteCount = 0
+    local relativeCount = 0
+    local stepCount = 0
+    local phaserCount = 0
+    local shapeCount = 0
+    local attributes = {}
+    for phaserAttrs in tostring(xmlText or ""):gmatch("<Phaser%s+([^>]*)>") do
+        phaserCount = phaserCount + 1
+        local attribute = phaserAttrs:match('Attribute="([^"]+)"') or ""
+        if attribute ~= "" then
+            attributes[attribute] = (attributes[attribute] or 0) + 1
+        end
+        if phaserAttrs:find('Speed=', 1, true) or phaserAttrs:find('Phase=', 1, true) or phaserAttrs:find('Measure=', 1, true) then
+            shapeCount = shapeCount + 1
+        end
+    end
+    for stepAttrs in tostring(xmlText or ""):gmatch("<Step%s+([^>]*)/>") do
+        stepCount = stepCount + 1
+        if stepAttrs:find('Absolute=', 1, true) or stepAttrs:find('AbsolutePhys=', 1, true) then
+            absoluteCount = absoluteCount + 1
+        end
+        if stepAttrs:find('Relative=', 1, true) or stepAttrs:find('RelativePhys=', 1, true) then
+            relativeCount = relativeCount + 1
+        end
+        if stepAttrs:find('Trans=', 1, true) or stepAttrs:find('Width=', 1, true) or stepAttrs:find('Accel=', 1, true) or stepAttrs:find('Decel=', 1, true) or stepAttrs:find('Integrated=', 1, true) then
+            shapeCount = shapeCount + 1
+        end
+    end
+    local semantics = "unknown"
+    if absoluteCount > 0 and relativeCount > 0 then
+        semantics = "mixed"
+    elseif relativeCount > 0 then
+        semantics = "relative"
+    elseif absoluteCount > 0 then
+        semantics = "absolute"
+    end
+    local phaserShape = "unknown"
+    if phaserCount > 0 then
+        if stepCount > phaserCount or shapeCount > 0 then
+            phaserShape = "multi_step"
+        else
+            phaserShape = "static"
+        end
+    end
+    return {
+        value_semantics = semantics,
+        phaser_shape = phaserShape,
+        phaser_count = phaserCount,
+        step_count = stepCount,
+        absolute_step_count = absoluteCount,
+        relative_step_count = relativeCount,
+        shape_field_count = shapeCount,
+        attributes = attributes,
+        source = "export_xml",
+    }
+end
+
+local function inspectPresetValueSemantics(presetHandleOrLabel)
+    local typeNo, presetNo = presetRefNumbersFromHandleOrLabel(presetHandleOrLabel)
+    if not typeNo or not presetNo then
+        return { value_semantics = "unknown", phaser_shape = "unknown", source = "unresolved_preset_ref" }
+    end
+    local cacheKey = tostring(typeNo) .. "." .. tostring(presetNo)
+    if presetValueSemanticsCache[cacheKey] then
+        return presetValueSemanticsCache[cacheKey]
+    end
+    local exportName = "ez_sem_preset_" .. tostring(typeNo) .. "_" .. tostring(presetNo)
+    local command = string.format('Export Preset %d.%d "%s" /Overwrite /NC', typeNo, presetNo, exportName)
+    local ok = pcall(function() Cmd(command) end)
+    local xmlPath = presetExportDirectory() .. "/" .. exportName .. ".xml"
+    local xmlText = ok and readAllText(xmlPath) or nil
+    local result
+    if xmlText and xmlText ~= "" then
+        result = derivePresetValueSemanticsFromXml(xmlText)
+    else
+        result = { value_semantics = "unknown", phaser_shape = "unknown", source = "export_unavailable" }
+    end
+    result.preset_ref = "Preset " .. tostring(typeNo) .. "." .. tostring(presetNo)
+    result.preset_type_no = typeNo
+    result.preset_no = presetNo
+    presetValueSemanticsCache[cacheKey] = result
+    return result
+end
+
+local function boolText(value)
+    if value == true then return "true" end
+    if value == false then return "false" end
+    local text = trimPresetText(value):lower()
+    if text == "true" or text == "yes" or text == "1" then return "true" end
+    if text == "false" or text == "no" or text == "0" then return "false" end
+    return trimPresetText(value)
+end
+
+local function rowTrackingLanes(row)
+    local semantics = trimPresetText(row and row.value_semantics or row and row.recipe_mode):lower()
+    if semantics == "mixed" then
+        return {"absolute", "relative"}
+    end
+    if semantics == "absolute" or semantics == "relative" then
+        return {semantics}
+    end
+    return {"unknown"}
+end
+
 local function inferRecipeFeatureGroup(recipeHandle)
+    local presetHandle = recipeHandleRef(recipeHandle, {"preset", "Preset", "PRESET", "values", "Values", "VALUES"})
     local candidates = {
-        recipeTextProperty(recipeHandle, {"values", "VALUES"}),
-        recipeTextProperty(recipeHandle, {"preset", "PRESET"}),
+        recipeObjectLabel(presetHandle),
+        recipeTextProperty(recipeHandle, {"values", "Values", "VALUES"}),
+        recipeTextProperty(recipeHandle, {"preset", "Preset", "PRESET"}),
+        recipeTextProperty(recipeHandle, {"featuregroup", "FeatureGroup", "FEATUREGROUP"}),
     }
     for _, candidate in ipairs(candidates) do
-        local featureGroupName = candidate:match("FeatureGroup%s+%d+%s+'([^']+)'")
-        if featureGroupName and trimPresetText(featureGroupName) ~= "" then
-            return trimPresetText(featureGroupName)
-        end
-        local presetFeatureName = candidate:match("^(%d+)%s+'([^']+)'")
-        if presetFeatureName then
-            local matched = candidate:match("^%d+%s+'([^']+)'")
-            if matched and trimPresetText(matched) ~= "" then
-                return trimPresetText(matched)
+        local text = trimPresetText(candidate)
+        if text ~= "" then
+            local presetTypeNo = text:match("Preset%s+(%d+)%.%d+")
+            if presetTypeNo then
+                return "PresetType " .. tostring(presetTypeNo)
+            end
+            local featureGroupName = text:match("FeatureGroup%s+%d+%s+'([^']+)'")
+            if featureGroupName and trimPresetText(featureGroupName) ~= "" then
+                return trimPresetText(featureGroupName)
             end
         end
     end
@@ -509,23 +771,9 @@ local function inferRecipeFeatureGroup(recipeHandle)
 end
 
 local function inferRecipeMode(recipeHandle)
-    local candidates = {
-        recipeTextProperty(recipeHandle, {"mode", "MODE", "valuemode", "VALUEMODE"}),
-        recipeTextProperty(recipeHandle, {"values", "VALUES"}),
-        recipeTextProperty(recipeHandle, {"preset", "PRESET"}),
-    }
-    for _, candidate in ipairs(candidates) do
-        local lowered = trimPresetText(candidate):lower()
-        if lowered ~= "" then
-            if lowered:find("relative", 1, true) then
-                return "relative"
-            end
-            if lowered:find("absolute", 1, true) then
-                return "absolute"
-            end
-        end
-    end
-    return ""
+    local presetHandle = recipeHandleRef(recipeHandle, {"preset", "Preset", "PRESET", "values", "Values", "VALUES"})
+    local semantics = inspectPresetValueSemantics(presetHandle)
+    return semantics.value_semantics or "unknown", semantics
 end
 
 local function buildCueRecipeRows(sequenceNo, cueNo)
@@ -568,36 +816,61 @@ local function buildCueRecipeRows(sequenceNo, cueNo)
         end
         for recipeIndex = 1, #recipes do
             local recipeHandle = recipes[recipeIndex]
-            local matchedGroup = trimPresetText(EZ.safeStringProperty(recipeHandle.selection, "name"))
+            local selectionHandle = recipeHandleRef(recipeHandle, {"selection", "Selection", "SELECTION"})
+            local matchedGroup = handleDisplayName(selectionHandle)
+            if matchedGroup == "" then
+                matchedGroup = recipeObjectLabel(selectionHandle)
+            end
             local featureGroup = inferRecipeFeatureGroup(recipeHandle)
-            local recipeMode = inferRecipeMode(recipeHandle)
+            local recipeMode, presetSemantics = inferRecipeMode(recipeHandle)
+            local partActualNumber = actualPartNumberFromHandle(partHandle, partIndex - 1)
+            local presetHandle = recipeHandleRef(recipeHandle, {"preset", "Preset", "PRESET"})
+            local valuesHandle = recipeHandleRef(recipeHandle, {"values", "Values", "VALUES"})
+            local recipeRelativeFlag = boolText(rawHandlePropertyAny(recipeHandle, {"relative", "Relative", "RELATIVE"}))
+            local recipeModeRaw = recipeTextProperty(recipeHandle, {"mode", "Mode", "MODE"})
+            local recipePresetMode = recipeTextProperty(recipeHandle, {"presetmode", "PresetMode", "PRESETMODE"})
+            local recipePresetModeInternal = recipeTextProperty(recipeHandle, {"presetmodeinternal", "PresetModeInternal", "PRESETMODEINTERNAL"})
             local selectionKey = ""
             if matchedGroup ~= "" and featureGroup ~= "" then
-                selectionKey = matchedGroup .. ":" .. featureGroup
+                selectionKey = string.format("part:%s|group:%s|feature:%s", tostring(partActualNumber), matchedGroup, featureGroup)
             end
             if selectionKey == "" then
                 table.insert(unsupportedReasons, "One or more recipe lines are missing a stable selection key.")
             end
-            if recipeMode == "" then
-                table.insert(unsupportedReasons, "One or more recipe lines are missing relative/absolute mode metadata.")
+            if recipeMode == "unknown" then
+                table.insert(unsupportedReasons, "One or more recipe lines have unknown referenced preset value semantics.")
             end
-            local partNumber = string.format("%d.%d", partIndex - 1, recipeIndex)
+            local partNumber = string.format("%s.%d", tostring(partActualNumber), recipeIndex)
             table.insert(rows, {
                 seq_number = tonumber(sequenceNo) or 0,
                 seq_name = tostring(seqName or ""),
                 actual_cue_number = tonumber(actualCueNumber) or 0,
                 part_number = partNumber,
+                part_actual_number = partActualNumber,
                 feature_group = featureGroup,
                 recipe_mode = recipeMode ~= "" and recipeMode or "unknown",
+                value_semantics = recipeMode ~= "" and recipeMode or "unknown",
+                phaser_shape = presetSemantics.phaser_shape or "unknown",
+                phaser_count = presetSemantics.phaser_count or 0,
+                step_count = presetSemantics.step_count or 0,
+                absolute_step_count = presetSemantics.absolute_step_count or 0,
+                relative_step_count = presetSemantics.relative_step_count or 0,
+                semantic_source = presetSemantics.source or "unknown",
+                recipe_relative_flag = recipeRelativeFlag,
+                recipe_mode_raw = recipeModeRaw,
                 matched_group = matchedGroup,
                 line_index = recipeIndex,
                 selection_key = selectionKey,
                 source_cue_number = tonumber(actualCueNumber) or 0,
                 source_part_number = partNumber,
-                preset_ref = recipeTextProperty(recipeHandle, {"preset", "PRESET"}),
-                values_ref = recipeTextProperty(recipeHandle, {"values", "VALUES"}),
-                selection_mode = recipeTextProperty(recipeHandle, {"selectionmode", "SELECTIONMODE"}),
-                preset_mode = recipeTextProperty(recipeHandle, {"presetmode", "PRESETMODE", "presetmodeinternal", "PRESETMODEINTERNAL"}),
+                preset_ref = recipeObjectLabel(presetHandle),
+                values_ref = recipeObjectLabel(valuesHandle),
+                referenced_preset_ref = presetSemantics.preset_ref or recipeObjectLabel(presetHandle),
+                referenced_preset_type_no = presetSemantics.preset_type_no or 0,
+                referenced_preset_no = presetSemantics.preset_no or 0,
+                selection_mode = recipeTextProperty(recipeHandle, {"selectionmode", "SelectionMode", "SELECTIONMODE"}),
+                preset_mode = recipePresetMode,
+                preset_mode_internal = recipePresetModeInternal,
             })
         end
     end
@@ -621,10 +894,49 @@ end
 
 local function recipeStateKey(row)
     local explicit = trimPresetText(row.selection_key)
-    if explicit ~= "" then
-        return explicit
+    if explicit == "" then
+        explicit = trimPresetText(row.matched_group) .. ":" .. trimPresetText(row.feature_group)
     end
-    return trimPresetText(row.matched_group) .. ":" .. trimPresetText(row.feature_group)
+    local lane = trimPresetText(row.state_lane or row.value_semantics or row.recipe_mode)
+    if lane ~= "" then
+        return explicit .. "|lane:" .. lane
+    end
+    return explicit
+end
+
+local function recipeStateKeysForRow(row)
+    local keys = {}
+    for _, lane in ipairs(rowTrackingLanes(row)) do
+        local cloned = {}
+        for key, value in pairs(row or {}) do
+            cloned[key] = value
+        end
+        cloned.state_lane = lane
+        table.insert(keys, recipeStateKey(cloned))
+    end
+    return keys
+end
+
+local function nextCueNumberAfter(sequenceNo, cueNo)
+    local sequenceHandle = resolveSequenceHandle(sequenceNo)
+    if not sequenceHandle then
+        return nil
+    end
+    local targetValue = tonumber(cueNo)
+    if not targetValue then
+        return nil
+    end
+    local best = nil
+    local cues = EZ.safeChildren(sequenceHandle)
+    for cueIndex = 1, #cues do
+        local actualCueNumber = actualCueNumberFromHandle(cues[cueIndex])
+        if actualCueNumber and tonumber(actualCueNumber) > targetValue then
+            if not best or tonumber(actualCueNumber) < tonumber(best) then
+                best = tonumber(actualCueNumber)
+            end
+        end
+    end
+    return best
 end
 
 local function collectSequenceRecipeRowsUpTo(sequenceNo, maxCueNumber)
@@ -698,15 +1010,21 @@ local function effectiveRecipeContributorsFromRows(rows)
 
     local contributorsByKey = {}
     for _, row in ipairs(relevantRows) do
-        local key = recipeStateKey(row)
-        local recipeMode = trimPresetText(row.recipe_mode):lower()
-        if key ~= "" and key ~= ":" and (recipeMode == "absolute" or recipeMode == "relative") then
-            if recipeMode == "relative" then
-                local bucket = contributorsByKey[key] or {}
-                table.insert(bucket, row)
-                contributorsByKey[key] = bucket
-            else
-                contributorsByKey[key] = {row}
+        for _, lane in ipairs(rowTrackingLanes(row)) do
+            local expanded = {}
+            for key, value in pairs(row) do
+                expanded[key] = value
+            end
+            expanded.state_lane = lane
+            local key = recipeStateKey(expanded)
+            if key ~= "" and key ~= ":" and lane ~= "unknown" then
+                if lane == "relative" then
+                    local bucket = contributorsByKey[key] or {}
+                    table.insert(bucket, expanded)
+                    contributorsByKey[key] = bucket
+                else
+                    contributorsByKey[key] = {expanded}
+                end
             end
         end
     end
@@ -928,16 +1246,31 @@ end
 local function effectiveRecipeContributorsFromRows(rows, sequenceNo, cueNo)
     local contributorsByKey = {}
     for _, row in ipairs(rows) do
-        if tonumber(row.seq_number) == tonumber(sequenceNo) and tonumber(row.actual_cue_number) <= tonumber(cueNo) then
-            local key = tostring(row.selection_key or "")
-            local mode = trimPresetText(row.recipe_mode):lower()
-            if mode == "relative" then
-                if not contributorsByKey[key] then
-                    contributorsByKey[key] = {}
+        local inScope = true
+        if sequenceNo ~= nil then
+            inScope = inScope and tonumber(row.seq_number) == tonumber(sequenceNo)
+        end
+        if cueNo ~= nil then
+            inScope = inScope and tonumber(row.actual_cue_number) <= tonumber(cueNo)
+        end
+        if inScope then
+            for _, lane in ipairs(rowTrackingLanes(row)) do
+                local expanded = {}
+                for key, value in pairs(row) do
+                    expanded[key] = value
                 end
-                table.insert(contributorsByKey[key], row)
-            else
-                contributorsByKey[key] = {row}
+                expanded.state_lane = lane
+                local key = recipeStateKey(expanded)
+                if key ~= "" and key ~= ":" and lane ~= "unknown" then
+                    if lane == "relative" then
+                        if not contributorsByKey[key] then
+                            contributorsByKey[key] = {}
+                        end
+                        table.insert(contributorsByKey[key], expanded)
+                    else
+                        contributorsByKey[key] = {expanded}
+                    end
+                end
             end
         end
     end
@@ -1779,16 +2112,22 @@ function EZ.AnalyzeCueRecipeState(sequenceNo, cueNo, requestId)
     return payload
 end
 
-function EZ.PreviewRecipeCueOnly(sequenceNo, sourceCueNo, targetCueNo, requestId)
+local function cueCommandNumber(value)
+    local numeric = tonumber(value)
+    if not numeric then
+        return tostring(value or "")
+    end
+    if numeric == math.floor(numeric) then
+        return tostring(math.floor(numeric))
+    end
+    return tostring(numeric)
+end
+
+local function previewStoreCueOnlyPayload(sequenceNo, targetCueNo, requestId)
     local resolvedSequenceNo = tonumber(sequenceNo)
-    local normalizedSourceCueNo = normalizeCueNumberText(sourceCueNo)
     local normalizedTargetCueNo = normalizeCueNumberText(targetCueNo)
     if not resolvedSequenceNo or resolvedSequenceNo < 1 then
         sendPresetError(0, 0, "Sequence number is required")
-        return nil
-    end
-    if not normalizedSourceCueNo then
-        sendPresetError(0, 0, "Source cue number is required")
         return nil
     end
     if not normalizedTargetCueNo then
@@ -1796,133 +2135,140 @@ function EZ.PreviewRecipeCueOnly(sequenceNo, sourceCueNo, targetCueNo, requestId
         return nil
     end
 
-    local sourceAnalysis = EZ.AnalyzeCueRecipeState(resolvedSequenceNo, normalizedSourceCueNo, nil)
-    if not sourceAnalysis then
-        return nil
-    end
-
-    local sourceCueValue = cueNumberValue(normalizedSourceCueNo)
     local targetCueValue = cueNumberValue(normalizedTargetCueNo)
-    local nextCueValue = targetCueValue and (targetCueValue + 1.0) or nil
-    if not sourceCueValue or not targetCueValue or not nextCueValue then
-        sendPresetError(0, 0, "Cue numbers must be positive numeric data")
+    if not targetCueValue then
+        sendPresetError(0, 0, "Target cue number must be numeric data")
         return nil
     end
-
-    local sequenceRows, sequenceWarnings, sequenceUnsupported = collectSequenceRecipeRowsUpTo(
-        resolvedSequenceNo,
-        nextCueValue
-    )
-    local beforeNext = effectiveRecipeContributorsFromRows(sequenceRows)
-    local simulatedRows = {}
-    for _, row in ipairs(sequenceRows) do
-        if not (
-            tonumber(row.seq_number or 0) == resolvedSequenceNo
-            and tonumber(row.actual_cue_number or 0) == targetCueValue
-        ) then
-            table.insert(simulatedRows, row)
-        end
-    end
-    local storedLines = cloneRows(sourceAnalysis.local_lines or {})
-    for _, row in ipairs(storedLines) do
-        row.actual_cue_number = targetCueValue
-        row.seq_number = resolvedSequenceNo
-    end
-    for lineIndex, row in ipairs(storedLines) do
-        row.line_index = lineIndex
-        row.part_number = string.format("0.%d", lineIndex)
-        row.source_cue_number = tonumber(row.source_cue_number or sourceCueValue)
-        row.source_part_number = tostring(row.source_part_number or row.part_number)
-        table.insert(simulatedRows, row)
-    end
-    local afterNext = effectiveRecipeContributorsFromRows(simulatedRows)
-
-    local affectedLookup = {}
-    for _, row in ipairs(sourceAnalysis.local_lines or {}) do
-        affectedLookup[recipeStateKey(row)] = true
-    end
-    local restoreRows = {}
-    for _, row in ipairs(beforeNext) do
-        local key = recipeStateKey(row)
-        if affectedLookup[key] then
-            table.insert(restoreRows, row)
-        end
-    end
-    local changedKeys = {}
-    for key, _ in pairs(affectedLookup) do
-        local beforeBucket = {}
-        local afterBucket = {}
-        for _, row in ipairs(beforeNext) do
-            if recipeStateKey(row) == key then
-                table.insert(beforeBucket, row)
-            end
-        end
-        for _, row in ipairs(afterNext) do
-            if recipeStateKey(row) == key then
-                table.insert(afterBucket, row)
-            end
-        end
-        if not signatureSetsMatch(beforeBucket, afterBucket) then
-            table.insert(changedKeys, key)
-        end
-    end
-    table.sort(changedKeys)
-
-    local filteredRestoreRows = {}
-    local changedLookup = {}
-    for _, key in ipairs(changedKeys) do
-        changedLookup[key] = true
-    end
-    for _, row in ipairs(restoreRows) do
-        if changedLookup[recipeStateKey(row)] then
-            table.insert(filteredRestoreRows, row)
-        end
-    end
+    local nextCueValue = nextCueNumberAfter(resolvedSequenceNo, targetCueValue)
 
     local warnings = {}
     local unsupportedReasons = {}
-    for _, warning in ipairs(sourceAnalysis.warnings or {}) do
-        table.insert(warnings, warning)
+    local targetSequenceRows, targetSequenceWarnings, targetSequenceUnsupported = collectSequenceRecipeRowsUpTo(
+        resolvedSequenceNo,
+        targetCueValue
+    )
+    local nextSequenceRows, nextSequenceWarnings, nextSequenceUnsupported = collectSequenceRecipeRowsUpTo(
+        resolvedSequenceNo,
+        nextCueValue or targetCueValue
+    )
+    for _, warning in ipairs(targetSequenceWarnings or {}) do table.insert(warnings, warning) end
+    for _, warning in ipairs(nextSequenceWarnings or {}) do table.insert(warnings, warning) end
+    for _, reason in ipairs(targetSequenceUnsupported or {}) do table.insert(unsupportedReasons, reason) end
+    for _, reason in ipairs(nextSequenceUnsupported or {}) do table.insert(unsupportedReasons, reason) end
+
+    local targetLocalLines, targetWarnings, targetUnsupported, actualTargetCueNumber = buildCueRecipeRows(
+        resolvedSequenceNo,
+        targetCueValue
+    )
+    if actualTargetCueNumber then
+        for _, warning in ipairs(targetWarnings or {}) do table.insert(warnings, warning) end
+        for _, reason in ipairs(targetUnsupported or {}) do table.insert(unsupportedReasons, reason) end
+    else
+        targetLocalLines = {}
+        table.insert(warnings, "Target cue does not exist yet; Store Cue Only will create it from current programmer data.")
     end
-    for _, warning in ipairs(sequenceWarnings or {}) do
-        table.insert(warnings, warning)
+
+    local beforeTarget = effectiveRecipeContributorsFromRows(targetSequenceRows)
+    local beforeNext = {}
+    if nextCueValue then
+        beforeNext = effectiveRecipeContributorsFromRows(nextSequenceRows)
+    else
+        table.insert(warnings, "Target cue has no following cue; native /CueOnly will not have a next cue to restore into.")
     end
-    for _, reason in ipairs(sourceAnalysis.unsupported_reasons or {}) do
-        table.insert(unsupportedReasons, reason)
-    end
-    for _, reason in ipairs(sequenceUnsupported or {}) do
-        table.insert(unsupportedReasons, reason)
-    end
-    if sourceCueValue == targetCueValue then
-        table.insert(unsupportedReasons, "Source cue and target cue must be different.")
-    end
-    if #(sourceAnalysis.local_lines or {}) == 0 then
-        table.insert(unsupportedReasons, "Source cue does not expose local recipe lines.")
-    end
-    if #beforeNext > 0 then
-        table.insert(
-            warnings,
-            "Cue-only preview only restores detected recipe contributors in the following cue; direct stored values are not modeled."
-        )
-    end
+
+    local command = string.format(
+        "Store Sequence %d Cue %s /Merge /CueOnly /NC",
+        resolvedSequenceNo,
+        cueCommandNumber(targetCueValue)
+    )
 
     local payload = {
         sequence_no = resolvedSequenceNo,
-        source_cue_no = sourceCueValue,
         target_cue_no = targetCueValue,
         next_cue_no = nextCueValue,
         supported = (#dedupeTextList(unsupportedReasons) == 0),
         status = (#dedupeTextList(unsupportedReasons) == 0) and "ready" or "unsupported",
+        operation = "store_programmer_cue_only",
+        command = command,
         warnings = dedupeTextList(warnings),
         unsupported_reasons = dedupeTextList(unsupportedReasons),
-        stored_lines = storedLines,
-        restore_lines = filteredRestoreRows,
-        changed_keys = changedKeys,
+        current_target_local_lines = targetLocalLines,
+        current_target_local_line_count = #targetLocalLines,
+        pre_store_contributors = beforeTarget,
+        pre_store_contributor_count = #beforeTarget,
+        following_cue_restore_reference = beforeNext,
+        following_cue_restore_reference_count = #beforeNext,
+        note = "Store Cue Only stores current programmer data into the target cue and relies on MA native /CueOnly to preserve/restore tracked values in the following cue.",
     }
     if requestId ~= nil then
         payload.request_id = requestId
     end
-    sendRecipeCuePayload("cue_only_preview", payload)
+    return payload
+end
+
+function EZ.PreviewStoreCueOnly(sequenceNo, targetCueNo, requestId)
+    local payload = previewStoreCueOnlyPayload(sequenceNo, targetCueNo, requestId)
+    if payload then
+        sendRecipeCuePayload("store_cue_only_preview", payload)
+    end
+    return payload
+end
+
+function EZ.StoreCueOnly(sequenceNo, targetCueNo, requestId)
+    local payload = previewStoreCueOnlyPayload(sequenceNo, targetCueNo, nil)
+    if payload == nil then
+        return nil
+    end
+    if requestId ~= nil then
+        payload.request_id = requestId
+    end
+    if not payload.supported then
+        sendRecipeCuePayload("store_cue_only_applied", payload)
+        return nil
+    end
+    local ok, err = executeAuthoringCommand(payload.command)
+    payload.command_ok = ok and true or false
+    if ok then
+        payload.status = "stored"
+        payload.supported = true
+        local postTarget, postTargetWarnings, postTargetUnsupported = buildCueRecipeRows(payload.sequence_no, payload.target_cue_no)
+        local postRows, postWarnings, postUnsupported = collectSequenceRecipeRowsUpTo(payload.sequence_no, payload.next_cue_no or payload.target_cue_no)
+        payload.post_store_target_local_lines = postTarget
+        payload.post_store_target_local_line_count = #postTarget
+        payload.post_store_contributors = effectiveRecipeContributorsFromRows(postRows)
+        payload.post_store_contributor_count = #(payload.post_store_contributors or {})
+        local mergedWarnings = {}
+        for _, warning in ipairs(payload.warnings or {}) do table.insert(mergedWarnings, warning) end
+        for _, warning in ipairs(postTargetWarnings or {}) do table.insert(mergedWarnings, warning) end
+        for _, warning in ipairs(postWarnings or {}) do table.insert(mergedWarnings, warning) end
+        payload.warnings = dedupeTextList(mergedWarnings)
+        local mergedUnsupported = {}
+        for _, reason in ipairs(payload.unsupported_reasons or {}) do table.insert(mergedUnsupported, reason) end
+        for _, reason in ipairs(postTargetUnsupported or {}) do table.insert(mergedUnsupported, reason) end
+        for _, reason in ipairs(postUnsupported or {}) do table.insert(mergedUnsupported, reason) end
+        payload.unsupported_reasons = dedupeTextList(mergedUnsupported)
+    else
+        payload.status = "error"
+        payload.supported = false
+        local reasons = {}
+        for _, reason in ipairs(payload.unsupported_reasons or {}) do table.insert(reasons, reason) end
+        table.insert(reasons, tostring(err or "Store Cue Only command failed."))
+        payload.unsupported_reasons = dedupeTextList(reasons)
+    end
+    sendRecipeCuePayload("store_cue_only_applied", payload)
+    return ok and payload or nil
+end
+
+function EZ.PreviewRecipeCueOnly(sequenceNo, sourceCueNo, targetCueNo, requestId)
+    local payload = previewStoreCueOnlyPayload(sequenceNo, targetCueNo, requestId)
+    if payload then
+        payload.status = "deprecated_preview"
+        payload.deprecated = true
+        payload.source_cue_no = cueNumberValue(normalizeCueNumberText(sourceCueNo))
+        payload.note = "PreviewRecipeCueOnly is deprecated for Store Cue Only. Use PreviewStoreCueOnly(sequenceNo, targetCueNo); source cue is ignored because Store Cue Only stores current programmer data."
+        sendRecipeCuePayload("cue_only_preview", payload)
+    end
     return payload
 end
 
@@ -1986,20 +2332,13 @@ function EZ.PreviewCopyCueWithStatus(sequenceNo, sourceCueNo, destCueNo, request
 end
 
 function EZ.ApplyRecipeCueOnly(sequenceNo, sourceCueNo, targetCueNo, requestId)
-    local payload = EZ.PreviewRecipeCueOnly(sequenceNo, sourceCueNo, targetCueNo, nil)
-    if payload == nil then
-        return nil
+    local payload = EZ.StoreCueOnly(sequenceNo, targetCueNo, requestId)
+    if payload then
+        payload.deprecated_alias = "ApplyRecipeCueOnly"
+        payload.source_cue_no = cueNumberValue(normalizeCueNumberText(sourceCueNo))
+        payload.note = "ApplyRecipeCueOnly is a deprecated alias for StoreCueOnly; source cue is ignored because Store Cue Only stores current programmer data."
     end
-    if requestId ~= nil then
-        payload.request_id = requestId
-    end
-    payload.supported = false
-    payload.status = "unsupported"
-    payload.unsupported_reasons = dedupeTextList({
-        "ApplyRecipeCueOnly is intentionally blocked in this preview-only pass.",
-    })
-    sendRecipeCuePayload("cue_only_applied", payload)
-    return nil
+    return payload
 end
 
 function EZ.CopyCueWithStatus(sequenceNo, sourceCueNo, destCueNo, requestId)
@@ -2010,11 +2349,33 @@ function EZ.CopyCueWithStatus(sequenceNo, sourceCueNo, destCueNo, requestId)
     if requestId ~= nil then
         payload.request_id = requestId
     end
-    payload.supported = false
-    payload.status = "unsupported"
-    payload.unsupported_reasons = dedupeTextList({
-        "CopyCueWithStatus is intentionally blocked in this preview-only pass. Use PreviewCopyCueWithStatus for planning output.",
-    })
+    if not payload.supported then
+        sendRecipeCuePayload("copied_with_status", payload)
+        return nil
+    end
+    local command = string.format(
+        'Copy Sequence %d Cue %s At Sequence %d Cue %s /Overwrite /CueOnly /CopyCueSource "Status" /CopyCueDestination "Keep" /NC',
+        tonumber(payload.sequence_no) or tonumber(sequenceNo) or 0,
+        cueCommandNumber(payload.source_cue_no or sourceCueNo),
+        tonumber(payload.sequence_no) or tonumber(sequenceNo) or 0,
+        cueCommandNumber(payload.dest_cue_no or destCueNo)
+    )
+    local ok, err = executeAuthoringCommand(command)
+    payload.applied_command = command
+    payload.command_ok = ok and true or false
+    if ok then
+        payload.status = "copied"
+        payload.supported = true
+    else
+        payload.status = "error"
+        payload.supported = false
+        local reasons = {}
+        for _, reason in ipairs(payload.unsupported_reasons or {}) do
+            table.insert(reasons, reason)
+        end
+        table.insert(reasons, tostring(err or "Copy cue with status command failed."))
+        payload.unsupported_reasons = dedupeTextList(reasons)
+    end
     sendRecipeCuePayload("copied_with_status", payload)
-    return nil
+    return ok and payload or nil
 end

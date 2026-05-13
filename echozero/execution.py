@@ -183,8 +183,10 @@ class ExecutionEngine:
         self,
         plan: ExecutionPlan,
         cancel_event: threading.Event | None = None,
+        initial_outputs: dict[tuple[str, str], Any] | None = None,
+        skip_block_ids: set[str] | None = None,
     ) -> Result[dict[str, Any]]:
-        """Execute all blocks in plan order. Fail-fast on first error or cancellation."""
+        """Execute blocks in plan order, optionally seeding known upstream outputs."""
         outputs: dict[str, Any] = {}
         _cancel = cancel_event or threading.Event()
         context = ExecutionContext(
@@ -193,8 +195,17 @@ class ExecutionEngine:
             progress_bus=self._runtime_bus,
             cancel_event=_cancel,
         )
+        for (block_id, port_name), value in (initial_outputs or {}).items():
+            context.set_output(block_id, port_name, value)
+            block_outputs = outputs.setdefault(block_id, {})
+            if isinstance(block_outputs, dict):
+                block_outputs[port_name] = value
+        skipped_blocks = set(skip_block_ids or set())
 
         for block_id in plan.ordered_block_ids:
+            if block_id in skipped_blocks:
+                continue
+
             # Check cancellation between blocks
             if _cancel.is_set():
                 return err(OperationCancelledError("Execution cancelled"))
