@@ -36,6 +36,7 @@ class InspectorAction:
     kind: str = "intent"
     group: str = "default"
     params: dict[str, object] = field(default_factory=dict)
+    requires_settings_confirmation: bool = False
 
 
 @dataclass(slots=True, frozen=True)

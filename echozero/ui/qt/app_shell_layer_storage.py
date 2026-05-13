@@ -24,6 +24,7 @@ from echozero.application.timeline.models import (
 )
 from echozero.domain.types import Event as DomainEvent, EventData, Layer as DomainLayer
 from echozero.persistence.entities import LayerRecord
+from echozero.output_routing import canonical_layer_output_bus
 from echozero.takes import Take as PersistedTake
 
 STATE_FLAG_MA3_TRACK_COORD = "ma3_track_coord"
@@ -220,7 +221,7 @@ def runtime_layer_record(
         existing,
         name=layer.name,
         color=layer.presentation_hints.color,
-        order=max(0, int(layer.order_index) - 1),
+        order=int(layer.order_index) - 1,
         visible=layer.presentation_hints.visible,
         locked=layer.presentation_hints.locked,
         source_pipeline=source_pipeline,
@@ -305,5 +306,4 @@ def _normalized_ma3_channel_no(layer: Layer) -> int | None:
 
 
 def _normalized_output_bus(layer: Layer) -> str | None:
-    raw_bus = str(layer.mixer.output_bus or "").strip()
-    return raw_bus or None
+    return canonical_layer_output_bus(layer.mixer.output_bus)

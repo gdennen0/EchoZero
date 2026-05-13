@@ -5,7 +5,7 @@ Connects AppSettingsService to the neutral settings form and local JSON config e
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 from PyQt6.QtWidgets import (
     QDialog,
@@ -77,6 +77,8 @@ class PreferencesDialog(QDialog):
         layout.addWidget(self._header)
 
         self._form = SettingsPageForm(self)
+        self._form.field_value_changed.connect(self._on_form_field_value_changed)
+        self._rendering_form = False
         layout.addWidget(self._form, 1)
 
         self._buttons = QDialogButtonBox(
@@ -98,8 +100,12 @@ class PreferencesDialog(QDialog):
 
         self._render_page()
 
-    def _render_page(self) -> None:
-        page = self._settings_service.describe()
+    def _render_page(self, draft_values: Mapping[str, object] | None = None) -> None:
+        page = (
+            self._settings_service.describe_with_updates(draft_values)
+            if draft_values is not None
+            else self._settings_service.describe()
+        )
         page = SettingsPage(
             key=page.key,
             title=page.title,
@@ -117,10 +123,23 @@ class PreferencesDialog(QDialog):
         self._store_path.setText(f"Stored locally at {self._settings_service.store_path}")
         self._warnings.setVisible(bool(page.warnings))
         self._warnings.setText("\n".join(page.warnings))
-        self._form.set_page(
-            page,
-            empty_message="No application settings are currently available.",
-        )
+        self._rendering_form = True
+        try:
+            self._form.set_page(
+                page,
+                empty_message="No application settings are currently available.",
+            )
+            if draft_values is not None:
+                self._form.set_values(dict(draft_values))
+        finally:
+            self._rendering_form = False
+
+    def _on_form_field_value_changed(self, key: str, _value: object) -> None:
+        if self._rendering_form:
+            return
+        if key not in {"audio.output_device", "audio.output_channels"}:
+            return
+        self._render_page(self._form.values())
 
     def _on_restore_defaults(self) -> None:
         self._form.set_values(self._settings_service.default_values())

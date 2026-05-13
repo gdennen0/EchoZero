@@ -15,6 +15,10 @@ from echozero.application.timeline.object_actions.descriptors import (
     action_descriptors,
     descriptor_for_action,
 )
+from echozero.output_routing import (
+    DEFAULT_MASTER_OUTPUT_BUS,
+    canonical_master_output_buses,
+)
 
 _IMPORT_ACTION_PRIORITY: dict[str, int] = {
     "timeline.extract_stems": 0,
@@ -70,6 +74,8 @@ def canonical_import_pipeline_action_ids(
 
 
 def _is_import_safe_pipeline_action(descriptor: ActionDescriptor) -> bool:
+    if descriptor.action_id not in _IMPORT_ACTION_PRIORITY:
+        return False
     if "layer" not in descriptor.object_types:
         return False
     if descriptor.workflow_id is None or descriptor.pipeline_template_id is None:
@@ -95,6 +101,7 @@ class AudioOutputPreferences:
     output_device: str | None = None
     sample_rate: int | None = None
     output_channels: int | None = None
+    master_output_bus: str = DEFAULT_MASTER_OUTPUT_BUS
     latency_profile: AudioLatencyProfile = AudioLatencyProfile.AUTO
     blocksize: int | None = None
     prime_output_buffers_using_stream_callback: bool = True
@@ -168,6 +175,7 @@ class AudioOutputRuntimeConfig:
     output_device: int | str | None = None
     sample_rate: int | None = None
     channels: int | None = None
+    master_output_bus: str = DEFAULT_MASTER_OUTPUT_BUS
     stream_latency: str | float | None = None
     stream_blocksize: int | None = None
     prime_output_buffers_using_stream_callback: bool = True
@@ -245,6 +253,7 @@ def app_preferences_from_dict(payload: dict[str, Any] | None) -> AppPreferences:
             output_device=_coerce_optional_text(audio.get("output_device")),
             sample_rate=_coerce_optional_positive_int(audio.get("sample_rate")),
             output_channels=_coerce_optional_positive_int(audio.get("output_channels")),
+            master_output_bus=_coerce_output_bus_tokens(audio.get("master_output_bus")),
             latency_profile=_coerce_latency_profile(audio.get("latency_profile")),
             blocksize=_coerce_optional_positive_int(audio.get("blocksize")),
             prime_output_buffers_using_stream_callback=bool(
@@ -275,6 +284,11 @@ def _mapping_or_empty(value: object) -> dict[str, Any]:
     if isinstance(value, dict):
         return value
     return {}
+
+
+def _coerce_output_bus_tokens(value: object) -> str:
+    tokens = canonical_master_output_buses(value)
+    return ",".join(tokens) if tokens else DEFAULT_MASTER_OUTPUT_BUS
 
 
 def _coerce_latency_profile(value: object) -> AudioLatencyProfile:

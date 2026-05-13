@@ -167,6 +167,35 @@ def test_echozero_backend_drives_transport_actions():
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
+def test_echozero_backend_arms_and_stops_audio_diagnostics_capture():
+    temp_root = _repo_local_temp_root()
+    session = AutomationSession.attach(
+        HarnessEchoZeroAutomationProvider(
+            working_dir_root=temp_root / "working",
+            analysis_service=build_mock_analysis_service(),
+        )
+    )
+
+    try:
+        started = session.invoke(
+            "dev.audio_diagnostics_capture_start",
+            params={"output_dir": str(temp_root / "diagnostics"), "max_audio_blocks": 2},
+        )
+        assert started.artifacts["audio_diagnostics_capture"]["active"] is True
+        assert any(
+            action.action_id == "dev.audio_diagnostics_capture_stop" and action.enabled
+            for action in started.actions
+        )
+
+        stopped = session.invoke("dev.audio_diagnostics_capture_stop")
+        capture = stopped.artifacts["audio_diagnostics_capture"]
+        assert capture["active"] is False
+        assert Path(str(capture["json_path"])).exists()
+    finally:
+        session.close()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
 def test_echozero_backend_tracks_pointer_hover_and_double_click():
     temp_root = _repo_local_temp_root()
     audio_path = write_test_wav(temp_root / "fixtures" / "automation-pointer.wav")

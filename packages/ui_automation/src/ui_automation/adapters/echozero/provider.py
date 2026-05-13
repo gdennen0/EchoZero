@@ -428,6 +428,22 @@ class EchoZeroAutomationBackend:
                 "last_track_sync_reason": playback_state.diagnostics.last_track_sync_reason,
             },
         }
+        audio_diagnostics_capture = self._audio_diagnostics_capture_status()
+        actions.append(
+            AutomationAction(
+                action_id="dev.audio_diagnostics_capture_start",
+                label="Start Audio Diagnostics Capture",
+                group="dev",
+            )
+        )
+        actions.append(
+            AutomationAction(
+                action_id="dev.audio_diagnostics_capture_stop",
+                label="Stop Audio Diagnostics Capture",
+                enabled=bool(audio_diagnostics_capture.get("active", False)),
+                group="dev",
+            )
+        )
 
         return AutomationSnapshot(
             app="EchoZero",
@@ -449,6 +465,7 @@ class EchoZeroAutomationBackend:
                 "active_song_version_id": presentation.active_song_version_id,
                 "transport": transport_artifact,
                 "playback": playback_artifact,
+                "audio_diagnostics_capture": audio_diagnostics_capture,
                 "songs": [
                     {
                         "song_id": song.song_id,
@@ -596,6 +613,8 @@ class EchoZeroAutomationBackend:
             "up": Qt.Key.Key_Up,
             "down": Qt.Key.Key_Down,
             "escape": Qt.Key.Key_Escape,
+            "enter": Qt.Key.Key_Return,
+            "return": Qt.Key.Key_Return,
             "d": Qt.Key.Key_D,
         }
         qt_key = key_mapping.get(key.strip().lower())
@@ -662,7 +681,41 @@ class EchoZeroAutomationBackend:
         if target_id is not None:
             self._select_target(target_id)
 
-        if resolved_action_id == "transport.play":
+        if resolved_action_id == "dev.rapid_next_event_preview":
+            cycles = max(1, int(payload.get("cycles", 1)))
+            direction = 1 if int(payload.get("direction", 1)) >= 0 else -1
+            include_demoted = bool(payload.get("include_demoted", False))
+            interval_ms = max(0, int(payload.get("interval_ms", 0)))
+            for _index in range(cycles):
+                self._harness.widget._canvas.select_adjacent_event_requested.emit(
+                    direction,
+                    include_demoted,
+                )
+                QApplication.processEvents()
+                self._harness.widget._canvas.preview_selected_event_clip_requested.emit()
+                QApplication.processEvents()
+                if interval_ms:
+                    QTest.qWait(interval_ms)
+            QApplication.processEvents()
+        elif resolved_action_id == "dev.audio_diagnostics_capture_start":
+            runtime_audio = self._harness.runtime.runtime_audio
+            start_capture = getattr(runtime_audio, "start_audio_diagnostics_capture", None)
+            if not callable(start_capture):
+                raise ValueError("runtime audio does not support diagnostics capture")
+            start_capture(
+                output_dir=payload.get("output_dir"),
+                include_audio_buffers=bool(payload.get("include_audio_buffers", True)),
+                max_audio_blocks=int(payload.get("max_audio_blocks", 64) or 64),
+            )
+            QApplication.processEvents()
+        elif resolved_action_id == "dev.audio_diagnostics_capture_stop":
+            runtime_audio = self._harness.runtime.runtime_audio
+            stop_capture = getattr(runtime_audio, "stop_audio_diagnostics_capture", None)
+            if not callable(stop_capture):
+                raise ValueError("runtime audio does not support diagnostics capture")
+            stop_capture()
+            QApplication.processEvents()
+        elif resolved_action_id == "transport.play":
             self._harness.runtime.dispatch(Play())
         elif resolved_action_id == "transport.pause":
             self._harness.runtime.dispatch(Pause())
@@ -750,6 +803,24 @@ class EchoZeroAutomationBackend:
             QApplication.processEvents()
         return self.snapshot()
 
+    def _audio_diagnostics_capture_status(self) -> dict[str, Any]:
+        runtime_audio = self._harness.runtime.runtime_audio
+        status = getattr(runtime_audio, "audio_diagnostics_capture_status", None)
+        if not callable(status):
+            return {"active": False, "supported": False}
+        try:
+            payload = dict(status())
+        except Exception as exc:
+            return {
+                "active": False,
+                "supported": True,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            }
+        payload.setdefault("active", False)
+        payload.setdefault("supported", True)
+        return payload
+
     def close(self) -> None:
         self._harness.runtime._is_dirty = False  # type: ignore[attr-defined]
         self._harness.launcher.confirm_close = lambda: True  # type: ignore[method-assign]
@@ -758,6 +829,32 @@ class EchoZeroAutomationBackend:
     def _select_target(self, target_id: str) -> None:
         if target_id in {"shell.root", "shell.timeline", "shell.transport", "shell.ruler"}:
             return
+        if target_id.startswith("timeline.event:"):
+            event_id = target_id.removeprefix("timeline.event:")
+            presentation = self._harness.presentation()
+            for layer in presentation.layers:
+                for event in layer.events:
+                    if str(event.event_id) == event_id:
+                        self._harness.widget._select_event(
+                            layer.layer_id,
+                            None,
+                            event.event_id,
+                            "replace",
+                        )
+                        QApplication.processEvents()
+                        return
+                for take in layer.takes:
+                    for event in take.events:
+                        if str(event.event_id) == event_id:
+                            self._harness.widget._select_event(
+                                layer.layer_id,
+                                take.take_id,
+                                event.event_id,
+                                "replace",
+                            )
+                            QApplication.processEvents()
+                            return
+            raise ValueError(f"Unknown event target: {target_id}")
         self.click(target_id)
 
     def _move_pointer_to_target(self, target_id: str) -> None:

@@ -611,12 +611,14 @@ class LauncherController:
         monitor_callback = monitor_provider if callable(monitor_provider) else None
         clear_provider = getattr(self.runtime, "clear_ma3_osc_messages", None)
         clear_callback = clear_provider if callable(clear_provider) else None
+        live_bridge_callback = lambda: getattr(self.runtime, "_sync_bridge", None)
         try:
             dialog = OscSettingsDialog(
                 self._app_settings_service,
                 on_saved=self._on_app_settings_saved,
                 monitor_provider=monitor_callback,
                 clear_monitor=clear_callback,
+                live_bridge_provider=live_bridge_callback,
                 parent=self.widget,
             )
         except TypeError as exc:
@@ -624,6 +626,7 @@ class LauncherController:
                 "on_saved" not in str(exc)
                 and "monitor_provider" not in str(exc)
                 and "clear_monitor" not in str(exc)
+                and "live_bridge_provider" not in str(exc)
             ):
                 raise
             try:

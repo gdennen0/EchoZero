@@ -6,6 +6,23 @@ Connects the compatibility wrapper to the bounded settings support slice.
 from tests.ui.app_shell_runtime_flow_shared_support import *  # noqa: F401,F403
 
 
+def _write_binary_drum_manifest(manifest_path, label: str, *, macro_f1: float | None = None):
+    weights_path = manifest_path.with_name(f"{manifest_path.stem}.pth")
+    weights_path.parent.mkdir(parents=True, exist_ok=True)
+    weights_path.write_bytes(b"fixture-model")
+    payload = {
+        "classes": [label, "other"],
+        "weightsPath": weights_path.name,
+        "classificationMode": "binary",
+        "displayName": f"{label.title()} Fixture",
+        "releasedAt": "2026-05-01T00:00:00Z",
+    }
+    if macro_f1 is not None:
+        payload["evalSummary"] = {"macroF1": macro_f1}
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+    return manifest_path
+
+
 def test_app_shell_runtime_describes_stem_action_settings():
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(
@@ -33,6 +50,42 @@ def test_app_shell_runtime_describes_stem_action_settings():
         assert "latest_model" in {option.value for option in model_field.options}
         assert plan.has_prior_outputs is False
         assert plan.run_label == "Run"
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_describes_song_parts_action_with_mir_default():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=build_mock_analysis_service(),
+    )
+
+    try:
+        audio_path = write_test_wav(temp_root / "fixtures" / "describe-song-parts.wav")
+        runtime.add_song_from_path("Describe Song Parts", audio_path)
+
+        plan = runtime.describe_object_action(
+            "timeline.extract_song_sections",
+            {"layer_id": "source_audio"},
+            object_id="source_audio",
+            object_type="layer",
+        )
+
+        detect_method_field = next(
+            field for field in plan.editable_fields if field.key == "detect_method"
+        )
+        option_labels = {option.value: option.label for option in detect_method_field.options}
+
+        assert plan.title == "Detect Song Parts"
+        assert plan.pipeline_template_id == "extract_song_sections"
+        assert plan.requires_settings_confirmation is True
+        assert plan.run_label == "Review & Run"
+        assert detect_method_field.value == "mir_self_similarity"
+        assert detect_method_field.default_value == "mir_self_similarity"
+        assert option_labels["mir_self_similarity"] == "MIR Self-Similarity (Recommended)"
+        assert option_labels["mfcc_sequence_pooling"] == "MFCC Sequence Pooling (Legacy)"
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -725,8 +778,12 @@ def test_app_shell_runtime_extract_classified_drums_settings_expose_model_fields
     fake_models_root.mkdir(parents=True, exist_ok=True)
     kick_manifest = fake_models_root / "kick.manifest.json"
     snare_manifest = fake_models_root / "snare.manifest.json"
-    kick_manifest.write_text("{}", encoding="utf-8")
-    snare_manifest.write_text("{}", encoding="utf-8")
+    clap_manifest = fake_models_root / "clap.manifest.json"
+    cymbal_manifest = fake_models_root / "cymbal.manifest.json"
+    _write_binary_drum_manifest(kick_manifest, "kick", macro_f1=0.91)
+    _write_binary_drum_manifest(snare_manifest, "snare", macro_f1=0.88)
+    _write_binary_drum_manifest(clap_manifest, "clap", macro_f1=0.84)
+    _write_binary_drum_manifest(cymbal_manifest, "cymbal", macro_f1=0.81)
 
     monkeypatch.setattr(
         "echozero.application.timeline.object_action_settings_service.ensure_installed_models_dir",
@@ -741,6 +798,8 @@ def test_app_shell_runtime_extract_classified_drums_settings_expose_model_fields
         lambda: {
             "kick": type("Bundle", (), {"manifest_path": kick_manifest})(),
             "snare": type("Bundle", (), {"manifest_path": snare_manifest})(),
+            "clap": type("Bundle", (), {"manifest_path": clap_manifest})(),
+            "cymbal": type("Bundle", (), {"manifest_path": cymbal_manifest})(),
         },
     )
 
@@ -760,15 +819,40 @@ def test_app_shell_runtime_extract_classified_drums_settings_expose_model_fields
         assert [field.key for field in plan.editable_fields] == [
             "kick_model_path",
             "snare_model_path",
+            "clap_model_path",
+            "cymbal_model_path",
             "classify_device",
+            "target_drum_labels",
+            "sensitivity_preset",
             "kick_positive_threshold",
             "snare_positive_threshold",
+            "positive_threshold",
+            "clap_positive_threshold",
+            "cymbal_positive_threshold",
+            "kick_min_event_peak",
+            "kick_min_event_rms",
+            "kick_min_separation_ms",
+            "snare_min_event_peak",
+            "snare_min_event_rms",
+            "snare_min_separation_ms",
+            "clap_min_event_peak",
+            "clap_min_event_rms",
+            "clap_min_separation_ms",
+            "cymbal_min_event_peak",
+            "cymbal_min_event_rms",
+            "cymbal_min_separation_ms",
             "kick_filter_enabled",
             "kick_filter_freq",
             "kick_onset_threshold",
             "snare_filter_enabled",
             "snare_filter_freq",
             "snare_onset_threshold",
+            "clap_filter_enabled",
+            "clap_filter_freq",
+            "clap_onset_threshold",
+            "cymbal_filter_enabled",
+            "cymbal_filter_freq",
+            "cymbal_onset_threshold",
         ]
         assert [field.key for field in plan.advanced_fields] == [
             "kick_filter_type",
@@ -781,6 +865,18 @@ def test_app_shell_runtime_extract_classified_drums_settings_expose_model_fields
             "snare_onset_method",
             "snare_onset_backtrack",
             "snare_onset_timing_offset_ms",
+            "clap_filter_type",
+            "clap_filter_q",
+            "clap_onset_min_gap",
+            "clap_onset_method",
+            "clap_onset_backtrack",
+            "clap_onset_timing_offset_ms",
+            "cymbal_filter_type",
+            "cymbal_filter_q",
+            "cymbal_onset_min_gap",
+            "cymbal_onset_method",
+            "cymbal_onset_backtrack",
+            "cymbal_onset_timing_offset_ms",
             "assignment_mode",
             "winner_margin",
             "event_match_window_ms",
@@ -794,24 +890,57 @@ def test_app_shell_runtime_extract_classified_drums_settings_expose_model_fields
             field.key == "snare_model_path" and field.value == str(snare_manifest)
             for field in plan.editable_fields
         )
+        assert any(
+            field.key == "clap_model_path" and field.value == str(clap_manifest)
+            for field in plan.editable_fields
+        )
+        assert any(
+            field.key == "cymbal_model_path" and field.value == str(cymbal_manifest)
+            for field in plan.editable_fields
+        )
+        target_field = next(
+            field for field in plan.editable_fields if field.key == "target_drum_labels"
+        )
+        assert target_field.widget == "checkbox_group"
+        assert tuple(target_field.value) == ("kick", "snare", "clap", "cymbal")
+        assert {option.value for option in target_field.options} >= {
+            "kick",
+            "snare",
+            "clap",
+            "cymbal",
+        }
         kick_field = next(
             field for field in plan.editable_fields if field.key == "kick_model_path"
         )
         snare_field = next(
             field for field in plan.editable_fields if field.key == "snare_model_path"
         )
+        clap_field = next(
+            field for field in plan.editable_fields if field.key == "clap_model_path"
+        )
+        cymbal_field = next(
+            field for field in plan.editable_fields if field.key == "cymbal_model_path"
+        )
         assert kick_field.widget == "dropdown"
         assert snare_field.widget == "dropdown"
-        assert {option.value for option in kick_field.options} >= {
-            "",
-            str(kick_manifest),
-            str(snare_manifest),
-        }
-        assert {option.value for option in snare_field.options} >= {
-            "",
-            str(kick_manifest),
-            str(snare_manifest),
-        }
+        assert clap_field.widget == "dropdown"
+        assert cymbal_field.widget == "dropdown"
+        assert {option.value for option in kick_field.options} >= {"", str(kick_manifest)}
+        assert str(snare_manifest) not in {option.value for option in kick_field.options}
+        assert str(clap_manifest) not in {option.value for option in kick_field.options}
+        assert str(cymbal_manifest) not in {option.value for option in kick_field.options}
+        assert {option.value for option in snare_field.options} >= {"", str(snare_manifest)}
+        assert str(kick_manifest) not in {option.value for option in snare_field.options}
+        assert str(clap_manifest) not in {option.value for option in snare_field.options}
+        assert str(cymbal_manifest) not in {option.value for option in snare_field.options}
+        assert {option.value for option in clap_field.options} >= {"", str(clap_manifest)}
+        assert str(kick_manifest) not in {option.value for option in clap_field.options}
+        assert str(snare_manifest) not in {option.value for option in clap_field.options}
+        assert str(cymbal_manifest) not in {option.value for option in clap_field.options}
+        assert {option.value for option in cymbal_field.options} >= {"", str(cymbal_manifest)}
+        assert str(kick_manifest) not in {option.value for option in cymbal_field.options}
+        assert str(snare_manifest) not in {option.value for option in cymbal_field.options}
+        assert str(clap_manifest) not in {option.value for option in cymbal_field.options}
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -831,8 +960,12 @@ def test_app_shell_runtime_extract_classified_drums_hydrates_legacy_assignment_m
     fake_models_root.mkdir(parents=True, exist_ok=True)
     kick_manifest = fake_models_root / "kick.manifest.json"
     snare_manifest = fake_models_root / "snare.manifest.json"
-    kick_manifest.write_text("{}", encoding="utf-8")
-    snare_manifest.write_text("{}", encoding="utf-8")
+    clap_manifest = fake_models_root / "clap.manifest.json"
+    cymbal_manifest = fake_models_root / "cymbal.manifest.json"
+    _write_binary_drum_manifest(kick_manifest, "kick", macro_f1=0.91)
+    _write_binary_drum_manifest(snare_manifest, "snare", macro_f1=0.88)
+    _write_binary_drum_manifest(clap_manifest, "clap", macro_f1=0.84)
+    _write_binary_drum_manifest(cymbal_manifest, "cymbal", macro_f1=0.81)
 
     monkeypatch.setattr(
         "echozero.application.timeline.object_action_settings_service.ensure_installed_models_dir",
@@ -847,6 +980,8 @@ def test_app_shell_runtime_extract_classified_drums_hydrates_legacy_assignment_m
         lambda: {
             "kick": type("Bundle", (), {"manifest_path": kick_manifest})(),
             "snare": type("Bundle", (), {"manifest_path": snare_manifest})(),
+            "clap": type("Bundle", (), {"manifest_path": clap_manifest})(),
+            "cymbal": type("Bundle", (), {"manifest_path": cymbal_manifest})(),
         },
     )
 
@@ -935,8 +1070,12 @@ def test_app_shell_runtime_extract_song_drum_events_settings_expose_model_fields
     fake_models_root.mkdir(parents=True, exist_ok=True)
     kick_manifest = fake_models_root / "kick.manifest.json"
     snare_manifest = fake_models_root / "snare.manifest.json"
-    kick_manifest.write_text("{}", encoding="utf-8")
-    snare_manifest.write_text("{}", encoding="utf-8")
+    clap_manifest = fake_models_root / "clap.manifest.json"
+    cymbal_manifest = fake_models_root / "cymbal.manifest.json"
+    _write_binary_drum_manifest(kick_manifest, "kick", macro_f1=0.91)
+    _write_binary_drum_manifest(snare_manifest, "snare", macro_f1=0.88)
+    _write_binary_drum_manifest(clap_manifest, "clap", macro_f1=0.84)
+    _write_binary_drum_manifest(cymbal_manifest, "cymbal", macro_f1=0.81)
 
     monkeypatch.setattr(
         "echozero.application.timeline.object_action_settings_service.ensure_installed_models_dir",
@@ -951,6 +1090,8 @@ def test_app_shell_runtime_extract_song_drum_events_settings_expose_model_fields
         lambda: {
             "kick": type("Bundle", (), {"manifest_path": kick_manifest})(),
             "snare": type("Bundle", (), {"manifest_path": snare_manifest})(),
+            "clap": type("Bundle", (), {"manifest_path": clap_manifest})(),
+            "cymbal": type("Bundle", (), {"manifest_path": cymbal_manifest})(),
         },
     )
 
@@ -966,6 +1107,8 @@ def test_app_shell_runtime_extract_song_drum_events_settings_expose_model_fields
         )
 
         assert plan.pipeline_template_id == "extract_song_drum_events"
+        assert plan.requires_settings_confirmation is True
+        assert plan.run_label == "Review & Run"
         assert [field.key for field in plan.editable_fields] == [
             "model",
             "device",
@@ -973,16 +1116,35 @@ def test_app_shell_runtime_extract_song_drum_events_settings_expose_model_fields
             "include_bass_stem_layer",
             "include_vocals_stem_layer",
             "include_other_stem_layer",
+            "target_drum_labels",
+            "sensitivity_preset",
             "kick_model_path",
             "snare_model_path",
+            "clap_model_path",
+            "cymbal_model_path",
             "kick_positive_threshold",
             "snare_positive_threshold",
+            "positive_threshold",
+            "clap_positive_threshold",
+            "cymbal_positive_threshold",
+            "clap_min_event_peak",
+            "clap_min_event_rms",
+            "clap_min_separation_ms",
+            "cymbal_min_event_peak",
+            "cymbal_min_event_rms",
+            "cymbal_min_separation_ms",
             "kick_filter_enabled",
             "kick_filter_freq",
             "kick_onset_threshold",
             "snare_filter_enabled",
             "snare_filter_freq",
             "snare_onset_threshold",
+            "clap_filter_enabled",
+            "clap_filter_freq",
+            "clap_onset_threshold",
+            "cymbal_filter_enabled",
+            "cymbal_filter_freq",
+            "cymbal_onset_threshold",
         ]
         assert [field.key for field in plan.advanced_fields] == [
             "shifts",
@@ -996,17 +1158,47 @@ def test_app_shell_runtime_extract_song_drum_events_settings_expose_model_fields
             "snare_onset_method",
             "snare_onset_backtrack",
             "snare_onset_timing_offset_ms",
+            "clap_filter_type",
+            "clap_filter_q",
+            "clap_onset_min_gap",
+            "clap_onset_method",
+            "clap_onset_backtrack",
+            "clap_onset_timing_offset_ms",
+            "cymbal_filter_type",
+            "cymbal_filter_q",
+            "cymbal_onset_min_gap",
+            "cymbal_onset_method",
+            "cymbal_onset_backtrack",
+            "cymbal_onset_timing_offset_ms",
             "assignment_mode",
             "winner_margin",
             "event_match_window_ms",
         ]
         assert [key for key, _value in plan.locked_bindings] == ["audio_file"]
+        target_field = next(
+            field for field in plan.editable_fields if field.key == "target_drum_labels"
+        )
+        assert target_field.widget == "checkbox_group"
+        assert {option.value for option in target_field.options} >= {
+            "kick",
+            "snare",
+            "clap",
+            "cymbal",
+        }
         assert any(
             field.key == "kick_model_path" and field.value == str(kick_manifest)
             for field in plan.editable_fields
         )
         assert any(
             field.key == "snare_model_path" and field.value == str(snare_manifest)
+            for field in plan.editable_fields
+        )
+        assert any(
+            field.key == "clap_model_path" and field.value == str(clap_manifest)
+            for field in plan.editable_fields
+        )
+        assert any(
+            field.key == "cymbal_model_path" and field.value == str(cymbal_manifest)
             for field in plan.editable_fields
         )
         kick_field = next(
@@ -1017,16 +1209,10 @@ def test_app_shell_runtime_extract_song_drum_events_settings_expose_model_fields
         )
         assert kick_field.widget == "dropdown"
         assert snare_field.widget == "dropdown"
-        assert {option.value for option in kick_field.options} >= {
-            "",
-            str(kick_manifest),
-            str(snare_manifest),
-        }
-        assert {option.value for option in snare_field.options} >= {
-            "",
-            str(kick_manifest),
-            str(snare_manifest),
-        }
+        assert {option.value for option in kick_field.options} == {"", str(kick_manifest)}
+        assert {option.value for option in snare_field.options} == {"", str(snare_manifest)}
+        assert all(option.metadata.get("label") == "kick" for option in kick_field.options)
+        assert all(option.metadata.get("label") == "snare" for option in snare_field.options)
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)

@@ -11,37 +11,18 @@ from dataclasses import dataclass
 import numpy as np
 
 from echozero.audio.layer import AudioLayer, AudioTrack
+from echozero.output_routing import (
+    MAX_OUTPUT_CHANNELS,
+    canonical_master_output_buses,
+    output_bus_channel_spans,
+)
 
 # Leave headroom for host-chosen callback sizes when sounddevice runs with
 # blocksize=0 on real hardware.
 _MAX_SCRATCH_FRAMES = 32768
-_MAX_OUTPUT_CHANNELS = 16
+_MAX_OUTPUT_CHANNELS = MAX_OUTPUT_CHANNELS
 _GAIN_SMOOTHING_SECONDS = 0.02
 _GAIN_SILENCE_EPSILON = 1e-5
-
-
-def _resolve_output_bus_span(output_bus: str | None, output_channels: int) -> tuple[int, int]:
-    """Resolve one zero-based output channel span from a layer output bus token."""
-
-    if output_channels <= 1:
-        return (0, 1)
-    if output_bus is None:
-        return (0, min(2, output_channels))
-
-    token = output_bus.strip().lower()
-    if not token.startswith("outputs_"):
-        return (0, min(2, output_channels))
-    parts = token.split("_")
-    if len(parts) != 3 or (not parts[1].isdigit()) or (not parts[2].isdigit()):
-        return (0, min(2, output_channels))
-
-    start = max(1, int(parts[1])) - 1
-    end = max(start + 1, int(parts[2])) - 1
-    if start >= output_channels:
-        return (-1, 0)
-    resolved_end = min(end, output_channels - 1)
-    width = max(0, resolved_end - start + 1)
-    return (start, width)
 
 
 @dataclass(slots=True)
@@ -61,6 +42,7 @@ class Mixer:
     __slots__ = (
         "_layers",
         "_master_volume",
+        "_master_output_buses",
         "_scratch",
         "_layer_scratch",
         "_scratch_multichannel",
@@ -75,6 +57,7 @@ class Mixer:
     def __init__(self) -> None:
         self._layers: list[AudioLayer] = []
         self._master_volume: float = 1.0
+        self._master_output_buses: tuple[str, ...] = ()
         # A1: two separate scratch buffers so they never overlap regardless of frames size.
         # Previously scratch[0:frames] was the output and scratch[frames:frames*2] was
         # the per-layer temp; if frames > 4096 those regions overlap.
@@ -112,6 +95,16 @@ class Mixer:
     @master_volume.setter
     def master_volume(self, value: float) -> None:
         self._master_volume = max(0.0, min(2.0, value))
+
+    @property
+    def master_output_bus(self) -> str | None:
+        """Default route for tracks without an explicit output bus."""
+
+        return ",".join(self._master_output_buses) or None
+
+    @master_output_bus.setter
+    def master_output_bus(self, value: object) -> None:
+        self._master_output_buses = canonical_master_output_buses(value, default=None)
 
     def add_track(self, track: AudioTrack) -> None:
         """Add one track to the mix. Call from the main thread only."""
@@ -341,8 +334,15 @@ class Mixer:
                 continue
 
             if out.ndim == 1:
-                target_start, target_width = _resolve_output_bus_span(layer.output_bus, 1)
-                if target_start != 0 or target_width <= 0:
+                target_spans = output_bus_channel_spans(
+                    layer.output_bus,
+                    1,
+                    default_output_buses=self._master_output_buses,
+                )
+                if not any(
+                    target_start == 0 and target_width > 0
+                    for target_start, target_width in target_spans
+                ):
                     continue
                 layer_buf = self._layer_scratch[:frames]
                 # A1: use separate layer scratch so it never overlaps with `out`
@@ -356,26 +356,27 @@ class Mixer:
                 continue
 
             output_channels = out.shape[1]
-            target_start, target_width = _resolve_output_bus_span(
+            target_spans = output_bus_channel_spans(
                 layer.output_bus,
                 output_channels,
+                default_output_buses=self._master_output_buses,
             )
-            if target_width <= 0:
+            target_spans = tuple(span for span in target_spans if span[1] > 0)
+            if not target_spans:
                 continue
-            if target_width > self._layer_scratch_multichannel.shape[1]:
+            max_target_width = max(target_width for _target_start, target_width in target_spans)
+            if max_target_width > self._layer_scratch_multichannel.shape[1]:
                 raise ValueError(
-                    f"output bus width ({target_width}) exceeds scratch channels "
+                    f"output bus width ({max_target_width}) exceeds scratch channels "
                     f"({self._layer_scratch_multichannel.shape[1]})"
                 )
-            layer_buf = self._layer_scratch_multichannel[:frames, :target_width]
-            # A1: use separate layer scratch so it never overlaps with `out`
-            layer.read_into(layer_buf, position, frames)
-            self._apply_gain_ramp(
-                layer_buf,
-                envelope=envelope,
-                frames=frames,
-            )
-            out[:, target_start : target_start + target_width] += layer_buf
+            gain_ramp = self._prepare_gain_ramp(envelope=envelope, frames=frames)
+            for target_start, target_width in target_spans:
+                layer_buf = self._layer_scratch_multichannel[:frames, :target_width]
+                # A1: use separate layer scratch so it never overlaps with `out`
+                layer.read_into(layer_buf, position, frames)
+                self._apply_prepared_gain_ramp(layer_buf, gain_ramp, frames=frames)
+                out[:, target_start : target_start + target_width] += layer_buf
 
         out *= self._master_volume
 
@@ -389,20 +390,29 @@ class Mixer:
         envelope: _GainEnvelope,
         frames: int,
     ) -> None:
+        gain_ramp = self._prepare_gain_ramp(envelope=envelope, frames=frames)
+        self._apply_prepared_gain_ramp(buffer, gain_ramp, frames=frames)
+
+    def _prepare_gain_ramp(
+        self,
+        *,
+        envelope: _GainEnvelope,
+        frames: int,
+    ) -> np.ndarray:
+        ramp = self._gain_ramp[: max(0, frames)]
         if frames <= 0:
-            return
+            return ramp
         current_gain = float(envelope.current)
         target_gain = float(envelope.target)
         remaining = max(0, int(envelope.remaining_samples))
         if abs(target_gain - current_gain) <= _GAIN_SILENCE_EPSILON:
-            buffer[:frames] *= np.float32(target_gain)
+            ramp[:frames] = np.float32(target_gain)
             envelope.current = float(target_gain)
             envelope.remaining_samples = 0
-            return
+            return ramp
         if remaining <= 0:
             remaining = max(1, int(self._gain_smoothing_samples))
         ramp_samples = max(1, min(int(frames), remaining))
-        ramp = self._gain_ramp[:frames]
         if ramp_samples <= 1:
             ramp[:frames] = np.float32(target_gain)
             end_gain = float(target_gain)
@@ -421,13 +431,24 @@ class Mixer:
                     end_gain = float(target_gain)
                 else:
                     ramp[ramp_samples:frames] = np.float32(end_gain)
+        envelope.current = float(end_gain)
+        envelope.target = float(target_gain)
+        envelope.remaining_samples = int(remaining)
+        return ramp
+
+    @staticmethod
+    def _apply_prepared_gain_ramp(
+        buffer: np.ndarray,
+        ramp: np.ndarray,
+        *,
+        frames: int,
+    ) -> None:
+        if frames <= 0:
+            return
         if buffer.ndim == 1:
             np.multiply(buffer[:frames], ramp[:frames], out=buffer[:frames])
         else:
             np.multiply(buffer[:frames], ramp[:frames, None], out=buffer[:frames])
-        envelope.current = float(end_gain)
-        envelope.target = float(target_gain)
-        envelope.remaining_samples = int(remaining)
 
     @property
     def duration_samples(self) -> int:

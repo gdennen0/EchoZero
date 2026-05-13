@@ -31,6 +31,11 @@ from echozero.application.settings.page_builder import (
     build_app_settings_page,
     list_audio_output_device_options,
 )
+from echozero.output_routing import (
+    DEFAULT_MASTER_OUTPUT_BUS,
+    canonical_master_output_buses,
+    parse_output_bus_spans,
+)
 
 
 class AppSettingsValidationError(ValueError):
@@ -84,6 +89,27 @@ class AppSettingsService:
 
         return build_app_settings_page(
             self._preferences,
+            audio_device_options_provider=self._audio_device_options_provider,
+            include_hidden=include_hidden,
+        )
+
+    def describe_with_updates(
+        self,
+        updates: Mapping[str, object],
+        *,
+        include_hidden: bool = False,
+    ) -> SettingsPage:
+        """Render the settings page as if one unsaved form snapshot were applied."""
+
+        current = self._preferences
+        draft_preferences = AppPreferences(
+            audio_output=self._updated_audio_preferences(current.audio_output, updates),
+            ma3_osc=self._updated_ma3_osc_preferences(current.ma3_osc, updates),
+            song_import=self._updated_song_import_preferences(current.song_import, updates),
+            recent_project_paths=current.recent_project_paths,
+        )
+        return build_app_settings_page(
+            draft_preferences,
             audio_device_options_provider=self._audio_device_options_provider,
             include_hidden=include_hidden,
         )
@@ -145,6 +171,7 @@ class AppSettingsService:
             output_device=self._runtime_output_device(audio.output_device),
             sample_rate=audio.sample_rate,
             channels=audio.output_channels,
+            master_output_bus=audio.master_output_bus,
             stream_latency=(
                 None
                 if audio.latency_profile is AudioLatencyProfile.AUTO
@@ -258,18 +285,29 @@ class AppSettingsService:
         current: AudioOutputPreferences,
         updates: Mapping[str, object],
     ) -> AudioOutputPreferences:
+        output_device = self._device_value(
+            updates.get("audio.output_device"),
+            current.output_device,
+        )
+        output_channels = self._optional_positive_int(
+            updates.get("audio.output_channels"),
+            current.output_channels,
+        )
+        max_master_channel = self._selected_device_output_channels(
+            output_device,
+            fallback=output_channels,
+        )
         return AudioOutputPreferences(
-            output_device=self._device_value(
-                updates.get("audio.output_device"),
-                current.output_device,
-            ),
+            output_device=output_device,
             sample_rate=self._optional_positive_int(
                 updates.get("audio.sample_rate"),
                 current.sample_rate,
             ),
-            output_channels=self._optional_positive_int(
-                updates.get("audio.output_channels"),
-                current.output_channels,
+            output_channels=output_channels,
+            master_output_bus=self._output_bus_value(
+                updates.get("audio.master_output_bus"),
+                current.master_output_bus,
+                max_channel=max_master_channel,
             ),
             latency_profile=self._latency_profile(
                 updates.get("audio.latency_profile"),
@@ -385,6 +423,28 @@ class AppSettingsService:
             raise AppSettingsValidationError(
                 "Audio output channels must be between 1 and 16, or Auto."
             )
+        parsed_master_buses = parse_output_bus_spans(audio.master_output_bus, reject_invalid=True)
+        if not parsed_master_buses or any(
+            end_channel > 16 for _start_channel, end_channel in parsed_master_buses
+        ):
+            raise AppSettingsValidationError(
+                "Master output buses must be valid outputs_X_Y routes within outputs 1-16."
+            )
+        max_master_channel = max(
+            end_channel for _start_channel, end_channel in parsed_master_buses
+        )
+        if audio.output_channels is not None and max_master_channel > audio.output_channels:
+            raise AppSettingsValidationError(
+                "Master output buses require enough configured output channels."
+            )
+        device_output_channels = self._selected_device_output_channels(
+            audio.output_device,
+            fallback=audio.output_channels,
+        )
+        if device_output_channels is not None and max_master_channel > device_output_channels:
+            raise AppSettingsValidationError(
+                "Master output buses require enough outputs on the selected audio device."
+            )
         if audio.blocksize is not None and audio.blocksize <= 0:
             raise AppSettingsValidationError("Audio blocksize override must be greater than 0.")
 
@@ -415,6 +475,7 @@ class AppSettingsService:
             "audio.output_device": preferences.audio_output.output_device or "",
             "audio.sample_rate": preferences.audio_output.sample_rate or 0,
             "audio.output_channels": preferences.audio_output.output_channels or 0,
+            "audio.master_output_bus": preferences.audio_output.master_output_bus,
             "audio.latency_profile": preferences.audio_output.latency_profile.value,
             "audio.blocksize": preferences.audio_output.blocksize or 0,
             "audio.prime_output_buffers_using_stream_callback": (
@@ -436,6 +497,28 @@ class AppSettingsService:
             )
         return values
 
+    def _selected_device_output_channels(
+        self,
+        output_device: str | None,
+        *,
+        fallback: int | None,
+    ) -> int | None:
+        selected_device = str(output_device or "").strip()
+        try:
+            device_options = self._audio_device_options_provider()
+        except Exception:
+            device_options = ()
+        for option in device_options:
+            if str(option.value) != selected_device:
+                continue
+            try:
+                max_outputs = int(option.metadata.get("max_output_channels", 0) or 0)
+            except Exception:
+                max_outputs = 0
+            if max_outputs > 0:
+                return max_outputs
+        return fallback
+
     @staticmethod
     def _runtime_output_device(value: str | None) -> int | str | None:
         if value is None or not str(value).strip():
@@ -444,6 +527,30 @@ class AppSettingsService:
         if text.isdigit():
             return int(text)
         return text
+
+    @staticmethod
+    def _output_bus_value(
+        value: object,
+        current: str,
+        *,
+        max_channel: int | None = None,
+    ) -> str:
+        source = value if value is not None else current
+        parsed = parse_output_bus_spans(source, reject_invalid=True)
+        if not parsed:
+            return DEFAULT_MASTER_OUTPUT_BUS
+        if any(end_channel > 16 for _start_channel, end_channel in parsed):
+            return current
+        tokens = canonical_master_output_buses(
+            source,
+            default=DEFAULT_MASTER_OUTPUT_BUS,
+            max_channel=max_channel,
+            clamp_to_channels=max_channel is not None,
+            reject_invalid=False,
+        )
+        if not tokens:
+            return DEFAULT_MASTER_OUTPUT_BUS
+        return ",".join(tokens)
 
     @staticmethod
     def _latency_profile(value: object, current: AudioLatencyProfile) -> AudioLatencyProfile:

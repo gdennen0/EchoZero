@@ -5,6 +5,7 @@ Connects project-level song/version workflows to persistence repositories.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import uuid
 from dataclasses import replace as dataclass_replace
@@ -32,6 +33,8 @@ from echozero.persistence.repositories import (
     TakeRepository,
     TimelineObjectRepository,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class _ProjectStorageVersioningHost(Protocol):
@@ -105,6 +108,7 @@ class ProjectStorageVersioningMixin:
             prepare_audio_for_import,
             scan_audio_metadata,
         )
+        from echozero.persistence.audio_tempo import detect_audio_tempo
 
         import_options = (
             cast(AudioImportOptions, audio_import_options)
@@ -122,6 +126,10 @@ class ProjectStorageVersioningMixin:
         except Exception as exc:
             raise ValidationError(f"Invalid audio file '{audio_source.name}': {exc}") from exc
 
+        tempo_metadata = detect_audio_tempo(prepared_source.source_path)
+        if tempo_metadata is None:
+            logger.info("No tempo metadata detected for imported audio '%s'", audio_source.name)
+
         try:
             audio_rel_path, audio_hash = import_audio(
                 prepared_source.source_path, host.working_dir
@@ -138,6 +146,11 @@ class ProjectStorageVersioningMixin:
             original_sample_rate=metadata.sample_rate,
             audio_hash=audio_hash,
             created_at=datetime.now(timezone.utc),
+            bpm=None if tempo_metadata is None else tempo_metadata.bpm,
+            bpm_confidence=None if tempo_metadata is None else tempo_metadata.bpm_confidence,
+            beat_anchor_seconds=(
+                None if tempo_metadata is None else tempo_metadata.beat_anchor_seconds
+            ),
             ma3_timecode_pool_no=ma3_timecode_pool_no,
         )
         host.song_versions.create(version)

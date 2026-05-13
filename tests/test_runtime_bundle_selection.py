@@ -48,6 +48,14 @@ def test_resolve_installed_binary_drum_bundles_returns_kick_and_snare(tmp_path: 
     assert bundles["snare"].manifest_path.name == "snare_bundle.manifest.json"
 
 
+def test_resolve_installed_binary_drum_bundles_normalizes_cymbol_alias(tmp_path: Path) -> None:
+    manifest_path = _write_bundle(tmp_path, "cymbal_bundle", ["cymbol", "other"])
+
+    bundles = resolve_installed_binary_drum_bundles(labels=("cymbal",), models_dir=tmp_path)
+
+    assert bundles["cymbal"].manifest_path == manifest_path.resolve()
+
+
 def test_resolve_installed_binary_drum_bundles_rejects_ambiguous_label(tmp_path: Path) -> None:
     _write_bundle(tmp_path, "kick_bundle_a", ["kick", "other"])
     _write_bundle(tmp_path, "kick_bundle_b", ["kick", "other"])

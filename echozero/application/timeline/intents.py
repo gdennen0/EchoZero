@@ -1,6 +1,6 @@
 """Explicit timeline intents for the new EchoZero application layer."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from echozero.application.session.models import (
     ManualPullEventOption,
@@ -8,12 +8,13 @@ from echozero.application.session.models import (
     ManualPushTrackOption,
 )
 from echozero.application.shared.cue_numbers import CueNumber, coerce_positive_cue_number
-from echozero.application.shared.enums import SyncMode
+from echozero.application.shared.enums import LayerKind, SyncMode
 from echozero.application.shared.ids import EventId, LayerId, SectionCueId, TakeId
 from echozero.application.shared.ranges import TimeRange
 from echozero.application.sync.models import LiveSyncState, coerce_live_sync_state
 from echozero.application.timeline.event_batch_scope import EventBatchScope
-from echozero.application.timeline.models import EventRef
+from echozero.application.timeline.models import Event, EventRef
+from echozero.output_routing import canonical_layer_output_bus
 
 
 class TimelineIntent:
@@ -27,18 +28,8 @@ def _coerce_pull_import_mode(raw_mode: str, *, action_name: str) -> str:
     return import_mode
 
 
-def _is_valid_output_bus(value: str) -> bool:
-    token = value.strip().lower()
-    if not token.startswith("outputs_"):
-        return False
-    parts = token.split("_")
-    if len(parts) != 3:
-        return False
-    if not parts[1].isdigit() or not parts[2].isdigit():
-        return False
-    start = int(parts[1])
-    end = int(parts[2])
-    return start >= 1 and end >= start
+def _canonical_layer_output_bus(value: object) -> str | None:
+    return canonical_layer_output_bus(value, reject_invalid=True)
 
 
 @dataclass(slots=True)
@@ -101,48 +92,81 @@ class SelectEveryOtherEvents(TimelineIntent):
 
 
 @dataclass(slots=True)
-class SelectSimilarSoundingEvents(TimelineIntent):
-    """Select similar-sounding events relative to one anchor event in a layer take."""
+class SelectSimilarEvents(TimelineIntent):
+    """Select events whose comparison result matches one anchor event."""
 
     layer_id: LayerId
     take_id: TakeId
     event_id: EventId
     scope_mode: str = "take"
+    comparison_mode: str = "shape_envelope"
     match_strength: str = "balanced"
     similarity_threshold_override: float | None = None
+    comparison_options: dict[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.layer_id is None or not str(self.layer_id).strip():
-            raise ValueError("SelectSimilarSoundingEvents requires a non-empty layer_id")
+            raise ValueError("SelectSimilarEvents requires a non-empty layer_id")
         if self.take_id is None or not str(self.take_id).strip():
-            raise ValueError("SelectSimilarSoundingEvents requires a non-empty take_id")
+            raise ValueError("SelectSimilarEvents requires a non-empty take_id")
         if self.event_id is None or not str(self.event_id).strip():
-            raise ValueError("SelectSimilarSoundingEvents requires a non-empty event_id")
+            raise ValueError("SelectSimilarEvents requires a non-empty event_id")
         scope_mode = (self.scope_mode or "").strip().lower()
         if scope_mode not in {"take", "layer", "selected_layers_main"}:
             raise ValueError(
-                "SelectSimilarSoundingEvents requires scope_mode 'take', 'layer', or 'selected_layers_main'"
+                "SelectSimilarEvents requires scope_mode 'take', 'layer', or 'selected_layers_main'"
             )
         self.scope_mode = scope_mode
+        comparison_mode = (self.comparison_mode or "").strip().lower()
+        if not comparison_mode:
+            raise ValueError("SelectSimilarEvents requires a non-empty comparison_mode")
+        self.comparison_mode = comparison_mode
         match_strength = (self.match_strength or "").strip().lower()
         if match_strength not in {"very_strict", "strict", "balanced", "loose"}:
             raise ValueError(
-                "SelectSimilarSoundingEvents requires match_strength 'very_strict', 'strict', 'balanced', or 'loose'"
+                "SelectSimilarEvents requires match_strength 'very_strict', 'strict', 'balanced', or 'loose'"
             )
         self.match_strength = match_strength
+        self.comparison_options = dict(self.comparison_options or {})
         if self.similarity_threshold_override is None:
             return
         try:
             threshold = float(self.similarity_threshold_override)
         except (TypeError, ValueError) as exc:
             raise ValueError(
-                "SelectSimilarSoundingEvents similarity_threshold_override must be numeric when provided"
+                "SelectSimilarEvents similarity_threshold_override must be numeric when provided"
             ) from exc
         if threshold < 0.0 or threshold > 1.0:
             raise ValueError(
-                "SelectSimilarSoundingEvents similarity_threshold_override must be between 0.0 and 1.0"
+                "SelectSimilarEvents similarity_threshold_override must be between 0.0 and 1.0"
             )
         self.similarity_threshold_override = threshold
+
+
+class SelectSimilarSoundingEvents(SelectSimilarEvents):
+    """Legacy shape-envelope selection intent kept for compatibility."""
+
+    def __init__(
+        self,
+        *,
+        layer_id: LayerId,
+        take_id: TakeId,
+        event_id: EventId,
+        scope_mode: str = "take",
+        match_strength: str = "balanced",
+        similarity_threshold_override: float | None = None,
+        comparison_options: dict[str, object] | None = None,
+    ) -> None:
+        super().__init__(
+            layer_id=layer_id,
+            take_id=take_id,
+            event_id=event_id,
+            scope_mode=scope_mode,
+            comparison_mode="shape_envelope",
+            match_strength=match_strength,
+            similarity_threshold_override=similarity_threshold_override,
+            comparison_options=dict(comparison_options or {}),
+        )
 
 
 @dataclass(slots=True)
@@ -492,12 +516,50 @@ class MoveEvent(TimelineIntent):
 class MoveSelectedEvents(TimelineIntent):
     delta_seconds: float
     target_layer_id: LayerId | None = None
+    target_take_id: TakeId | None = None
     copy_selected: bool = False
+    create_layer_title: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.target_layer_id is not None and not str(self.target_layer_id).strip():
+            self.target_layer_id = None
+        if self.target_take_id is not None and not str(self.target_take_id).strip():
+            self.target_take_id = None
+        if self.create_layer_title is not None:
+            title = str(self.create_layer_title).strip()
+            self.create_layer_title = title or None
 
 
 @dataclass(slots=True)
 class MoveSelectedEventsToAdjacentLayer(TimelineIntent):
     direction: int
+
+
+@dataclass(slots=True)
+class CopiedEventClip:
+    """One copied event plus the source lane metadata needed for paste validation."""
+
+    source_layer_id: LayerId
+    source_take_id: TakeId
+    source_layer_kind: LayerKind
+    event: Event
+
+
+@dataclass(slots=True)
+class PasteCopiedEvents(TimelineIntent):
+    clips: list[CopiedEventClip]
+    target_layer_id: LayerId | None = None
+    target_take_id: TakeId | None = None
+    insert_at_seconds: float | None = None
+
+    def __post_init__(self) -> None:
+        self.clips = list(self.clips or [])
+        if self.target_layer_id is not None and not str(self.target_layer_id).strip():
+            self.target_layer_id = None
+        if self.target_take_id is not None and not str(self.target_take_id).strip():
+            self.target_take_id = None
+        if self.insert_at_seconds is not None:
+            self.insert_at_seconds = float(self.insert_at_seconds)
 
 
 @dataclass(slots=True)
@@ -706,11 +768,12 @@ class SetLayerOutputBus(TimelineIntent):
         if not output_bus:
             self.output_bus = None
             return
-        if not _is_valid_output_bus(output_bus):
+        canonical_output_bus = _canonical_layer_output_bus(output_bus)
+        if canonical_output_bus is None:
             raise ValueError(
                 "SetLayerOutputBus requires output_bus format 'outputs_<start>_<end>'"
             )
-        self.output_bus = output_bus
+        self.output_bus = canonical_output_bus
 
 
 @dataclass(slots=True)

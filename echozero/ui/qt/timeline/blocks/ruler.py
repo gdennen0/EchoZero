@@ -8,6 +8,7 @@ from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
 
 from echozero.application.presentation.models import TimelinePresentation
 from echozero.ui.FEEL import RULER_FONT_SIZE, RULER_MIN_TICK_SPACING_PX
+from echozero.ui.qt.timeline.time_grid import TimelineGridMode, visible_grid_lines
 from echozero.ui.qt.timeline.style import RulerStyle, TIMELINE_STYLE
 
 
@@ -40,16 +41,15 @@ class RulerBlock:
             QColor(self.style.header_background_hex),
         )
         painter.setPen(QColor(self.style.title_hex))
-        painter.drawText(14, int(rect.top()) + 18, "Timeline")
+        painter.drawText(14, int(rect.top()) + 18, _ruler_title(presentation))
         label_font = QFont(painter.font())
         label_font.setPointSize(max(7, int(RULER_FONT_SIZE)))
         painter.setFont(label_font)
 
         pps = max(1.0, presentation.pixels_per_second)
         content_width = max(1.0, rect.width() - layout.header_width)
-        for second, x in visible_ruler_seconds(
-            scroll_x=presentation.scroll_x,
-            pixels_per_second=pps,
+        for label, x in visible_ruler_marks(
+            presentation=presentation,
             content_width=content_width,
             content_start_x=layout.header_width,
         ):
@@ -60,7 +60,7 @@ class RulerBlock:
             painter.setPen(QColor(self.style.grid_hex))
             painter.drawLine(int(x), int(rect.top()), int(x), int(rect.bottom()) - 1)
             painter.setPen(QColor(self.style.label_hex))
-            painter.drawText(int(x) + 4, int(rect.top()) + 12, f"{second}")
+            painter.drawText(int(x) + 4, int(rect.top()) + 12, label)
 
         playhead_x = timeline_x_for_time(
             presentation.playhead,
@@ -97,6 +97,69 @@ def visible_ruler_seconds(
         if content_start_x <= x <= (content_start_x + content_width):
             marks.append((second, x))
     return marks
+
+
+def visible_ruler_marks(
+    *,
+    presentation: TimelinePresentation,
+    content_width: float,
+    content_start_x: float,
+) -> list[tuple[str, float]]:
+    """Return visible ruler labels for either musical bars or plain seconds."""
+
+    bpm = presentation.bpm
+    if bpm is None or float(bpm) <= 0.0:
+        return [
+            (str(second), x)
+            for second, x in visible_ruler_seconds(
+                scroll_x=presentation.scroll_x,
+                pixels_per_second=presentation.pixels_per_second,
+                content_width=content_width,
+                content_start_x=content_start_x,
+            )
+        ]
+
+    beat_seconds = 60.0 / float(bpm)
+    bar_lines = [
+        line
+        for line in visible_grid_lines(
+            scroll_x=presentation.scroll_x,
+            pixels_per_second=presentation.pixels_per_second,
+            content_width=content_width,
+            mode=TimelineGridMode.BEAT,
+            bpm=bpm,
+            beat_anchor_seconds=presentation.beat_anchor_seconds,
+            min_spacing_px=max(RULER_MIN_TICK_SPACING_PX, beat_seconds * presentation.pixels_per_second),
+        )
+        if line.role == "bar"
+    ]
+    if not bar_lines:
+        return []
+
+    anchor = max(0.0, float(presentation.beat_anchor_seconds or 0.0))
+    marks: list[tuple[str, float]] = []
+    for line in bar_lines:
+        beats_from_anchor = round((line.time_seconds - anchor) / beat_seconds) if beat_seconds else 0
+        bar_number = max(0, beats_from_anchor // 4) + 1
+        label = f"{bar_number}|1"
+        x = timeline_x_for_time(
+            line.time_seconds,
+            scroll_x=presentation.scroll_x,
+            pixels_per_second=presentation.pixels_per_second,
+            content_start_x=content_start_x,
+        )
+        marks.append((label, x))
+    return marks
+
+
+def _ruler_title(presentation: TimelinePresentation) -> str:
+    bpm = presentation.bpm
+    if bpm is None or float(bpm) <= 0.0:
+        return "Timeline"
+    rounded_bpm = f"{float(bpm):.1f}".rstrip("0").rstrip(".")
+    if presentation.bpm_confidence is not None and float(presentation.bpm_confidence) < 0.6:
+        return f"Timeline · ~{rounded_bpm} BPM"
+    return f"Timeline · {rounded_bpm} BPM"
 
 
 def timeline_x_for_time(

@@ -13,6 +13,8 @@ from echozero.application.presentation.models import (
     TimelinePresentation,
 )
 
+_AUDIO_EVENT_CLIP_PREVIEW_KIND = "audio_event_clip"
+
 
 def event_preview_source_ref(
     presentation: TimelinePresentation,
@@ -53,6 +55,14 @@ def event_preview_params(
         layer=layer,
         take=take,
     )
+    preview_payload = audio_event_preview_payload(
+        source_ref=source_ref,
+        source_audio_path=source_audio_path,
+        waveform_key=waveform_key,
+        start_seconds=float(event.start),
+        end_seconds=float(event.end),
+        duration_seconds=float(event.duration),
+    )
     return {
         "layer_id": layer.layer_id,
         "object_id": layer.object_id,
@@ -70,12 +80,35 @@ def event_preview_params(
         ),
         "take_id": take.take_id if take is not None else layer.main_take_id,
         "event_id": event.event_id,
+        "preview": preview_payload,
         "source_ref": source_ref,
         "source_audio_path": source_audio_path,
         "waveform_key": waveform_key,
         "start_seconds": float(event.start),
         "end_seconds": float(event.end),
         "duration_seconds": float(event.duration),
+    }
+
+
+def audio_event_preview_payload(
+    *,
+    source_ref: str,
+    source_audio_path: str | None,
+    waveform_key: str | None,
+    start_seconds: float,
+    end_seconds: float,
+    duration_seconds: float,
+) -> dict[str, object]:
+    """Build the typed inspector preview payload for one audio-backed event clip."""
+
+    return {
+        "kind": _AUDIO_EVENT_CLIP_PREVIEW_KIND,
+        "source_ref": source_ref,
+        "source_audio_path": source_audio_path,
+        "waveform_key": waveform_key,
+        "start_seconds": start_seconds,
+        "end_seconds": end_seconds,
+        "duration_seconds": duration_seconds,
     }
 
 

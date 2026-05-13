@@ -187,6 +187,39 @@ def test_widget_dispatch_uses_exact_runtime_clock_time_when_pausing():
         app.processEvents()
 
 
+def test_widget_runtime_tick_preserves_paused_playhead_when_backend_visually_regresses_to_zero():
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(
+        _audio_presentation(),
+        is_playing=True,
+        playhead=4.257,
+        current_time_label="00:04.26",
+    )
+    runtime_audio = FakeRuntimeAudio()
+    runtime_audio.playing = False
+    runtime_audio.current_time = 0.0
+
+    widget = TimelineWidget(
+        presentation,
+        on_intent=lambda intent: presentation,
+        runtime_audio=runtime_audio,
+    )
+    widget._runtime_timer.stop()
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+
+        widget._on_runtime_tick()
+
+        assert widget.presentation.playhead == pytest.approx(4.257)
+        assert widget.presentation.is_playing is False
+        assert widget.presentation.current_time_label == "00:04.26"
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_widget_set_presentation_avoids_rebuilding_runtime_layers_when_sources_unchanged():
     app = QApplication.instance() or QApplication([])
     presentation = _audio_presentation()

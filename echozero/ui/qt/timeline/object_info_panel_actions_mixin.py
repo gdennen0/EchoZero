@@ -24,10 +24,10 @@ from echozero.application.presentation.inspector_contract import InspectorAction
 from echozero.ui.qt.timeline.object_info_panel_text import plan_detail_text
 
 _ACTION_ROW_CONTENT_MARGIN_PX = 4
-_ACTION_ROW_SPACING_PX = 3
+_ACTION_ROW_SPACING_PX = 2
 _ACTION_ROW_BUTTON_SPACING_PX = 4
 _ACTION_SETTINGS_BUTTON_WIDTH_PX = 24
-_ACTION_RUN_BUTTON_MIN_WIDTH_PX = 48
+_ACTION_RUN_BUTTON_MIN_WIDTH_PX = 72
 _SECTION_TOGGLE_ARROW_SIZE_PX = 4
 
 
@@ -50,7 +50,8 @@ class _ObjectInfoPanelActionsMixin:
         self.action_requested.emit(action)
 
     def _emit_apply_gain(self: Any) -> None:
-        layer_id = self._layer_id_for_controls()
+        layer_params = self._layer_params_for_controls()
+        layer_id = layer_params.get("layer_id")
         if layer_id is None:
             return
         self.action_requested.emit(
@@ -58,7 +59,10 @@ class _ObjectInfoPanelActionsMixin:
                 action_id="set_gain_custom",
                 label="Set Gain",
                 group="gain",
-                params={"layer_id": layer_id, "gain_db": float(self._gain_spin.value())},
+                params={
+                    **layer_params,
+                    "gain_db": float(self._gain_spin.value()),
+                },
             )
         )
 
@@ -84,7 +88,7 @@ class _ObjectInfoPanelActionsMixin:
             return
         self.action_requested.emit(action)
 
-    def _layer_id_for_controls(self: Any) -> object | None:
+    def _layer_params_for_controls(self: Any) -> dict[str, object]:
         for action_id in (
             "set_layer_mute_on",
             "set_layer_mute_off",
@@ -100,12 +104,23 @@ class _ObjectInfoPanelActionsMixin:
                 continue
             layer_id = action.params.get("layer_id")
             if layer_id is not None:
-                return layer_id
+                return {
+                    key: value
+                    for key, value in action.params.items()
+                    if key in {"layer_id", "selected_layer_ids"}
+                }
         for action in self._iter_contract_actions():
             layer_id = action.params.get("layer_id")
             if layer_id is not None:
-                return layer_id
-        return None
+                return {
+                    key: value
+                    for key, value in action.params.items()
+                    if key in {"layer_id", "selected_layer_ids"}
+                }
+        return {}
+
+    def _layer_id_for_controls(self: Any) -> object | None:
+        return self._layer_params_for_controls().get("layer_id")
 
     def _rebuild_action_sections(self: Any) -> None:
         self._clear_action_sections()
@@ -223,10 +238,15 @@ class _ObjectInfoPanelActionsMixin:
             )
         )
         actions_row.addWidget(settings_button)
-        run_button = QPushButton(plan.run_label, actions_container)
-        run_button.setText("Run")
+        run_button = QPushButton(
+            "Review" if plan.requires_settings_confirmation else action.label,
+            actions_container,
+        )
         run_button.setToolTip(plan.run_label)
-        self._set_button_appearance(run_button, "primary")
+        self._set_button_appearance(
+            run_button,
+            "danger" if self._is_destructive_action(action) else "primary",
+        )
         run_button.setProperty("compact", True)
         run_button.setMinimumWidth(_ACTION_RUN_BUTTON_MIN_WIDTH_PX)
         run_button.setEnabled(action.enabled and not plan.is_running)
@@ -266,24 +286,22 @@ class _ObjectInfoPanelActionsMixin:
         )
         layout.setSpacing(_ACTION_ROW_BUTTON_SPACING_PX)
 
-        label = QLabel(action.label, row)
-        label.setObjectName("timeline_object_info_action_label")
-        label.setWordWrap(False)
-        label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        layout.addWidget(label, 1)
-
-        run_button = QPushButton("Run", row)
+        run_button = QPushButton(action.label, row)
         run_button.setToolTip(action.label)
-        self._set_button_appearance(run_button, "subtle")
+        self._set_button_appearance(
+            run_button,
+            "danger" if self._is_destructive_action(action) else "subtle",
+        )
         run_button.setProperty("compact", True)
-        run_button.setMinimumWidth(_ACTION_RUN_BUTTON_MIN_WIDTH_PX)
+        run_button.setMinimumWidth(0)
+        run_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         run_button.setEnabled(action.enabled)
         run_button.clicked.connect(
             lambda _checked=False, action_id=action.action_id: self._emit_contract_action(
                 action_id
             )
         )
-        layout.addWidget(run_button)
+        layout.addWidget(run_button, 1)
 
         self._action_buttons[action.action_id] = run_button
         return row
@@ -313,6 +331,12 @@ class _ObjectInfoPanelActionsMixin:
         if group == "transfer":
             return action.action_id == "transfer.workspace_open" and direction == "push"
         return True
+
+    @staticmethod
+    def _is_destructive_action(action: InspectorAction) -> bool:
+        label = str(action.label or "").strip().lower()
+        action_id = str(action.action_id or "").strip().lower()
+        return "delete" in label or "delete" in action_id or "remove" in action_id
 
     def _sync_mute_solo_controls(self: Any, *, selected_layer: object | None) -> None:
         muted = bool(getattr(selected_layer, "muted", False))

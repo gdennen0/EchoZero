@@ -12,6 +12,7 @@ from tests.ui.app_shell_runtime_flow_support import (
     test_app_shell_runtime_extract_drum_events_supports_all_stem_layer_types,
     test_app_shell_runtime_extract_drum_events_rerun_clears_stale_selected_event_refs,
     test_app_shell_runtime_extract_drum_events_rerun_surfaces_new_take_with_saved_threshold,
+    test_app_shell_runtime_extract_note_contour_persists_child_event_layer,
     test_app_shell_runtime_extract_song_drum_events_adds_selected_stem_layers,
     test_app_shell_runtime_extract_song_drum_events_from_source_audio,
     test_app_shell_runtime_extract_song_sections_persists_section_layer,

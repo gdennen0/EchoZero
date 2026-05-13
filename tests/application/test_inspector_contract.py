@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from echozero.application.presentation.inspector_contract import (
     TimelineInspectorHitTarget,
     build_timeline_inspector_contract,
@@ -309,6 +311,39 @@ def test_inspector_contract_object_actions_are_registered_descriptors():
         assert is_object_action(action_id) is True
 
 
+def test_inspector_contract_marks_extract_classified_drums_for_settings_confirmation():
+    presentation = _contract_test_presentation()
+    presentation.layers[0].kind = LayerKind.AUDIO
+    presentation.layers[0].title = "Drums"
+    presentation.layers[0].badges = ["drums"]
+    presentation.selected_layer_id = LayerId("layer_kick")
+
+    contract = build_timeline_inspector_contract(presentation)
+    actions = {
+        action.action_id: action
+        for section in contract.context_sections
+        for action in section.actions
+    }
+
+    assert actions["timeline.extract_classified_drums"].requires_settings_confirmation is True
+    assert actions["timeline.extract_stems"].requires_settings_confirmation is False
+
+
+def test_inspector_contract_marks_detect_song_parts_for_settings_confirmation():
+    presentation = _contract_test_presentation()
+    presentation.selected_layer_id = LayerId("layer_kick")
+    presentation.layers[0].kind = LayerKind.AUDIO
+
+    contract = build_timeline_inspector_contract(presentation)
+    actions = {
+        action.action_id: action
+        for section in contract.context_sections
+        for action in section.actions
+    }
+
+    assert actions["timeline.extract_song_sections"].requires_settings_confirmation is True
+
+
 def test_inspector_contract_audio_layer_hides_ma3_controls():
     presentation = _contract_test_presentation()
     presentation.selected_layer_id = LayerId("layer_kick")
@@ -539,7 +574,7 @@ def test_inspector_contract_main_event_state():
     assert rows["selected identity"] == "Event Main (main_evt) on Kick / Main take (take_main)"
     assert transfer_section.label == "Sync & Transfer"
     assert {
-        "selection.find_similar_sounding",
+        "selection.compare_events",
         "selection.select_every_other",
         "selection.renumber_cues_from_one",
     } <= set(action_ids)
@@ -550,6 +585,7 @@ def test_inspector_contract_main_event_state():
         "transfer.match_ma3_cues",
         "transfer.send_to_track_once",
     } <= set(action_ids)
+    assert "selection.improve_model_from_selection" in action_ids
 
 
 def test_inspector_contract_prefers_selected_event_ids_over_stale_selected_event_refs():
@@ -620,7 +656,7 @@ def test_inspector_contract_take_event_state():
         "overwrite_main",
         "merge_main",
         "delete_take",
-        "selection.find_similar_sounding",
+        "selection.compare_events",
         "selection.select_every_other",
         "selection.renumber_cues_from_one",
     } <= set(action_ids)
@@ -632,6 +668,37 @@ def test_inspector_contract_take_event_state():
         "transfer.match_ma3_cues",
         "transfer.send_to_track_once",
     } <= set(action_ids)
+
+
+def test_inspector_contract_event_preview_action_includes_typed_preview_payload():
+    presentation = _contract_test_presentation()
+    presentation.layers[0] = replace(
+        presentation.layers[0],
+        source_audio_path="kick.wav",
+        playback_source_ref="kick.wav",
+        waveform_key="kick-main",
+    )
+    presentation.selected_layer_id = LayerId("layer_kick")
+    presentation.selected_take_id = TakeId("take_main")
+    presentation.selected_event_ids = [EventId("main_evt")]
+
+    contract = build_timeline_inspector_contract(presentation)
+    preview_action = next(
+        action
+        for section in contract.context_sections
+        for action in section.actions
+        if action.action_id == "preview_event_clip"
+    )
+
+    assert preview_action.params["preview"] == {
+        "kind": "audio_event_clip",
+        "source_ref": "kick.wav",
+        "source_audio_path": "kick.wav",
+        "waveform_key": "kick-main",
+        "start_seconds": 1.0,
+        "end_seconds": 1.5,
+        "duration_seconds": 0.5,
+    }
 
 
 def test_inspector_contract_layer_hit_uses_selected_layers_batch_scope_when_multiselect_is_active():
@@ -656,6 +723,51 @@ def test_inspector_contract_layer_hit_uses_selected_layers_batch_scope_when_mult
 
     assert select_every_other.label == "Select Every Other in Selected Layers"
     assert select_every_other.params["scope_mode"] == "selected_layers_main"
+
+
+def test_inspector_contract_layer_mix_actions_keep_selected_layer_scope_when_multiselect_is_active():
+    presentation = _contract_test_presentation()
+    presentation.layers[0] = replace(
+        presentation.layers[0],
+        kind=LayerKind.AUDIO,
+        source_audio_path="kick.wav",
+        playback_source_ref="kick.wav",
+    )
+    presentation.layers[1] = replace(
+        presentation.layers[1],
+        kind=LayerKind.AUDIO,
+        source_audio_path="snare.wav",
+        playback_source_ref="snare.wav",
+    )
+    presentation.selected_layer_id = LayerId("layer_empty")
+    presentation.selected_layer_ids = [LayerId("layer_kick"), LayerId("layer_empty")]
+
+    contract = build_timeline_inspector_contract(
+        presentation,
+        hit_target=TimelineInspectorHitTarget(
+            kind="layer",
+            layer_id=LayerId("layer_kick"),
+            time_seconds=1.0,
+        ),
+    )
+    layer_actions = next(
+        section for section in contract.context_sections if section.section_id == "layer-mix"
+    ).actions
+    gain_up = next(action for action in layer_actions if action.action_id == "gain_up")
+    mute_action = next(
+        action
+        for action in layer_actions
+        if action.action_id in {"set_layer_mute_on", "set_layer_mute_off"}
+    )
+
+    assert gain_up.params["selected_layer_ids"] == [
+        LayerId("layer_kick"),
+        LayerId("layer_empty"),
+    ]
+    assert mute_action.params["selected_layer_ids"] == [
+        LayerId("layer_kick"),
+        LayerId("layer_empty"),
+    ]
 
 
 def test_inspector_contract_no_takes_layer_state():
@@ -730,7 +842,7 @@ def test_inspector_contract_render_text_tracks_selection_transition_sequence():
             "solo: Off",
             "gain: +0.0 dB",
             "pan: +0.00",
-            "output route: Outputs 1/2 (Default)",
+            "output route: Master/default output",
             "sync state: Off",
             "sync mapping: none",
             "selected identity: Layer Kick (layer_kick)",

@@ -33,6 +33,7 @@ from echozero.processors.binary_drum_classify import (
     DrumLabelInferenceInput,
     _default_binary_classify,
     _apply_assignment_config,
+    _apply_label_min_separation,
 )
 from echozero.progress import RuntimeBus
 from echozero.result import Err, Ok
@@ -201,6 +202,130 @@ def test_binary_drum_classify_processor_returns_kick_and_snare_layers() -> None:
     assert [layer.name for layer in output.layers] == ["kick", "snare"]
     assert output.layers[0].events[0].classifications["class"] == "kick"
     assert output.layers[1].events[0].classifications["class"] == "snare"
+
+
+def test_binary_drum_classify_processor_supports_selected_clap_and_cymbal_labels() -> None:
+    graph = _make_graph(
+        binary_settings={
+            "target_labels": ("clap", "cymbal"),
+            "clap_model_path": "/models/clap.manifest.json",
+            "cymbal_model_path": "/models/cymbal.manifest.json",
+        }
+    )
+    context = _make_context(graph)
+    context.set_output(
+        "source",
+        "events_out",
+        EventData(
+            layers=(
+                Layer(
+                    id="onsets",
+                    name="Onsets",
+                    events=(
+                        Event(
+                            id="evt1",
+                            time=0.25,
+                            duration=0.05,
+                            classifications={},
+                            metadata={},
+                            origin="src",
+                        ),
+                    ),
+                ),
+            )
+        ),
+    )
+    context.set_output(
+        "load",
+        "audio_out",
+        AudioData(sample_rate=44100, duration=1.0, file_path="/tmp/drums.wav", channel_count=1),
+    )
+
+    def _mock_selected_labels(
+        inputs: tuple[DrumLabelInferenceInput, ...],
+        device: str,
+        assignment: BinaryAssignmentConfig,
+    ) -> dict[str, list[tuple[Event, float]]]:
+        del device, assignment
+        by_label = {label_input.label: label_input for label_input in inputs}
+        assert by_label["clap"].min_event_peak == pytest.approx(0.0015)
+        assert by_label["cymbal"].min_separation_seconds == pytest.approx(0.09)
+        return {
+            label_input.label: [
+                (
+                    Event(
+                        id=f"{label_input.label}_event",
+                        time=label_input.events[0].time,
+                        duration=label_input.events[0].duration,
+                        classifications={"class": label_input.label, "confidence": 0.9},
+                        metadata={"classified": True},
+                        origin=f"test:{label_input.label}",
+                    ),
+                    0.9,
+                )
+            ]
+            for label_input in inputs
+        }
+
+    processor = BinaryDrumClassifyProcessor(classify_fn=_mock_selected_labels)
+    result = processor.execute("binary", context)
+
+    assert isinstance(result, Ok)
+    output = result.value
+    assert [layer.name for layer in output.layers] == ["clap", "cymbal"]
+    assert output.layers[0].events[0].classifications["class"] == "clap"
+    assert output.layers[1].events[0].classifications["class"] == "cymbal"
+
+
+def test_binary_drum_classify_processor_normalizes_symbol_aliases_to_cymbal() -> None:
+    graph = _make_graph(
+        binary_settings={
+            "target_labels": "cymbol,symbol",
+            "cymbal_model_path": "/models/cymbal.manifest.json",
+        }
+    )
+    context = _make_context(graph)
+    context.set_output(
+        "source",
+        "events_out",
+        EventData(
+            layers=(
+                Layer(
+                    id="onsets",
+                    name="Onsets",
+                    events=(
+                        Event(
+                            id="evt1",
+                            time=0.25,
+                            duration=0.05,
+                            classifications={},
+                            metadata={},
+                            origin="src",
+                        ),
+                    ),
+                ),
+            )
+        ),
+    )
+    context.set_output(
+        "load",
+        "audio_out",
+        AudioData(sample_rate=44100, duration=1.0, file_path="/tmp/drums.wav", channel_count=1),
+    )
+
+    def _mock_symbol_alias(
+        inputs: tuple[DrumLabelInferenceInput, ...],
+        device: str,
+        assignment: BinaryAssignmentConfig,
+    ) -> dict[str, list[tuple[Event, float]]]:
+        del device, assignment
+        assert [label_input.label for label_input in inputs] == ["cymbal"]
+        return {"cymbal": []}
+
+    result = BinaryDrumClassifyProcessor(classify_fn=_mock_symbol_alias).execute("binary", context)
+
+    assert isinstance(result, Ok)
+    assert [layer.name for layer in result.value.layers] == ["cymbal"]
 
 
 def test_binary_drum_classify_processor_requires_audio_input() -> None:
@@ -673,6 +798,8 @@ def test_default_binary_classify_strips_inherited_review_semantics_from_source_e
     assert "review_outcome" not in kick_event.metadata
     assert "review_decision_kind" not in kick_event.metadata
     assert kick_event.metadata["detection"]["promotion_state"] == "promoted"
+    assert kick_event.metadata["detection"]["source_audio"] == "/tmp/kick.wav"
+    assert kick_event.metadata["source_audio"] == "/tmp/kick.wav"
 
 
 def test_apply_assignment_config_requires_detection_threshold_signal() -> None:
@@ -704,6 +831,44 @@ def test_apply_assignment_config_requires_detection_threshold_signal() -> None:
     )
 
     assert resolved["kick"][0][0].metadata["detection"]["promotion_state"] == "demoted"
+
+
+def test_label_min_separation_demotes_close_lower_scored_duplicates() -> None:
+    near_low = Event(
+        id="near_low",
+        time=0.110,
+        duration=0.02,
+        classifications={"class": "clap"},
+        metadata={"detection": {"threshold_passed": True, "promotion_state": "promoted"}},
+        origin="test",
+    )
+    near_high = Event(
+        id="near_high",
+        time=0.100,
+        duration=0.02,
+        classifications={"class": "clap"},
+        metadata={"detection": {"threshold_passed": True, "promotion_state": "promoted"}},
+        origin="test",
+    )
+    far = Event(
+        id="far",
+        time=0.300,
+        duration=0.02,
+        classifications={"class": "clap"},
+        metadata={"detection": {"threshold_passed": True, "promotion_state": "promoted"}},
+        origin="test",
+    )
+
+    resolved = _apply_label_min_separation(
+        {"clap": [(near_low, 0.60), (near_high, 0.95), (far, 0.70)]},
+        min_separation_by_label={"clap": 0.055},
+    )
+
+    by_id = {event.id: event for event, _score in resolved["clap"]}
+    assert by_id["near_high"].metadata["detection"]["promotion_state"] == "promoted"
+    assert by_id["near_low"].metadata["detection"]["promotion_state"] == "demoted"
+    assert by_id["near_low"].metadata["detection"]["dedup_suppressed"] is True
+    assert by_id["far"].metadata["detection"]["promotion_state"] == "promoted"
 
 
 def test_default_binary_classify_skips_near_silent_events_by_default(

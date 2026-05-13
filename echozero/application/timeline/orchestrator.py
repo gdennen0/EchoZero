@@ -96,6 +96,7 @@ from echozero.application.timeline.intents import (
     OpenPullFromMA3Dialog,
     OpenPushToMA3Dialog,
     Pause,
+    PasteCopiedEvents,
     Play,
     PreviewTransferPlan,
     ReplaceSectionCues,
@@ -106,6 +107,7 @@ from echozero.application.timeline.intents import (
     SelectAdjacentEventInSelectedLayer,
     SelectAdjacentLayer,
     SelectEveryOtherEvents,
+    SelectSimilarEvents,
     SelectSimilarSoundingEvents,
     SelectEvent,
     SelectLayer,
@@ -272,15 +274,17 @@ class TimelineOrchestratorOwner(
                 scope=intent.scope,
             )
 
-        elif isinstance(intent, SelectSimilarSoundingEvents):
-            self._handle_select_similar_sounding_events(
+        elif isinstance(intent, SelectSimilarEvents):
+            self._handle_select_similar_events(
                 timeline,
                 layer_id=intent.layer_id,
                 take_id=intent.take_id,
                 event_id=intent.event_id,
                 scope_mode=intent.scope_mode,
+                comparison_mode=intent.comparison_mode,
                 match_strength=intent.match_strength,
                 similarity_threshold_override=intent.similarity_threshold_override,
+                comparison_options=dict(intent.comparison_options),
             )
 
         elif isinstance(intent, RenumberEventCueNumbers):
@@ -347,13 +351,24 @@ class TimelineOrchestratorOwner(
                 timeline,
                 delta_seconds=float(intent.delta_seconds),
                 target_layer_id=intent.target_layer_id,
+                target_take_id=intent.target_take_id,
                 copy_selected=bool(intent.copy_selected),
+                create_layer_title=intent.create_layer_title,
             )
 
         elif isinstance(intent, MoveSelectedEventsToAdjacentLayer):
             self._handle_move_selected_events_to_adjacent_layer(
                 timeline,
                 direction=intent.direction,
+            )
+
+        elif isinstance(intent, PasteCopiedEvents):
+            self._handle_paste_copied_events(
+                timeline,
+                clips=list(intent.clips),
+                target_layer_id=intent.target_layer_id,
+                target_take_id=intent.target_take_id,
+                insert_at_seconds=intent.insert_at_seconds,
             )
 
         elif isinstance(intent, ReorderLayer):

@@ -146,6 +146,33 @@ def _mock_separate_fn(
     return results
 
 
+def _progress_reporting_separate_fn(
+    input_file: str,
+    model_name: str,
+    device: str,
+    shifts: int,
+    two_stems: str | None,
+    output_dir: str,
+    output_format: str,
+    mp3_bitrate: int,
+    progress_callback=None,
+) -> list[StemResult]:
+    if progress_callback is not None:
+        progress_callback(0.25, "Loading separation model")
+        progress_callback(0.5, "Running separation")
+        progress_callback(0.8, "Writing separated stems")
+    return _mock_separate_fn(
+        input_file,
+        model_name,
+        device,
+        shifts,
+        two_stems,
+        output_dir,
+        output_format,
+        mp3_bitrate,
+    )
+
+
 def _failing_separate_fn(*args: Any, **kwargs: Any) -> list[StemResult]:
     """Mock separation that always fails."""
     raise RuntimeError("GPU exploded")
@@ -538,6 +565,26 @@ class TestSeparateAudioProgress:
         assert progress_reports[0].percent == 0.0
         assert progress_reports[-1].percent == 1.0
         assert "complete" in progress_reports[-1].message.lower()
+
+    def test_progress_capable_separator_reports_internal_phases(self):
+        """Progress-capable separation functions can surface live internal phases."""
+        proc = SeparateAudioProcessor(separate_fn=_progress_reporting_separate_fn)
+        sep = _make_separator_block()
+        ctx, bus = _make_context_with_audio(sep)
+
+        reports: list[Any] = []
+        bus.subscribe(lambda r: reports.append(r))
+
+        result = proc.execute(sep.id, ctx)
+
+        assert is_ok(result)
+        progress_reports = [r for r in reports if isinstance(r, ProgressReport)]
+        messages = [report.message for report in progress_reports]
+
+        assert "Loading separation model" in messages
+        assert "Running separation" in messages
+        assert "Writing separated stems" in messages
+        assert max(report.percent for report in progress_reports) == 1.0
 
 
 # ---------------------------------------------------------------------------

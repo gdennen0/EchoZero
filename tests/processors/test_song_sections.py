@@ -131,3 +131,35 @@ def test_song_sections_processor_uses_determine_sections_mode_and_marks_generato
     assert isinstance(result, Ok)
     event = result.value.layers[0].events[0]
     assert event.metadata["generator"] == "determine_sections_style_v1"
+
+
+def test_song_sections_processor_uses_mir_mode_and_marks_generator() -> None:
+    def _default_segment(*_args):
+        raise AssertionError("default segmenter should not run for mir mode")
+
+    def _determine_segment(*_args):
+        raise AssertionError("determine segmenter should not run for mir mode")
+
+    def _mir_segment(*_args):
+        return (
+            _StubSection(start_seconds=0.0, cue_ref="intro_01", label="Intro", confidence=0.91),
+        )
+
+    graph = _make_graph("mir_self_similarity")
+    context = _make_context(graph)
+    context.set_output(
+        "load",
+        "audio_out",
+        AudioData(sample_rate=44100, duration=1.0, file_path="/tmp/song.wav", channel_count=1),
+    )
+
+    processor = SongSectionsProcessor(
+        segment_song_sections_fn=_default_segment,
+        determine_sections_segment_fn=_determine_segment,
+        mir_self_similarity_segment_fn=_mir_segment,
+    )
+    result = processor.execute("detect", context)
+
+    assert isinstance(result, Ok)
+    event = result.value.layers[0].events[0]
+    assert event.metadata["generator"] == "mir_self_similarity_v1"

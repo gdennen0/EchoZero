@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from echozero.audio.engine import AudioEngine
+from echozero.audio.engine import AudioEngine, _declick_ramp_samples
 from echozero.audio.layer import AudioLayer
 from tests.audio_engine_shared_support import fake_stream_factory
 
@@ -55,6 +55,26 @@ def test_transport_transitions_are_declick_safe_for_synthetic_step_waveform() ->
     engine.shutdown()
 
 
+def test_toggle_play_pause_uses_transport_declick_path() -> None:
+    engine = AudioEngine(sample_rate=_SAMPLE_RATE, channels=1, stream_factory=fake_stream_factory)
+    engine.replace_tracks([_constant_track(engine)])
+
+    engine.toggle_play_pause()
+    assert engine.last_discontinuity_reason == "toggle-play"
+    play_a = _callback(engine)
+    play_b = _callback(engine)
+
+    engine.toggle_play_pause()
+    assert engine.last_discontinuity_reason == "toggle-pause"
+    pause_a = _callback(engine)
+    pause_b = _callback(engine)
+
+    assert _max_delta(play_a, play_b) <= _DELTA_LIMIT
+    assert _max_delta(pause_a, pause_b) <= _DELTA_LIMIT
+    assert engine.last_ramp_reason == "toggle-pause"
+    engine.shutdown()
+
+
 def test_seek_while_playing_is_declick_safe_for_discontinuous_waveform() -> None:
     engine = AudioEngine(sample_rate=_SAMPLE_RATE, channels=1, stream_factory=fake_stream_factory)
     samples = np.concatenate(
@@ -72,6 +92,10 @@ def test_seek_while_playing_is_declick_safe_for_discontinuous_waveform() -> None
 
     assert _max_delta(before, after) <= _DELTA_LIMIT
     assert engine.last_discontinuity_reason == "seek"
+    assert any(
+        event.get("kind") == "callback-discontinuity" and event.get("reason") == "seek"
+        for event in engine.recent_runtime_events
+    )
     engine.shutdown()
 
 
@@ -84,13 +108,108 @@ def test_overlay_start_and_end_are_declick_safe() -> None:
     _ = _callback(engine)
 
     overlay = np.ones(_FRAMES * 2, dtype=np.float32)
+    original_overlay = overlay.copy()
     assert engine.play_overlay(overlay, _SAMPLE_RATE)
     first = _callback(engine)
     second = _callback(engine)
 
-    assert _max_delta(first) <= _DELTA_LIMIT
-    assert _max_delta(second) <= _DELTA_LIMIT
+    np.testing.assert_array_equal(overlay, original_overlay)
+    assert _max_delta(first, second) <= _DELTA_LIMIT
     assert engine.last_ramp_reason in {"overlay-start", "overlay-end", "overlay-stop"}
+    engine.shutdown()
+
+
+def test_overlay_preview_fades_do_not_mutate_source_views() -> None:
+    engine = AudioEngine(sample_rate=_SAMPLE_RATE, channels=1, stream_factory=fake_stream_factory)
+    source = np.linspace(-1.0, 1.0, _FRAMES * 4, dtype=np.float32)
+    original_source = source.copy()
+    overlay_view = source[_FRAMES : _FRAMES * 3]
+
+    assert engine.play_overlay(overlay_view, _SAMPLE_RATE)
+    _ = _callback(engine)
+    _ = _callback(engine)
+
+    np.testing.assert_array_equal(source, original_source)
+    staged_overlay = getattr(engine, "_overlay_buffer", None)
+    assert staged_overlay is None or not np.shares_memory(staged_overlay, source)
+    engine.shutdown()
+
+
+def test_short_overlay_preview_fade_reaches_silence_at_clip_edges() -> None:
+    engine = AudioEngine(sample_rate=_SAMPLE_RATE, channels=1, stream_factory=fake_stream_factory)
+    overlay = np.ones(32, dtype=np.float32)
+
+    assert engine.play_overlay(overlay, _SAMPLE_RATE)
+
+    staged = getattr(engine, "_overlay_playback_buffer", None)
+    assert staged is not None
+    assert float(staged[0]) == 0.0
+    assert float(staged[-1]) == 0.0
+    assert float(np.max(staged)) > 0.9
+    np.testing.assert_array_equal(overlay, np.ones(32, dtype=np.float32))
+    engine.shutdown()
+
+
+def test_rapid_overlay_replacement_hands_off_without_hard_discontinuity() -> None:
+    engine = AudioEngine(sample_rate=_SAMPLE_RATE, channels=1, stream_factory=fake_stream_factory)
+    engine.replace_tracks(
+        [engine.create_track("bed", np.zeros(_SAMPLE_RATE, dtype=np.float32), _SAMPLE_RATE)]
+    )
+    engine.play()
+    _ = _callback(engine)
+    first_overlay = np.ones(_FRAMES * 4, dtype=np.float32)
+    second_overlay = -np.ones(_FRAMES * 4, dtype=np.float32)
+    original_first = first_overlay.copy()
+    original_second = second_overlay.copy()
+
+    assert engine.play_overlay(first_overlay, _SAMPLE_RATE)
+    first = _callback(engine)
+    assert engine.play_overlay(second_overlay, _SAMPLE_RATE)
+    replaced = _callback(engine)
+    continued = _callback(engine)
+
+    np.testing.assert_array_equal(first_overlay, original_first)
+    np.testing.assert_array_equal(second_overlay, original_second)
+    assert _max_delta(first, replaced, continued) <= _DELTA_LIMIT
+    assert engine.last_discontinuity_reason == "overlay-start"
+    event_kinds = {str(event.get("kind")) for event in engine.recent_runtime_events}
+    assert "overlay-start" in event_kinds
+    assert "overlay-replace" in event_kinds
+    assert "overlay-release" in event_kinds
+    engine.shutdown()
+
+
+def test_stop_overlay_hands_off_active_nonzero_preview_without_hard_discontinuity() -> None:
+    engine = AudioEngine(sample_rate=_SAMPLE_RATE, channels=1, stream_factory=fake_stream_factory)
+    overlay = np.ones(_FRAMES * 4, dtype=np.float32)
+
+    assert engine.play_overlay(overlay, _SAMPLE_RATE)
+    active = _callback(engine)
+    engine.stop_overlay()
+    stopped = _callback(engine)
+    after = _callback(engine)
+
+    assert _max_delta(active, stopped, after) <= _DELTA_LIMIT
+    assert engine.overlay_active is False
+    assert engine.last_discontinuity_reason == "overlay-stop"
+    engine.shutdown()
+
+
+def test_natural_end_of_content_fades_to_silence_without_hard_discontinuity() -> None:
+    engine = AudioEngine(sample_rate=_SAMPLE_RATE, channels=1, stream_factory=fake_stream_factory)
+    engine.replace_tracks(
+        [engine.create_track("short", np.ones(_FRAMES * 2, dtype=np.float32), _SAMPLE_RATE)]
+    )
+
+    engine.play()
+    first = _callback(engine)
+    ending = _callback(engine)
+    after = _callback(engine)
+
+    assert engine.reached_end is True
+    assert engine.transport.is_playing is False
+    assert _max_delta(first, ending, after) <= _DELTA_LIMIT
+    assert engine.last_ramp_reason == "end-of-content"
     engine.shutdown()
 
 
@@ -153,11 +272,13 @@ def test_callback_declick_uses_precomputed_ramps_after_warmup(monkeypatch) -> No
 def test_mono_stereo_and_multichannel_output_mapping_is_correct() -> None:
     engine = AudioEngine(sample_rate=_SAMPLE_RATE, channels=4, stream_factory=fake_stream_factory)
     mono = engine.create_track(
-        "mono", np.ones(4, dtype=np.float32), _SAMPLE_RATE, output_bus="outputs_1_2"
+        "mono", np.ones(1024, dtype=np.float32), _SAMPLE_RATE, output_bus="outputs_1_2"
     )
     stereo = engine.create_track(
         "stereo",
-        np.column_stack((np.full(4, 0.5, dtype=np.float32), np.full(4, -0.5, dtype=np.float32))),
+        np.column_stack(
+            (np.full(1024, 0.5, dtype=np.float32), np.full(1024, -0.5, dtype=np.float32))
+        ),
         _SAMPLE_RATE,
         output_bus="outputs_3_4",
     )
@@ -166,12 +287,23 @@ def test_mono_stereo_and_multichannel_output_mapping_is_correct() -> None:
 
     out = _callback(engine, frames=4)
 
+    ramp_denominator = _declick_ramp_samples(_SAMPLE_RATE) - 1
     np.testing.assert_allclose(
-        out[:, 0], np.array([0.0, 1 / 63, 2 / 63, 3 / 63], dtype=np.float32), atol=1e-4
+        out[:, 0],
+        np.array(
+            [0.0, 1 / ramp_denominator, 2 / ramp_denominator, 3 / ramp_denominator],
+            dtype=np.float32,
+        ),
+        atol=1e-4,
     )
     np.testing.assert_allclose(out[:, 1], out[:, 0], atol=1e-4)
     np.testing.assert_allclose(
-        out[:, 2], np.array([0.0, 0.5 / 63, 1.0 / 63, 1.5 / 63], dtype=np.float32), atol=1e-4
+        out[:, 2],
+        np.array(
+            [0.0, 0.5 / ramp_denominator, 1.0 / ramp_denominator, 1.5 / ramp_denominator],
+            dtype=np.float32,
+        ),
+        atol=1e-4,
     )
     np.testing.assert_allclose(out[:, 3], -out[:, 2], atol=1e-4)
     engine.shutdown()

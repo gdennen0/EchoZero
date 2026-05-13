@@ -26,13 +26,13 @@ class TransportLayout:
         def centered_rect(x: float, item_width: float, item_height: float) -> QRectF:
             return QRectF(x, center_y - (item_height / 2.0), item_width, item_height)
 
-        horizontal_padding = 24.0
-        section_gap = 8.0
+        horizontal_padding = 16.0
+        section_gap = 10.0
         inner_left = horizontal_padding
         inner_right = max(inner_left, width - horizontal_padding)
         inner_width = max(0.0, inner_right - inner_left)
 
-        controls_width = min(400.0, max(210.0, inner_width * 0.50))
+        controls_width = min(360.0, max(184.0, inner_width * 0.44))
         controls_width = min(controls_width, inner_width)
         controls_x = inner_left
         controls_right = controls_x + controls_width
@@ -48,9 +48,9 @@ class TransportLayout:
             cursor += section_gap
             available = max(0.0, inner_right - cursor)
 
-            clock_pref_width = 280.0
+            clock_pref_width = 260.0
             clock_min_width = 90.0
-            meta_min_width = 84.0
+            meta_min_width = 96.0
 
             tentative_clock = min(clock_pref_width, available * 0.58)
             tentative_meta = available - tentative_clock

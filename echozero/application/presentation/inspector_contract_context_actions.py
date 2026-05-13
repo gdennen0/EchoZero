@@ -34,6 +34,11 @@ from echozero.application.timeline.object_actions import (
     descriptor_for_action,
     pipeline_actions_for_audio_layer,
 )
+from echozero.output_routing import (
+    canonical_layer_output_bus,
+    output_bus_label,
+    output_bus_options,
+)
 
 
 def event_context_sections(
@@ -63,8 +68,8 @@ def event_context_sections(
     if take_id is not None:
         actions.append(
             InspectorAction(
-                action_id="selection.find_similar_sounding",
-                label="Find Similar Sounds",
+                action_id="selection.compare_events",
+                label="Compare Events...",
                 group="selection",
                 params={
                     "layer_id": layer.layer_id,
@@ -103,7 +108,7 @@ def batch_context_actions(
         return ()
 
     suffix = batch_scope_label_suffix(scope)
-    return (
+    actions = [
         InspectorAction(
             action_id="selection.select_every_other",
             label=f"Select Every Other{suffix}",
@@ -116,7 +121,16 @@ def batch_context_actions(
             group="batch",
             params=event_batch_scope_params(scope),
         ),
-    )
+    ]
+    if scope.mode == "selected_events":
+        actions.append(
+            InspectorAction(
+                action_id="selection.improve_model_from_selection",
+                label="Improve Model From Selection...",
+                group="batch",
+            )
+        )
+    return tuple(actions)
 
 
 def resolve_batch_scope_for_contract(
@@ -287,6 +301,11 @@ def shared_context_sections(
                         group="selection",
                         params={"steps": 1},
                     ),
+                    InspectorAction(
+                        action_id="selection.move_to_destination",
+                        label="Move To...",
+                        group="selection",
+                    ),
                 ),
             )
         )
@@ -325,12 +344,16 @@ def shared_context_sections(
 
     if layer is not None:
         mix_controls_enabled = layer.kind is not LayerKind.EVENT
+        scoped_layer_params = _selected_layer_scope_params(
+            presentation,
+            layer=layer,
+        )
         layer_actions = [
             InspectorAction(
                 action_id="delete_layer",
                 label="Delete Layer",
                 group="layer",
-                params={"layer_id": layer.layer_id},
+                params=scoped_layer_params,
                 enabled=not _is_imported_song_layer(layer),
             ),
         ]
@@ -352,14 +375,20 @@ def shared_context_sections(
                     action_id=_layer_mute_action_id(layer),
                     label=_layer_mute_action_label(layer),
                     group="mix",
-                    params={"layer_id": layer.layer_id, "muted": (not layer.muted)},
+                    params={
+                        **scoped_layer_params,
+                        "muted": (not layer.muted),
+                    },
                     enabled=True,
                 ),
                 InspectorAction(
                     action_id=_layer_solo_action_id(layer),
                     label=_layer_solo_action_label(layer),
                     group="mix",
-                    params={"layer_id": layer.layer_id, "soloed": (not layer.soloed)},
+                    params={
+                        **scoped_layer_params,
+                        "soloed": (not layer.soloed),
+                    },
                     enabled=True,
                 ),
                 *layer_actions,
@@ -373,21 +402,30 @@ def shared_context_sections(
                     action_id="gain_down",
                     label="Set Gain -6 dB",
                     group="gain",
-                    params={"layer_id": layer.layer_id, "gain_db": -6.0},
+                    params={
+                        **scoped_layer_params,
+                        "gain_db": -6.0,
+                    },
                     enabled=mix_controls_enabled,
                 ),
                 InspectorAction(
                     action_id="gain_unity",
                     label="Set Gain 0 dB",
                     group="gain",
-                    params={"layer_id": layer.layer_id, "gain_db": 0.0},
+                    params={
+                        **scoped_layer_params,
+                        "gain_db": 0.0,
+                    },
                     enabled=mix_controls_enabled,
                 ),
                 InspectorAction(
                     action_id="gain_up",
                     label="Set Gain +6 dB",
                     group="gain",
-                    params={"layer_id": layer.layer_id, "gain_db": 6.0},
+                    params={
+                        **scoped_layer_params,
+                        "gain_db": 6.0,
+                    },
                     enabled=mix_controls_enabled,
                 ),
             )
@@ -608,6 +646,7 @@ def pipeline_actions_for_layer(layer: LayerPresentation) -> tuple[InspectorActio
             label=descriptor.label,
             group="pipeline",
             params={"layer_id": layer.layer_id, **descriptor.static_params},
+            requires_settings_confirmation=descriptor.requires_settings_confirmation,
         )
         for descriptor in descriptors
     )
@@ -754,17 +793,31 @@ def _layer_solo_action_label(layer: LayerPresentation) -> str:
     return "Unsolo Layer" if layer.soloed else "Solo Layer"
 
 
+def _selected_layer_scope_params(
+    presentation: TimelinePresentation,
+    *,
+    layer: LayerPresentation,
+) -> dict[str, object]:
+    params: dict[str, object] = {"layer_id": layer.layer_id}
+    selected_layer_ids = [
+        layer_id
+        for layer_id in dict.fromkeys(presentation.selected_layer_ids)
+        if layer_id is not None
+    ]
+    if not selected_layer_ids and presentation.selected_layer_id is not None:
+        selected_layer_ids = [presentation.selected_layer_id]
+    if len(selected_layer_ids) > 1 and layer.layer_id in selected_layer_ids:
+        params["selected_layer_ids"] = list(selected_layer_ids)
+    return params
+
+
 def _output_bus_auto_label(layer: LayerPresentation) -> str:
-    return "Using Default Output (1/2)" if layer.output_bus is None else "Use Default Output (1/2)"
+    return "Using Master Output" if layer.output_bus is None else "Use Master Output"
 
 
 def _output_bus_route_label(layer: LayerPresentation, *, output_bus: str) -> str:
     bus_label = _output_bus_name(output_bus)
-    current_output_bus = (
-        layer.output_bus.strip().lower()
-        if isinstance(layer.output_bus, str) and layer.output_bus.strip()
-        else None
-    )
+    current_output_bus = canonical_layer_output_bus(layer.output_bus)
     if current_output_bus == output_bus:
         return f"Routed to {bus_label}"
     return f"Route to {bus_label}"
@@ -829,29 +882,11 @@ def _is_smpte_layer(layer: LayerPresentation) -> bool:
 
 
 def _available_output_bus_tokens(playback_output_channels: int) -> tuple[str, ...]:
-    channel_count = max(2, min(16, int(playback_output_channels)))
-    tokens: list[str] = []
-    for start_channel in range(1, channel_count + 1, 2):
-        end_channel = start_channel + 1
-        if end_channel <= channel_count:
-            tokens.append(f"outputs_{start_channel}_{end_channel}")
-    for start_channel in range(1, channel_count + 1, 2):
-        for end_channel in range(start_channel + 3, channel_count + 1, 2):
-            tokens.append(f"outputs_{start_channel}_{end_channel}")
-    return tuple(tokens)
+    return tuple(route.token for route in output_bus_options(playback_output_channels))
 
 
 def _output_bus_name(output_bus: str) -> str:
-    parts = output_bus.strip().lower().split("_")
-    if len(parts) == 3 and parts[0] == "outputs" and parts[1].isdigit() and parts[2].isdigit():
-        start_channel = int(parts[1])
-        end_channel = int(parts[2])
-        if start_channel == end_channel:
-            return f"Output {start_channel}"
-        if end_channel > start_channel + 1:
-            return f"Outputs {start_channel}-{end_channel}"
-        return f"Outputs {start_channel}/{end_channel}"
-    return output_bus
+    return output_bus_label(output_bus)
 
 
 def _is_imported_song_layer(layer: LayerPresentation) -> bool:

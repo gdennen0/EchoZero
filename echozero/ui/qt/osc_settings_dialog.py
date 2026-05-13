@@ -6,6 +6,7 @@ Connects app-settings persistence to reusable OSC status + ping probes in one mo
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -27,6 +28,7 @@ from echozero.application.settings import (
     AppSettingsValidationError,
     SettingsPage,
 )
+from echozero.application.sync.ma3_connection_check import MA3OscLiveBridge
 from echozero.ui.qt.osc_settings_panel import OscSettingsPanel
 from echozero.ui.qt.settings_page_form import SettingsPageForm
 from echozero.ui.style.qt import ensure_qt_theme_installed
@@ -42,6 +44,7 @@ class OscSettingsDialog(QDialog):
         on_saved: Callable[[AppSettingsUpdateResult], None] | None = None,
         monitor_provider: Callable[[], list[Mapping[str, object]]] | None = None,
         clear_monitor: Callable[[], None] | None = None,
+        live_bridge_provider: Callable[[], MA3OscLiveBridge | None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -49,19 +52,19 @@ class OscSettingsDialog(QDialog):
         ensure_qt_theme_installed()
         self._settings_service = settings_service
         self._on_saved = on_saved
-        self.resize(760, 700)
-        self.setMinimumSize(640, 560)
+        self.resize(820, 620)
+        self.setMinimumSize(700, 520)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(8)
 
         self._header = QFrame(self)
         self._header.setObjectName("oscSettingsDialogHeader")
         self._header.setProperty("section", True)
         header_layout = QVBoxLayout(self._header)
-        header_layout.setContentsMargins(14, 14, 14, 14)
-        header_layout.setSpacing(6)
+        header_layout.setContentsMargins(10, 8, 10, 8)
+        header_layout.setSpacing(2)
         self._eyebrow = QLabel("OSC SETTINGS", self._header)
         self._eyebrow.setObjectName("oscSettingsDialogEyebrow")
         header_layout.addWidget(self._eyebrow)
@@ -85,28 +88,30 @@ class OscSettingsDialog(QDialog):
 
         self._form = SettingsPageForm(self)
         self._form.field_value_changed.connect(self._on_field_value_changed)
-        self._form.setMinimumHeight(230)
+        self._form.setMinimumHeight(136)
+        self._form.setMaximumHeight(210)
         self._form.setSizePolicy(
             QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Preferred,
         )
 
         self._panel = OscSettingsPanel(
             values_provider=self._form.values,
             monitor_provider=monitor_provider,
             clear_monitor=clear_monitor,
+            live_bridge_provider=live_bridge_provider,
             parent=self,
         )
-        self._panel.setMinimumHeight(170)
+        self._panel.setMinimumHeight(245)
 
         self._splitter = QSplitter(Qt.Orientation.Vertical, self)
         self._splitter.setObjectName("oscSettingsDialogSplitter")
         self._splitter.setChildrenCollapsible(False)
         self._splitter.addWidget(self._form)
         self._splitter.addWidget(self._panel)
-        self._splitter.setStretchFactor(0, 3)
+        self._splitter.setStretchFactor(0, 0)
         self._splitter.setStretchFactor(1, 1)
-        self._splitter.setSizes([420, 190])
+        self._splitter.setSizes([175, 345])
         layout.addWidget(self._splitter, 1)
 
         self._buttons = QDialogButtonBox(
@@ -132,8 +137,9 @@ class OscSettingsDialog(QDialog):
         page = self._osc_settings_page()
         self.setWindowTitle(page.title)
         self._title.setText(page.title)
-        self._summary.setText(page.summary)
-        self._store_path.setText(f"Stored locally at {self._settings_service.store_path}")
+        self._summary.setText("Configure OSC receive/send endpoints, then run one round-trip check.")
+        self._store_path.setText("Saved locally to app-settings.json")
+        self._store_path.setToolTip(str(self._settings_service.store_path))
         self._warnings.setVisible(bool(page.warnings))
         self._warnings.setText("\n".join(page.warnings))
         self._form.set_page(
@@ -144,7 +150,9 @@ class OscSettingsDialog(QDialog):
     def _osc_settings_page(self) -> SettingsPage:
         base_page = self._settings_service.describe()
         osc_sections = tuple(
-            section for section in base_page.sections if section.key in {"osc_receive", "osc_send"}
+            replace(section, description="", preferred_columns=3)
+            for section in base_page.sections
+            if section.key in {"osc_receive", "osc_send"}
         )
         warnings = tuple(
             warning

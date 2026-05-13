@@ -6,6 +6,7 @@ Verifies the full lifecycle: create from template → edit knobs → execute →
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -615,7 +616,11 @@ class TestMapsToSetting:
                 "kick_filter_enabled": False,
                 "kick_filter_freq": 140.0,
                 "snare_onset_method": "complex",
+                "clap_filter_freq": 1_500.0,
+                "cymbal_onset_threshold": 0.45,
                 "classify_device": "cpu",
+                "kick_min_event_peak": 0.002,
+                "snare_min_separation_ms": 75.0,
             },
             knob_metadata=template.knobs,
         )
@@ -623,15 +628,24 @@ class TestMapsToSetting:
         pipeline = updated.to_pipeline()
         kick_filter = pipeline.graph.blocks["kick_filter"]
         snare_filter = pipeline.graph.blocks["snare_filter"]
+        clap_filter = pipeline.graph.blocks["clap_filter"]
+        cymbal_filter = pipeline.graph.blocks["cymbal_filter"]
         kick_onsets = pipeline.graph.blocks["kick_onsets"]
         snare_onsets = pipeline.graph.blocks["snare_onsets"]
+        cymbal_onsets = pipeline.graph.blocks["cymbal_onsets"]
         classify = pipeline.graph.blocks["classify_drums"]
         assert kick_filter.settings.get("enabled") is False
         assert kick_filter.settings.get("freq") == 140.0
         assert snare_filter.settings.get("freq") == 180.0
+        assert clap_filter.settings.get("filter_type") == "bandpass"
+        assert clap_filter.settings.get("freq") == 1_500.0
+        assert cymbal_filter.settings.get("filter_type") == "highpass"
         assert kick_onsets.settings.get("method") == "default"
         assert snare_onsets.settings.get("method") == "complex"
+        assert cymbal_onsets.settings.get("threshold") == 0.45
         assert classify.settings.get("device") == "cpu"
+        assert classify.settings.get("kick_min_event_peak") == 0.002
+        assert classify.settings.get("snare_min_separation_ms") == 75.0
         classify_inputs = {
             connection.target_input_name
             for connection in pipeline.graph.connections
@@ -639,8 +653,167 @@ class TestMapsToSetting:
         }
         assert "kick_events_in" in classify_inputs
         assert "snare_events_in" in classify_inputs
+        assert "clap_events_in" in classify_inputs
+        assert "cymbal_events_in" in classify_inputs
         assert "kick_audio_in" not in classify_inputs
         assert "snare_audio_in" not in classify_inputs
+        assert "clap_audio_in" in classify_inputs
+        assert "cymbal_audio_in" in classify_inputs
+
+    def test_extract_classified_drums_can_select_clap_and_cymbal_outputs(
+        self, session, song_version
+    ):
+        orch = Orchestrator(get_registry(), _executors())
+        template = get_registry().get("extract_classified_drums")
+        assert template is not None
+        config = unwrap(orch.create_config(session, song_version.id, "extract_classified_drums"))
+
+        updated = config.with_knob_values(
+            {
+                "target_drum_labels": ["clap", "cymbol", "symbol"],
+                "clap_model_path": "/models/clap.manifest.json",
+                "cymbal_model_path": "/models/cymbal.manifest.json",
+                "clap_positive_threshold": 0.62,
+                "cymbal_min_event_rms": 0.0002,
+                "cymbal_min_separation_ms": 125.0,
+            },
+            knob_metadata=template.knobs,
+        )
+
+        pipeline = updated.to_pipeline()
+        classify = pipeline.graph.blocks["classify_drums"]
+        assert tuple(classify.settings.get("target_labels")) == ("clap", "cymbal")
+        assert classify.settings.get("clap_model_path") == "/models/clap.manifest.json"
+        assert classify.settings.get("cymbal_model_path") == "/models/cymbal.manifest.json"
+        assert classify.settings.get("clap_positive_threshold") == 0.62
+        assert classify.settings.get("cymbal_min_event_rms") == 0.0002
+        assert classify.settings.get("cymbal_min_separation_ms") == 125.0
+
+    def test_extract_classified_drums_backfills_new_classify_settings_into_legacy_graph(
+        self, session, song_version
+    ):
+        orch = Orchestrator(get_registry(), _executors())
+        template = get_registry().get("extract_classified_drums")
+        assert template is not None
+        config = unwrap(orch.create_config(session, song_version.id, "extract_classified_drums"))
+        graph_data = json.loads(config.graph_json)
+        for block in graph_data["blocks"]:
+            if block["id"] == "classify_drums":
+                block["settings"] = {
+                    key: value
+                    for key, value in block["settings"].items()
+                    if key
+                    in {
+                        "kick_model_path",
+                        "snare_model_path",
+                        "device",
+                        "kick_positive_threshold",
+                        "snare_positive_threshold",
+                        "assignment_mode",
+                        "winner_margin",
+                        "event_match_window_ms",
+                    }
+                }
+        legacy_config = replace(config, graph_json=json.dumps(graph_data))
+
+        updated = legacy_config.with_knob_values(
+            {
+                "target_drum_labels": ["kick", "snare", "clap", "cymbal"],
+                "clap_model_path": "/models/clap.manifest.json",
+                "cymbal_model_path": "/models/cymbal.manifest.json",
+                "clap_positive_threshold": 0.62,
+                "cymbal_positive_threshold": 0.64,
+            },
+            knob_metadata=template.knobs,
+        )
+
+        classify = updated.to_pipeline().graph.blocks["classify_drums"]
+        assert tuple(classify.settings.get("target_labels")) == (
+            "kick",
+            "snare",
+            "clap",
+            "cymbal",
+        )
+        assert classify.settings.get("clap_model_path") == "/models/clap.manifest.json"
+        assert classify.settings.get("cymbal_model_path") == "/models/cymbal.manifest.json"
+        assert classify.settings.get("clap_positive_threshold") == 0.62
+        assert classify.settings.get("cymbal_positive_threshold") == 0.64
+
+    def test_extract_classified_drums_refreshes_legacy_graph_with_clap_cymbal_branches(
+        self, session, song_version
+    ):
+        from echozero.application.timeline.object_action_scoped_config import (
+            _refresh_drum_event_template_graph_if_needed,
+        )
+
+        orch = Orchestrator(get_registry(), _executors())
+        template = get_registry().get("extract_classified_drums")
+        assert template is not None
+        config = unwrap(orch.create_config(session, song_version.id, "extract_classified_drums"))
+        selected = config.with_knob_values(
+            {
+                "target_drum_labels": ["kick", "snare", "clap", "cymbal"],
+                "clap_model_path": "/models/clap.manifest.json",
+                "cymbal_model_path": "/models/cymbal.manifest.json",
+            },
+            knob_metadata=template.knobs,
+        )
+        graph_data = json.loads(selected.graph_json)
+        graph_data["blocks"] = [
+            block
+            for block in graph_data["blocks"]
+            if block["id"] not in {"clap_filter", "clap_onsets", "cymbal_filter", "cymbal_onsets"}
+        ]
+        graph_data["connections"] = [
+            connection
+            for connection in graph_data["connections"]
+            if connection["target_input_name"] not in {"clap_events_in", "cymbal_events_in"}
+        ]
+        legacy_config = replace(selected, graph_json=json.dumps(graph_data))
+
+        refreshed = _refresh_drum_event_template_graph_if_needed(
+            legacy_config,
+            template=template,
+        )
+
+        pipeline = refreshed.to_pipeline()
+        assert "clap_onsets" in pipeline.graph.blocks
+        assert "cymbal_onsets" in pipeline.graph.blocks
+        classify_inputs = {
+            connection.target_input_name
+            for connection in pipeline.graph.connections
+            if connection.target_block_id == "classify_drums"
+        }
+        assert "clap_events_in" in classify_inputs
+        assert "cymbal_events_in" in classify_inputs
+
+    def test_extract_classified_drums_sensitivity_preset_maps_to_raw_knobs(
+        self, session, song_version
+    ):
+        orch = Orchestrator(get_registry(), _executors())
+        template = get_registry().get("extract_classified_drums")
+        assert template is not None
+        config = unwrap(orch.create_config(session, song_version.id, "extract_classified_drums"))
+
+        updated = config.with_knob_values(
+            {
+                "sensitivity_preset": "more_events",
+                "kick_model_path": "/models/kick.manifest.json",
+                "snare_model_path": "/models/snare.manifest.json",
+                "kick_onset_threshold": 0.15,
+                "kick_positive_threshold": 0.50,
+            },
+            knob_metadata=template.knobs,
+        )
+
+        pipeline = updated.to_pipeline()
+        kick_onsets = pipeline.graph.blocks["kick_onsets"]
+        snare_onsets = pipeline.graph.blocks["snare_onsets"]
+        classify = pipeline.graph.blocks["classify_drums"]
+        assert kick_onsets.settings.get("threshold") == 0.10
+        assert snare_onsets.settings.get("threshold") == 0.10
+        assert classify.settings.get("kick_positive_threshold") == 0.46
+        assert classify.settings.get("snare_positive_threshold") == 0.61
 
     def test_extract_song_drum_events_knobs_update_separator_detect_and_classify_blocks(
         self, session, song_version
@@ -684,6 +857,63 @@ class TestMapsToSetting:
         assert "snare_events_in" in classify_inputs
         assert "kick_audio_in" not in classify_inputs
         assert "snare_audio_in" not in classify_inputs
+
+    def test_extract_song_drum_events_can_select_clap_and_cymbal_outputs(
+        self, session, song_version
+    ):
+        orch = Orchestrator(get_registry(), _executors())
+        template = get_registry().get("extract_song_drum_events")
+        assert template is not None
+        config = unwrap(orch.create_config(session, song_version.id, "extract_song_drum_events"))
+
+        updated = config.with_knob_values(
+            {
+                "target_drum_labels": ("clap", "cymbal"),
+                "clap_model_path": "/models/clap.manifest.json",
+                "cymbal_model_path": "/models/cymbal.manifest.json",
+                "clap_positive_threshold": 0.61,
+                "cymbal_positive_threshold": 0.72,
+                "clap_filter_freq": 1_400.0,
+                "cymbal_filter_freq": 3_600.0,
+                "clap_onset_threshold": 0.33,
+                "cymbal_onset_min_gap": 0.12,
+                "clap_min_event_peak": 0.002,
+                "cymbal_min_separation_ms": 120.0,
+            },
+            knob_metadata=template.knobs,
+        )
+
+        pipeline = updated.to_pipeline()
+        clap_filter = pipeline.graph.blocks["clap_filter"]
+        cymbal_filter = pipeline.graph.blocks["cymbal_filter"]
+        clap_onsets = pipeline.graph.blocks["clap_onsets"]
+        cymbal_onsets = pipeline.graph.blocks["cymbal_onsets"]
+        classify = pipeline.graph.blocks["classify_drums"]
+        assert clap_filter.settings.get("filter_type") == "bandpass"
+        assert clap_filter.settings.get("freq") == 1_400.0
+        assert cymbal_filter.settings.get("filter_type") == "highpass"
+        assert cymbal_filter.settings.get("freq") == 3_600.0
+        assert clap_onsets.settings.get("threshold") == 0.33
+        assert cymbal_onsets.settings.get("min_gap") == 0.12
+        assert tuple(classify.settings.get("target_labels")) == ("clap", "cymbal")
+        assert classify.settings.get("clap_model_path") == "/models/clap.manifest.json"
+        assert classify.settings.get("cymbal_model_path") == "/models/cymbal.manifest.json"
+        assert classify.settings.get("clap_positive_threshold") == 0.61
+        assert classify.settings.get("cymbal_positive_threshold") == 0.72
+        assert classify.settings.get("clap_min_event_peak") == 0.002
+        assert classify.settings.get("cymbal_min_separation_ms") == 120.0
+        classify_inputs = {
+            connection.target_input_name
+            for connection in pipeline.graph.connections
+            if connection.target_block_id == "classify_drums"
+        }
+        assert "events_in" in classify_inputs
+        assert "kick_events_in" in classify_inputs
+        assert "snare_events_in" in classify_inputs
+        assert "clap_audio_in" in classify_inputs
+        assert "clap_events_in" in classify_inputs
+        assert "cymbal_audio_in" in classify_inputs
+        assert "cymbal_events_in" in classify_inputs
 
 
 class TestConfigToFromPipeline:

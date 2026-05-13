@@ -24,6 +24,7 @@ class ActionDescriptor:
     static_params: dict[str, object] = field(default_factory=dict)
     binding_resolver_id: str | None = None
     runtime_param_coercer_id: str | None = None
+    requires_settings_confirmation: bool = False
 
 
 @dataclass(slots=True, frozen=True)
@@ -63,16 +64,28 @@ EXTRACT_SONG_DRUM_EVENTS_DESCRIPTOR = ActionDescriptor(
     workflow_id="layer.audio.extract_song_drum_events",
     pipeline_template_id="extract_song_drum_events",
     binding_resolver_id="extract_song_drum_events",
+    requires_settings_confirmation=True,
 )
 EXTRACT_SONG_SECTIONS_DESCRIPTOR = ActionDescriptor(
     action_id="timeline.extract_song_sections",
-    label="Extract Song Sections",
+    label="Detect Song Parts",
     object_types=("layer",),
     groups=("object_action", "tools"),
     params_schema={"layer_id": "required"},
     workflow_id="layer.audio.extract_song_sections",
     pipeline_template_id="extract_song_sections",
     binding_resolver_id="extract_song_sections",
+    requires_settings_confirmation=True,
+)
+EXTRACT_NOTE_CONTOUR_DESCRIPTOR = ActionDescriptor(
+    action_id="timeline.extract_note_contour",
+    label="Extract Notes",
+    object_types=("layer",),
+    groups=("object_action", "tools"),
+    params_schema={"layer_id": "required"},
+    workflow_id="layer.audio.extract_note_contour",
+    pipeline_template_id="extract_note_contour",
+    binding_resolver_id="extract_note_contour",
 )
 EXTRACT_DRUM_EVENTS_DESCRIPTOR = ActionDescriptor(
     action_id="timeline.extract_drum_events",
@@ -104,6 +117,7 @@ EXTRACT_CLASSIFIED_DRUMS_DESCRIPTOR = ActionDescriptor(
     workflow_id="layer.audio.extract_classified_drums",
     pipeline_template_id="extract_classified_drums",
     binding_resolver_id="extract_classified_drums",
+    requires_settings_confirmation=True,
 )
 
 
@@ -114,6 +128,7 @@ _DESCRIPTORS_BY_ID: dict[str, ActionDescriptor] = {
         EXTRACT_STEMS_DESCRIPTOR,
         EXTRACT_SONG_DRUM_EVENTS_DESCRIPTOR,
         EXTRACT_SONG_SECTIONS_DESCRIPTOR,
+        EXTRACT_NOTE_CONTOUR_DESCRIPTOR,
         EXTRACT_DRUM_EVENTS_DESCRIPTOR,
         CLASSIFY_DRUM_EVENTS_DESCRIPTOR,
         EXTRACT_CLASSIFIED_DRUMS_DESCRIPTOR,
@@ -158,7 +173,7 @@ _CANONICAL_NON_OBJECT_ACTION_IDS: set[str] = {
     "set_layer_solo_on",
     "selection.event",
     "selection.first_event",
-    "selection.find_similar_sounding",
+    "selection.compare_events",
     "selection.layer",
     "selection.renumber_cues_from_one",
     "selection.select_every_other",
@@ -194,6 +209,11 @@ _ALIASES: tuple[ActionAlias, ...] = (
         canonical_id="timeline.extract_classified_drums",
     ),
     ActionAlias(alias_id="select_first_event", canonical_id="selection.first_event"),
+    ActionAlias(
+        alias_id="selection.find_similar_sounding",
+        canonical_id="selection.compare_events",
+        deprecation_note="Use selection.compare_events instead.",
+    ),
     ActionAlias(alias_id="nudge", canonical_id="timeline.nudge_selection"),
     ActionAlias(alias_id="nudge_left", canonical_id="timeline.nudge_selection"),
     ActionAlias(alias_id="nudge_right", canonical_id="timeline.nudge_selection"),
@@ -263,7 +283,7 @@ def pipeline_actions_for_audio_layer(
 ) -> tuple[ActionDescriptor, ...]:
     descriptors: list[ActionDescriptor] = []
     if is_stem_capable:
-        descriptors.append(EXTRACT_STEMS_DESCRIPTOR)
+        descriptors.extend((EXTRACT_STEMS_DESCRIPTOR, EXTRACT_NOTE_CONTOUR_DESCRIPTOR))
     if is_song_drum_capable:
         descriptors.extend(
             (

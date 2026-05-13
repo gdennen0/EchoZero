@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import errno
+import json
 import threading
 
 import pytest
 
 from echozero.application.timeline.models import Event
-from echozero.infrastructure.osc import OscUdpSendTransport
+from echozero.infrastructure.osc import OscInboundMessage, OscUdpSendTransport
 from echozero.infrastructure.sync.ma3_osc import (
     MA3OSCBridge,
     format_ma3_lua_command,
@@ -138,6 +139,21 @@ def test_simulated_ma3_bridge_fetches_plugin_health_snapshot():
     assert "EZ.GetPluginHealth()" in bridge.commands
 
 
+def test_simulated_ma3_bridge_fetches_connection_report_snapshot():
+    bridge = SimulatedMA3Bridge()
+
+    report = bridge.get_connection_report()
+
+    assert report["schema_version"] == 1
+    assert report["status"] == "ok"
+    assert str(report["ez_version"]) == "2.0"
+    assert report["socket_ok"] is True
+    assert isinstance(report["capabilities"], dict)
+    assert report["capabilities"]["connection_report"] is True
+    assert isinstance(report["send"], dict)
+    assert any(command.startswith("EZ.ConnectionReport(") for command in bridge.commands)
+
+
 def test_simulated_ma3_bridge_fetches_ping_and_version_snapshots():
     bridge = SimulatedMA3Bridge()
 
@@ -164,6 +180,26 @@ def test_ma3_osc_bridge_ping_retries_once_after_dropped_first_reply():
     ]
     assert len(ping_commands) == 2
     assert len(target_commands) >= 2
+
+
+def test_ma3_osc_bridge_marks_hooked_only_after_ma3_confirmation():
+    bridge = SimulatedMA3Bridge()
+
+    assert bridge.hook_track("tc1_tg2_tr1") is True
+
+    status = bridge.get_status()
+    assert status["hooked_track_count"] == 1
+    assert "EZ.HookTrack(1, 2, 1)" in bridge.commands
+
+
+def test_ma3_osc_bridge_does_not_mark_hooked_after_ma3_error():
+    bridge = SimulatedMA3Bridge()
+    bridge.set_hook_failure("tc1_tg2_tr1")
+
+    assert bridge.hook_track("tc1_tg2_tr1") is False
+
+    status = bridge.get_status()
+    assert status["hooked_track_count"] == 0
 
 
 def test_simulated_ma3_bridge_fetches_sequence_cues_via_osc_commands():
@@ -1073,3 +1109,43 @@ def test_ma3_osc_bridge_throttles_large_pushes_in_small_write_batches(monkeypatc
     )
 
     assert sleep_calls.count(batch_settle_seconds) == 2
+
+
+def test_ma3_osc_bridge_reassembles_standard_chunk_envelope_before_ingest():
+    bridge = MA3OSCBridge()
+    original = (
+        "type=recipe_cue|change=analysis|timestamp=1712860800|request_id=42|"
+        'local_lines=[{"key":"part:0|group:Spot Floor|feature:PresetType 1|mode:relative"}]|'
+        'contributors=[{"name":"A|B"},{"name":"C"}]'
+    )
+    chunks = [original[:70], original[70:145], original[145:]]
+
+    for index, chunk in enumerate(chunks, start=1):
+        bridge._handle_osc_message(
+            OscInboundMessage(
+                path="/ez/message",
+                args=(
+                    "|".join(
+                        [
+                            "type=osc_chunk",
+                            "change=part",
+                            "timestamp=1712860801",
+                            "chunk_id=test-chunk-1",
+                            f"chunk_index={index}",
+                            f"total_chunks={len(chunks)}",
+                            'payload={"text":' + json.dumps(chunk) + "}",
+                        ]
+                    ),
+                ),
+            )
+        )
+
+    messages = bridge.messages
+    assert len(messages) == 1
+    assert messages[0].message_type == "recipe_cue"
+    assert messages[0].change == "analysis"
+    assert messages[0].fields["request_id"] == 42
+    assert messages[0].fields["local_lines"][0]["key"] == (
+        "part:0|group:Spot Floor|feature:PresetType 1|mode:relative"
+    )
+    assert messages[0].fields["contributors"][0]["name"] == "A|B"

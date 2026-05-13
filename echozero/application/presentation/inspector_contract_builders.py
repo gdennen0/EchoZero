@@ -29,6 +29,7 @@ from echozero.application.presentation.models import (
     TakeLanePresentation,
     TimelinePresentation,
 )
+from echozero.output_routing import output_bus_label
 
 
 def build_empty_contract(
@@ -173,7 +174,9 @@ def build_layer_contract(
         InspectorFactRow("pan", f"{layer.pan:+.2f}"),
         InspectorFactRow(
             "output route",
-            "Outputs 1/2 (Default)" if layer.output_bus is None else layer.output_bus,
+            "Master/default output"
+            if layer.output_bus is None
+            else output_bus_label(layer.output_bus),
         ),
     ]
     rows.extend(_layer_transfer_rows(presentation, layer))

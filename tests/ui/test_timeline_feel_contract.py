@@ -1,11 +1,14 @@
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
 from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import QApplication
 
+from echozero.application.presentation.models import LayerPresentation, TimelinePresentation
 from echozero.application.shared.enums import LayerKind
+from echozero.application.shared.ids import LayerId, TimelineId
 from echozero.ui.FEEL import (
     EVENT_BAR_HEIGHT_PX,
     LAYER_HEADER_MAX_WIDTH_PX,
@@ -178,6 +181,78 @@ def test_main_row_layout_keeps_expand_toggle_inside_header_width():
     )
 
     assert layout.toggle_rect.right() <= layout.header_rect.right()
+
+
+def test_timeline_canvas_layer_rows_group_children_under_parent():
+    app = QApplication.instance() or QApplication([])
+    parent_id = LayerId("song")
+    child_id = LayerId("drums")
+    sibling_id = LayerId("sections")
+    presentation = TimelinePresentation(
+        timeline_id=TimelineId("timeline"),
+        title="Timeline",
+        layers=[
+            LayerPresentation(layer_id=child_id, title="Drums", parent_layer_id=parent_id),
+            LayerPresentation(layer_id=sibling_id, title="Sections", kind=LayerKind.SECTION),
+            LayerPresentation(layer_id=parent_id, title="Imported Song", kind=LayerKind.AUDIO),
+        ],
+    )
+    canvas = TimelineCanvas(presentation)
+    try:
+        rows = canvas._layer_rows()
+
+        assert [row.layer.layer_id for row in rows] == [sibling_id, parent_id, child_id]
+        assert [row.depth for row in rows] == [0, 0, 1]
+        assert rows[1].has_child_layers is True
+    finally:
+        canvas.close()
+        app.processEvents()
+
+
+def test_timeline_canvas_render_contract_marks_parent_and_child_rows():
+    app = QApplication.instance() or QApplication([])
+    parent_id = LayerId("song")
+    child_id = LayerId("drums")
+    presentation = TimelinePresentation(
+        timeline_id=TimelineId("timeline"),
+        title="Timeline",
+        layers=[
+            LayerPresentation(layer_id=parent_id, title="Imported Song", kind=LayerKind.AUDIO),
+            LayerPresentation(
+                layer_id=child_id,
+                title="Drums",
+                kind=LayerKind.AUDIO,
+                parent_layer_id=parent_id,
+            ),
+        ],
+    )
+    canvas = TimelineCanvas(presentation)
+    captured: list[tuple[LayerId, bool, float]] = []
+
+    class _CapturingHeaderBlock:
+        def paint(self, painter, slots, layer, *, dimmed=False, has_child_layers=False):
+            del painter, dimmed
+            captured.append((layer.layer_id, has_child_layers, slots.title_rect.left()))
+            return SimpleNamespace(control_rects=())
+
+    try:
+        canvas._header_block = _CapturingHeaderBlock()
+        canvas.resize(900, 320)
+        canvas.show()
+        canvas.repaint()
+        app.processEvents()
+
+        assert captured[:2] == [
+            (parent_id, True, 14.0),
+            (child_id, False, 32.0),
+        ]
+        assert [layer.layer_id for _rect, layer in canvas._header_hover_rects[:2]] == [
+            parent_id,
+            child_id,
+        ]
+        assert [layer_id for _rect, layer_id in canvas._toggle_rects[:1]] == [parent_id]
+    finally:
+        canvas.close()
 
 
 def test_timeline_zoom_in_clamps_to_feel_max_pps():

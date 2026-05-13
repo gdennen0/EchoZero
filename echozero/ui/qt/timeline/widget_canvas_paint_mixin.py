@@ -34,12 +34,18 @@ from echozero.ui.FEEL import (
     GRID_LINE_COLOR,
     MOVE_DRAG_PREVIEW_LINE_ALPHA,
     MOVE_DRAG_PREVIEW_LINE_WIDTH_PX,
+    NOTE_CONTOUR_ALPHA,
+    NOTE_CONTOUR_PEN_WIDTH_PX,
     SECTION_MOVE_EVENT_HIT_MIN_WIDTH_PX,
 )
 from echozero.ui.qt.timeline.blocks.event_lane import EventLanePresentation
 from echozero.ui.qt.timeline.blocks.layouts import MainRowLayout, TakeRowLayout
 from echozero.ui.qt.timeline.blocks.ruler import playhead_head_polygon, timeline_x_for_time
 from echozero.ui.qt.timeline.blocks.waveform_lane import WaveformLanePresentation
+from echozero.ui.qt.timeline.note_contour_overlay import (
+    build_note_contour_path,
+    contour_samples_from_events,
+)
 from echozero.ui.qt.timeline.time_grid import GridLine, visible_grid_lines
 from echozero.ui.qt.timeline.widget_canvas_types import EventRect, TakeActionRect, TakeRect
 
@@ -89,6 +95,7 @@ class _TimelineCanvasPaintMixin:
                 content_width=content_width,
                 mode=self._grid_mode,
                 bpm=self.presentation.bpm,
+                beat_anchor_seconds=self.presentation.beat_anchor_seconds,
             )
             self._take_rects.clear()
             self._take_option_rects.clear()
@@ -475,6 +482,13 @@ class _TimelineCanvasPaintMixin:
                         unavailable_reason="Waveform unavailable",
                     ),
                 )
+                self._draw_note_contour_overlay(
+                    painter,
+                    layer=layer,
+                    top=float(top),
+                    row_height=float(row_height),
+                    dimmed=dimmed,
+                )
             else:
                 if self._edit_mode in {"move", "select"} or layer.kind is not LayerKind.SECTION:
                     visible_events = self._visible_lane_events(layer.events)
@@ -825,6 +839,62 @@ class _TimelineCanvasPaintMixin:
         output_name = str(getattr(layer.status, "output_name", "") or "").strip().lower()
         pipeline_id = str(getattr(layer.status, "pipeline_id", "") or "").strip().lower()
         return any("onset" in value for value in (title, source_label, output_name, pipeline_id))
+
+    def _draw_note_contour_overlay(
+        self: Any,
+        painter: QPainter,
+        *,
+        layer: LayerPresentation,
+        top: float,
+        row_height: float,
+        dimmed: bool,
+    ) -> None:
+        if layer.kind is not LayerKind.AUDIO:
+            return
+        contour_layer = self._resolve_note_contour_overlay_layer(layer)
+        if contour_layer is None:
+            return
+        samples = contour_samples_from_events(contour_layer.events)
+        if len(samples) < 2:
+            return
+        path = build_note_contour_path(
+            samples,
+            scroll_x=self.presentation.scroll_x,
+            pixels_per_second=self.presentation.pixels_per_second,
+            content_start_x=float(self._header_width),
+            top=top,
+            row_height=row_height,
+        )
+        if path is None:
+            return
+        overlay_color = QColor(layer.color or self._style.event_lane.default_fill_hex)
+        overlay_color = overlay_color.lighter(165)
+        overlay_color.setAlpha(120 if dimmed else NOTE_CONTOUR_ALPHA)
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(overlay_color, NOTE_CONTOUR_PEN_WIDTH_PX))
+        painter.drawPath(path)
+        painter.restore()
+
+    def _resolve_note_contour_overlay_layer(
+        self: Any,
+        layer: LayerPresentation,
+    ) -> LayerPresentation | None:
+        layer_id = str(layer.layer_id)
+        candidates = [
+            candidate
+            for candidate in self.presentation.layers
+            if (
+                str(candidate.parent_layer_id or "") == layer_id
+                or str(getattr(candidate.status, "source_layer_id", "") or "").strip() == layer_id
+            )
+            and str(getattr(candidate.status, "pipeline_id", "") or "").strip()
+            == "extract_note_contour"
+        ]
+        if not candidates:
+            return None
+        return candidates[0]
 
     def _draw_playhead(self: Any, painter: QPainter) -> None:
         x = timeline_x_for_time(

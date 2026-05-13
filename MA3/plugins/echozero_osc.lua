@@ -13,10 +13,32 @@ OSC.config = {
 
 OSC._socket = nil
 OSC._socketOk = false
+OSC._send_sequence = 0
+OSC._send_ok_count = 0
+OSC._send_fail_count = 0
+OSC._last_send_ok_at = nil
+OSC._last_send_error_at = nil
+OSC._last_send_error = nil
+OSC._last_send_step = nil
 
 -- LOGGING
 local function log(msg) Printf("[EZ-OSC] %s", msg) end
 local function dbg(msg) if OSC.config.debug then Printf("[EZ-OSC DBG] %s", msg) end end
+
+local function recordSendOutcome(ok, step, detail, byteCount)
+    OSC._send_sequence = (OSC._send_sequence or 0) + 1
+    OSC._last_send_step = tostring(step or "")
+    if byteCount then OSC._last_send_bytes = tonumber(byteCount) or OSC._last_send_bytes end
+    if ok then
+        OSC._send_ok_count = (OSC._send_ok_count or 0) + 1
+        OSC._last_send_ok_at = os.time()
+        OSC._last_send_error = nil
+    else
+        OSC._send_fail_count = (OSC._send_fail_count or 0) + 1
+        OSC._last_send_error_at = os.time()
+        OSC._last_send_error = tostring(detail or "unknown send error")
+    end
+end
 
 -- SOCKET INITIALIZATION
 function OSC.init()
@@ -184,7 +206,43 @@ function OSC.sendOSC(addr, types, ...)
         log(string.format(">>> ERROR: sendOSC FAILED at '%s': %s", step, tostring(send_err)))
         if udp then pcall(function() udp:close() end) end
     end
+    recordSendOutcome(send_ok, step, send_err, OSC._last_send_bytes or #data)
     return send_ok
+end
+
+local function messageByteLimit()
+    return math.max(512, tonumber(OSC.config.maxMessageBytes or OSC.config.max_message_bytes or 6000) or 6000)
+end
+
+local function sendRawPipeMessage(msg)
+    return OSC.sendOSC("/ez/message", "s", msg)
+end
+
+function OSC.sendChunkedMessage(msgType, changeType, msg, maxBytes)
+    local limit = math.max(512, tonumber(maxBytes) or messageByteLimit())
+    local chunkSize = math.max(256, limit - 512)
+    OSC._next_chunk_id = (OSC._next_chunk_id or 0) + 1
+    local chunkId = table.concat({tostring(os.time()), tostring(OSC._next_chunk_id), tostring(msgType or "unknown"), tostring(changeType or "unknown")}, "-")
+    local totalChunks = math.ceil(#msg / chunkSize)
+    local allOk = true
+    for chunkIndex = 1, totalChunks do
+        local startIndex = ((chunkIndex - 1) * chunkSize) + 1
+        local chunkText = msg:sub(startIndex, startIndex + chunkSize - 1)
+        local chunkPayload = table.concat({
+            "type=osc_chunk",
+            "change=part",
+            "timestamp=" .. os.time(),
+            "chunk_id=" .. chunkId,
+            "chunk_index=" .. tostring(chunkIndex),
+            "total_chunks=" .. tostring(totalChunks),
+            "original_type=" .. tostring(msgType or "unknown"),
+            "original_change=" .. tostring(changeType or "unknown"),
+            "payload=" .. OSC.jsonEncode({text = chunkText})
+        }, "|")
+        local ok = sendRawPipeMessage(chunkPayload)
+        allOk = allOk and ok
+    end
+    return allOk
 end
 
 -- Send pipe-delimited message (format EchoZero expects)
@@ -203,22 +261,47 @@ function OSC.sendMessage(msgType, changeType, data)
     OSC._last_send_len = #msg
     OSC._last_send_type = msgType
     OSC._last_send_change = changeType
-    local ok = OSC.sendOSC("/ez/message", "s", msg)
+    local ok = true
+    if #msg > messageByteLimit() then
+        ok = OSC.sendChunkedMessage(msgType, changeType, msg, messageByteLimit())
+    else
+        ok = sendRawPipeMessage(msg)
+    end
     -- #region agent log
     -- Emit lightweight debug without recursion (use sendOSC directly)
     if msgType == "track" and changeType == "changed" then
         local dbg = string.format(
-            "type=debug|change=osc_send|timestamp=%s|msg_type=%s|msg_change=%s|len=%d|ok=%s",
+            "type=debug|change=osc_send|timestamp=%s|msg_type=%s|msg_change=%s|len=%d|ok=%s|chunked=%s",
             tostring(os.time()),
             tostring(msgType),
             tostring(changeType),
             tonumber(#msg) or 0,
-            tostring(ok)
+            tostring(ok),
+            tostring(#msg > messageByteLimit())
         )
-        OSC.sendOSC("/ez/message", "s", dbg)
+        sendRawPipeMessage(dbg)
     end
     -- #endregion
     return ok
+end
+
+function OSC.connectionReportFields()
+    return {
+        socket_ok = OSC._socketOk and true or false,
+        target_ip = tostring(OSC.config.ip or ""),
+        target_port = tonumber(OSC.config.port) or 0,
+        send_sequence = tonumber(OSC._send_sequence or 0) or 0,
+        send_ok_count = tonumber(OSC._send_ok_count or 0) or 0,
+        send_fail_count = tonumber(OSC._send_fail_count or 0) or 0,
+        last_send_ok_at = OSC._last_send_ok_at,
+        last_send_error_at = OSC._last_send_error_at,
+        last_send_error = OSC._last_send_error,
+        last_send_step = OSC._last_send_step,
+        last_send_type = OSC._last_send_type,
+        last_send_change = OSC._last_send_change,
+        last_send_len = tonumber(OSC._last_send_len or 0) or 0,
+        last_send_bytes = tonumber(OSC._last_send_bytes or 0) or 0,
+    }
 end
 
 -- Check if OSC is ready
@@ -231,6 +314,8 @@ function OSC.setConfig(config)
     if config.ip then OSC.config.ip = config.ip end
     if config.port then OSC.config.port = config.port end
     if config.debug ~= nil then OSC.config.debug = config.debug end
+    if config.maxMessageBytes then OSC.config.maxMessageBytes = config.maxMessageBytes end
+    if config.max_message_bytes then OSC.config.maxMessageBytes = config.max_message_bytes end
 end
 
 return OSC

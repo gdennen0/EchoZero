@@ -141,6 +141,8 @@ class ObjectActionSettingsPlanMixin:
         )
         is_running = OperationProgressService.is_active(active_operation)
         run_label = "Run Again" if has_prior_outputs else "Run"
+        if workflow.requires_settings_confirmation:
+            run_label = "Review & Run Again" if has_prior_outputs else "Review & Run"
         warnings: tuple[str, ...] = (
             (
                 (
@@ -169,9 +171,11 @@ class ObjectActionSettingsPlanMixin:
             editable_fields=tuple(field for field in editable_fields if not field.advanced),
             advanced_fields=tuple(field for field in editable_fields if field.advanced),
             locked_bindings=locked_bindings,
+            runtime_bindings=dict(object_bindings),
             has_prior_outputs=has_prior_outputs,
             run_label=run_label,
             settings_label="Open Settings",
+            requires_settings_confirmation=workflow.requires_settings_confirmation,
             rerun_hint=rerun_hint,
             summary=f"{summary} · {'Song Default' if scope == 'song_default' else 'This Version'}",
             warnings=warnings,

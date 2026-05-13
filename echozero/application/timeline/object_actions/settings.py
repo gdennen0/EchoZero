@@ -5,7 +5,8 @@ Connects application-owned settings plans to neutral UI form rendering.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field as dataclass_field
 
 
 @dataclass(slots=True, frozen=True)
@@ -14,6 +15,7 @@ class ObjectActionSettingOption:
 
     value: str
     label: str
+    metadata: Mapping[str, object] = dataclass_field(default_factory=dict)
 
 
 @dataclass(slots=True, frozen=True)
@@ -50,9 +52,11 @@ class ObjectActionSettingsPlan:
     editable_fields: tuple[ObjectActionSettingField, ...] = ()
     advanced_fields: tuple[ObjectActionSettingField, ...] = ()
     locked_bindings: tuple[tuple[str, str], ...] = ()
+    runtime_bindings: Mapping[str, object] = dataclass_field(default_factory=dict)
     has_prior_outputs: bool = False
     run_label: str = "Run"
     settings_label: str = "Open Settings"
+    requires_settings_confirmation: bool = False
     rerun_hint: str = ""
     summary: str = ""
     warnings: tuple[str, ...] = ()

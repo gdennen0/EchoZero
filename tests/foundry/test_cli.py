@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from echozero.foundry.cli import main
+from echozero.foundry.domain import DatasetVersion, EvalReport, ModelArtifact, TrainRun, TrainRunStatus
 from echozero.foundry.persistence import TrainRunRepository
 from tests.foundry.audio_fixtures import write_percussion_dataset
 
@@ -353,3 +356,179 @@ def test_cli_installs_runtime_bundle_from_artifact_id(tmp_path: Path, capsys) ->
     assert payload["label"] == "snare"
     assert payload["bundle_name"] == "binary-drum-snare"
     assert (models_dir / "binary_drum_bundles.json").exists()
+
+
+def test_cli_train_grouped_binary_models_runs_multiple_grouped_specs(
+    tmp_path: Path,
+    capsys,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    version_by_id: dict[str, DatasetVersion] = {}
+    captured_run_specs: dict[str, dict[str, object]] = {}
+
+    @dataclass
+    class _InstalledBundle:
+        label: str
+        bundle_name: str
+        bundle_dir: Path
+        manifest_path: Path
+        weights_path: Path
+        artifact_id: str
+        run_id: str
+
+    class _FakeDatasets:
+        def derive_binary_dataset_version(
+            self,
+            source_version_id: str,
+            *,
+            positive_label: str,
+            negative_label: str = "other",
+            positive_aliases: tuple[str, ...] = (),
+        ) -> DatasetVersion:
+            assert source_version_id == "dsv_review"
+            assert negative_label == "other"
+            version = DatasetVersion(
+                id=f"dsv_{positive_label}",
+                dataset_id=f"ds_{positive_label}",
+                version=1,
+                manifest_hash=f"hash-{positive_label}",
+                sample_rate=22050,
+                audio_standard="mono_wav_pcm16",
+                class_map=[positive_label, "other"],
+                split_plan={},
+                created_at=datetime.now(UTC),
+            )
+            version_by_id[version.id] = version
+            return version
+
+        def get_version(self, version_id: str) -> DatasetVersion | None:
+            return version_by_id.get(version_id)
+
+    class _FakeRuntimeBundles:
+        def install_binary_drum_artifact(
+            self,
+            artifact_ref: str,
+            *,
+            bundle_label: str | None = None,
+            bundle_name: str | None = None,
+            models_dir: Path | None = None,
+        ) -> _InstalledBundle:
+            assert bundle_label is not None
+            assert bundle_name is not None
+            assert models_dir == tmp_path / "models"
+            bundle_dir = models_dir / bundle_name
+            return _InstalledBundle(
+                label=bundle_label,
+                bundle_name=bundle_name,
+                bundle_dir=bundle_dir,
+                manifest_path=bundle_dir / f"{bundle_label}.manifest.json",
+                weights_path=bundle_dir / "model.pth",
+                artifact_id=artifact_ref,
+                run_id=f"run_{bundle_label}",
+            )
+
+    class _FakeApp:
+        def __init__(self, root: Path) -> None:
+            assert root == tmp_path
+            self.datasets = _FakeDatasets()
+            self.runtime_bundles = _FakeRuntimeBundles()
+
+        def plan_version(
+            self,
+            version_id: str,
+            *,
+            validation_split: float,
+            test_split: float,
+            seed: int,
+            balance_strategy: str,
+        ) -> dict[str, object]:
+            version = version_by_id[version_id]
+            version.split_plan = {"assignments": {"sm1": "train"}}
+            return {"version_id": version_id}
+
+        def create_run(self, dataset_version_id: str, run_spec: dict[str, object]) -> TrainRun:
+            captured_run_specs[dataset_version_id] = run_spec
+            return TrainRun(
+                id=f"run_{dataset_version_id}",
+                dataset_version_id=dataset_version_id,
+                status=TrainRunStatus.QUEUED,
+                spec=run_spec,
+                spec_hash=f"hash-{dataset_version_id}",
+            )
+
+        def start_run(self, run_id: str) -> TrainRun:
+            return TrainRun(
+                id=run_id,
+                dataset_version_id=run_id.removeprefix("run_"),
+                status=TrainRunStatus.COMPLETED,
+                spec={},
+                spec_hash=f"hash-{run_id}",
+            )
+
+    class _FakeEvalReportRepository:
+        def __init__(self, root: Path) -> None:
+            assert root == tmp_path
+
+        def list_for_run(self, run_id: str) -> list[EvalReport]:
+            return [
+                EvalReport(
+                    id=f"eval_{run_id}",
+                    run_id=run_id,
+                    classification_mode="binary",
+                    metrics={"macro_f1": 0.9},
+                )
+            ]
+
+    class _FakeArtifactRepository:
+        def __init__(self, root: Path) -> None:
+            assert root == tmp_path
+
+        def list_for_run(self, run_id: str) -> list[ModelArtifact]:
+            label = run_id.removeprefix("run_dsv_")
+            return [
+                ModelArtifact(
+                    id=f"art_{label}",
+                    run_id=run_id,
+                    artifact_version="v1",
+                    path=tmp_path / f"{label}.manifest.json",
+                    sha256=f"sha-{label}",
+                    manifest={},
+                    created_at=datetime.now(UTC),
+                )
+            ]
+
+    monkeypatch.setattr("echozero.foundry.cli.FoundryApp", _FakeApp)
+    monkeypatch.setattr("echozero.foundry.cli.EvalReportRepository", _FakeEvalReportRepository)
+    monkeypatch.setattr("echozero.foundry.cli.ModelArtifactRepository", _FakeArtifactRepository)
+
+    assert (
+        main(
+            [
+                "--root",
+                str(tmp_path),
+                "train-grouped-binary-models",
+                "dsv_review",
+                "--model",
+                "clap",
+                "--model",
+                "cymbal=hi_hat,crash,ride",
+                "--install-runtime",
+                "--models-dir",
+                str(tmp_path / "models"),
+            ]
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["source_version_id"] == "dsv_review"
+    assert [item["target_label"] for item in payload["models"]] == ["clap", "cymbal"]
+    assert payload["models"][0]["source_labels"] == ["clap"]
+    assert payload["models"][1]["source_labels"] == ["hi_hat", "crash", "ride"]
+    assert payload["models"][0]["installed_bundle"]["label"] == "clap"
+    assert payload["models"][1]["installed_bundle"]["label"] == "cymbal"
+    clap_run_spec = captured_run_specs["dsv_clap"]
+    assert clap_run_spec["classificationMode"] == "binary"
+    assert clap_run_spec["model"] == {"type": "crnn"}
+    assert clap_run_spec["training"]["trainerProfile"] == "stronger_v1"
+    assert clap_run_spec["training"]["optimizer"] == "adamw"
+    assert clap_run_spec["training"]["averageWeights"] is True

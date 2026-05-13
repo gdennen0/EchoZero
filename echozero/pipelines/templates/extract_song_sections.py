@@ -12,19 +12,19 @@ from echozero.pipelines.registry import pipeline_template
 
 @pipeline_template(
     id="extract_song_sections",
-    name="Extract Song Sections",
+    name="Detect Song Parts",
     description=(
-        "Auto-generate section cues from song audio using MFCC features with "
-        "sequence-style temporal pooling inspired by MusicSegmentationML."
+        "Detect repeated song parts from full-song MIR structure, with "
+        "self-similarity analysis as the recommended path."
     ),
     knobs={
         "detect_method": knob(
-            "mfcc_sequence_pooling",
+            "mir_self_similarity",
             label="Section Detection",
-            options=("mfcc_sequence_pooling", "determine_sections_style"),
+            options=("mfcc_sequence_pooling", "determine_sections_style", "mir_self_similarity"),
             description=(
-                "Balanced (recommended) is the default detector. Experimental follows a "
-                "determine_sections-style sliding-window change/timestamp/label flow."
+                "MIR self-similarity is recommended for song-part detection. "
+                "Legacy options remain available for comparison and fallback."
             ),
         ),
         "sample_rate": knob(
@@ -136,7 +136,7 @@ def build_extract_song_sections(
 ):
     """Build a LoadAudio -> DetectSongSections pipeline."""
 
-    pipeline = Pipeline("extract_song_sections", name="Extract Song Sections")
+    pipeline = Pipeline("extract_song_sections", name="Detect Song Parts")
 
     load = pipeline.add(LoadAudio(), id="load_audio")
     detect_sections = pipeline.add(

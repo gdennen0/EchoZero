@@ -19,11 +19,12 @@ def _audio_layer(*, output_bus: str | None = None) -> LayerPresentation:
     )
 
 
-def test_available_output_bus_tokens_include_wide_channel_spans() -> None:
+def test_available_output_bus_tokens_are_single_physical_outputs() -> None:
     assert _available_output_bus_tokens(4) == (
-        "outputs_1_2",
-        "outputs_3_4",
-        "outputs_1_4",
+        "outputs_1_1",
+        "outputs_2_2",
+        "outputs_3_3",
+        "outputs_4_4",
     )
 
 

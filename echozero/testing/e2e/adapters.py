@@ -54,9 +54,12 @@ class StageZeroDriver:
         raise NotImplementedError(f"Stage Zero driver does not support text input: {target}")
 
     def press_key(self, key: str, *, args: dict[str, Any] | None = None) -> Any:
-        mapping = {"space": "Play", "media_stop": "Stop"}
-        intent_name = mapping.get(key.lower())
-        if intent_name is None:
+        normalized_key = key.lower()
+        if normalized_key == "space":
+            intent_name = "Pause" if self._timeline_app.presentation().is_playing else "Play"
+        elif normalized_key == "media_stop":
+            intent_name = "Stop"
+        else:
             raise ValueError(f"Unsupported key: {key}")
         return self.dispatch_intent(intent_name, args)
 

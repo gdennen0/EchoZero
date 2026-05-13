@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QDialog,
     QDialogButtonBox,
@@ -25,10 +26,9 @@ from PyQt6.QtWidgets import (
 )
 
 from echozero.application.settings import AppSettingsService
-from echozero.infrastructure.osc import (
-    OscReceiveServer,
-    OscReceiveServiceConfig,
-    OscUdpSendTransport,
+from echozero.application.sync.ma3_connection_check import (
+    MA3OscConnectionCheckService,
+    MA3OscConnectionState,
 )
 from echozero.ui.style.qt import ensure_qt_theme_installed
 
@@ -44,6 +44,7 @@ class MA3ConnectionHUD(QDialog):
         settings_service: AppSettingsService,
         *,
         on_saved: Callable[["AppSettingsUpdateResult"], None] | None = None,
+        connection_checker: MA3OscConnectionCheckService | None = None,
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
@@ -51,6 +52,9 @@ class MA3ConnectionHUD(QDialog):
         ensure_qt_theme_installed()
         self._settings_service = settings_service
         self._on_saved = on_saved
+        self._connection_checker = connection_checker or MA3OscConnectionCheckService()
+        self._last_check_request = None
+        self._last_check_result = None
         self.setWindowTitle("MA3 OSC Connection")
         self.setMinimumWidth(520)
 
@@ -100,7 +104,12 @@ class MA3ConnectionHUD(QDialog):
 
         action_row = QHBoxLayout()
         action_row.addStretch(1)
-        self._test_button = QPushButton("Test", self)
+        self._copy_report_button = QPushButton("Copy Diagnostic Report", self)
+        self._copy_report_button.setProperty("appearance", "subtle")
+        self._copy_report_button.setEnabled(False)
+        self._copy_report_button.clicked.connect(self._copy_diagnostic_report)
+        action_row.addWidget(self._copy_report_button)
+        self._test_button = QPushButton("Run Connection Check", self)
         self._test_button.clicked.connect(self._test_connection)
         action_row.addWidget(self._test_button)
         layout.addLayout(action_row)
@@ -157,66 +166,33 @@ class MA3ConnectionHUD(QDialog):
             ),
         }
 
-    def _run_send_probe(self) -> str:
-        host = self._send_host.text().strip()
-        if not host:
-            return "Send host missing."
-        if not self._send_port.value():
-            return "Send port must be greater than 0."
-        try:
-            transport = OscUdpSendTransport(
-                host=host,
-                port=int(self._send_port.value()),
-                path="/cmd",
-            )
-            try:
-                transport.send("EZ.Ping()")
-                return "Send probe passed."
-            finally:
-                transport.close()
-        except Exception as exc:
-            return f"Send probe failed: {exc}"
-
-    def _run_receive_probe(self) -> str:
-        host = self._receive_host.text().strip()
-        if not host:
-            return "Receive host missing."
-        try:
-            listener = OscReceiveServer(
-                OscReceiveServiceConfig(
-                    host=host,
-                    port=int(self._receive_port.value()),
-                    path="/ez/message",
-                ),
-                on_message=lambda _msg: None,
-                thread_name="echozero-ma3-connection-hud",
-            )
-            try:
-                listener.start()
-                return "Receive probe passed."
-            finally:
-                listener.stop()
-        except Exception as exc:
-            return f"Receive probe failed: {exc}"
-
     def _test_connection(self) -> None:
-        problems: list[str] = []
-        if self._receive_enabled.isChecked():
-            if (result := self._run_receive_probe()) != "Receive probe passed.":
-                problems.append(result)
-            else:
-                problems.append("Receive probe passed.")
-        if self._send_enabled.isChecked():
-            if (result := self._run_send_probe()) != "Send probe passed.":
-                problems.append(result)
-            else:
-                problems.append("Send probe passed.")
-        if not problems:
-            problems.append("Enable at least one endpoint before testing.")
-        if all("passed." in item for item in problems):
-            self._set_message(" ".join(problems), severity="success")
-        else:
-            self._set_message(" ".join(problems), severity="error")
+        request = self._connection_checker.request_from_values(self._message_payload())
+        result = self._connection_checker.ping(request)
+        self._last_check_request = request
+        self._last_check_result = result
+        self._copy_report_button.setEnabled(True)
+        severity = "success" if result.state is MA3OscConnectionState.CONNECTED else "error"
+        if result.state is MA3OscConnectionState.DISABLED:
+            severity = "neutral"
+        self._set_message(self._format_result_detail(result), severity=severity)
+
+    def _copy_diagnostic_report(self) -> None:
+        if self._last_check_request is None or self._last_check_result is None:
+            return
+        QApplication.clipboard().setText(
+            self._last_check_result.diagnostic_report(self._last_check_request)
+        )
+
+    @staticmethod
+    def _format_result_detail(result) -> str:
+        lines = [result.detail] if result.detail else []
+        for check in result.checks:
+            prefix = "OK" if check.ok else "FAIL"
+            lines.append(f"{prefix} {check.stage}: {check.detail}")
+        if result.recommended_action:
+            lines.append(f"Next: {result.recommended_action}")
+        return "\n".join(lines)
 
     def _on_apply(self) -> None:
         if not (self._receive_enabled.isChecked() or self._send_enabled.isChecked()):

@@ -32,6 +32,8 @@ from echozero.application.timeline.object_actions import (
     SaveSession,
     SetSessionFieldValue,
 )
+from echozero.ui.qt.action_settings_summary import build_action_confirmation_summary
+from echozero.ui.qt.song_parts_preview import SongPartsPreviewPanel
 from echozero.ui.qt.settings_form import ActionSettingsForm
 from echozero.ui.style.qt import ensure_qt_theme_installed
 
@@ -72,6 +74,11 @@ class ActionSettingsDialog(QDialog):
         self._context.setObjectName("actionSettingsDialogContext")
         self._context.setWordWrap(True)
         header_layout.addWidget(self._context)
+        self._confirmation = QLabel(self._header)
+        self._confirmation.setObjectName("actionSettingsDialogConfirmation")
+        self._confirmation.setWordWrap(True)
+        self._confirmation.setVisible(False)
+        header_layout.addWidget(self._confirmation)
         layout.addWidget(self._header)
 
         self._scope_group = QGroupBox("Version", self)
@@ -128,6 +135,8 @@ class ActionSettingsDialog(QDialog):
         self._form.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._form.field_value_changed.connect(self._on_field_value_changed)
         settings_layout.addWidget(self._form)
+        self._song_parts_preview = SongPartsPreviewPanel(self)
+        layout.addWidget(self._song_parts_preview)
         layout.addWidget(self._stage_group, 1)
 
         self._buttons = QDialogButtonBox(
@@ -160,10 +169,13 @@ class ActionSettingsDialog(QDialog):
 
     def _render_session(self, session: ObjectActionSettingsSession) -> None:
         self._session = session
+        self._configure_dialog_for_session(session)
         self.setWindowTitle(self._dialog_title(session))
-        self._title.setText("Pipeline Settings")
+        self._title.setText(self._header_title_text(session))
         self._form.set_plan(session.plan)
         self._context.setText(self._context_text(session))
+        self._sync_confirmation_summary(session)
+        self._song_parts_preview.set_session(session)
         self._scope.blockSignals(True)
         self._scope.clear()
         for choice in session.scope_choices:
@@ -204,6 +216,7 @@ class ActionSettingsDialog(QDialog):
         run_button = self._require_button(QDialogButtonBox.StandardButton.Apply)
         run_button.setEnabled(session.can_save_and_run)
         run_button.setToolTip(session.run_disabled_reason)
+        run_button.setText(self._run_button_text(session))
         can_save_defaults = self._can_save_defaults(session)
         self._save_defaults.setEnabled(can_save_defaults)
         self._save_defaults.setToolTip(
@@ -224,6 +237,7 @@ class ActionSettingsDialog(QDialog):
             SetSessionFieldValue(key, value),
         )
         self._context.setText(self._context_text(self._session))
+        self._sync_confirmation_summary(self._session)
         self._sync_session_controls(self._session)
 
     def _on_scope_changed(self) -> None:
@@ -281,6 +295,11 @@ class ActionSettingsDialog(QDialog):
             raise RuntimeError(f"Missing dialog button for standard button {standard_button!r}")
         return button
 
+    def _sync_confirmation_summary(self, session: ObjectActionSettingsSession) -> None:
+        summary = build_action_confirmation_summary(session)
+        self._confirmation.setVisible(bool(summary))
+        self._confirmation.setText(summary)
+
     @staticmethod
     def _set_button_appearance(button: QPushButton, appearance: str) -> None:
         button.setProperty("appearance", appearance)
@@ -292,20 +311,60 @@ class ActionSettingsDialog(QDialog):
 
     @staticmethod
     def _dialog_title(session: ObjectActionSettingsSession) -> str:
+        if session.action_id == "timeline.extract_song_sections":
+            return "Confirm Song Parts Detection"
         return f"Pipeline Settings · {session.plan.title}"
+
+    def _configure_dialog_for_session(self, session: ObjectActionSettingsSession) -> None:
+        if session.action_id in {
+            "timeline.extract_classified_drums",
+            "timeline.extract_song_drum_events",
+        }:
+            self.resize(max(self.width(), 920), max(self.height(), 760))
+            self.setMinimumWidth(820)
+            return
+        if session.action_id == "timeline.extract_song_sections":
+            self.resize(max(self.width(), 980), max(self.height(), 860))
+            self.setMinimumWidth(900)
+            return
+        self.setMinimumWidth(520)
+
+    @staticmethod
+    def _header_title_text(session: ObjectActionSettingsSession) -> str:
+        if session.action_id in {
+            "timeline.extract_classified_drums",
+            "timeline.extract_song_drum_events",
+        }:
+            return "Extract Drum Events Setup"
+        if session.action_id == "timeline.extract_song_sections":
+            return "Confirm Song Parts Detection"
+        return "Pipeline Settings"
+
+    @staticmethod
+    def _run_button_text(session: ObjectActionSettingsSession) -> str:
+        if session.action_id in {
+            "timeline.extract_classified_drums",
+            "timeline.extract_song_drum_events",
+        }:
+            return "Confirm And Extract Drums"
+        if session.action_id == "timeline.extract_song_sections":
+            return "Confirm Method And Run"
+        return "Save And Rerun"
 
     @staticmethod
     def _context_text(session: ObjectActionSettingsSession) -> str:
         target_summary = session.plan.summary or session.plan.object_id or session.plan.object_type
         status = "Unsaved changes" if session.has_unsaved_changes else "Up to date"
-        return " · ".join(
-            (
-                session.plan.title,
-                session.current_scope_state.label,
-                f"Target: {target_summary}",
-                status,
-            )
-        )
+        parts = [
+            session.plan.title,
+            session.current_scope_state.label,
+            f"Target: {target_summary}",
+        ]
+        detect_method_label = _selected_option_label(session, key="detect_method")
+        if session.action_id == "timeline.extract_song_sections" and detect_method_label:
+            parts.append(f"Method: {detect_method_label}")
+        parts.append(status)
+        return " · ".join(parts)
 
     @staticmethod
     def _scope_hint_text(session: ObjectActionSettingsSession) -> str:
@@ -381,3 +440,15 @@ class ActionSettingsDialog(QDialog):
         if count > preview_limit:
             lines.append(f"...and {count - preview_limit} more settings.")
         return "\n".join(lines)
+
+
+def _selected_option_label(session: ObjectActionSettingsSession, *, key: str) -> str:
+    value = session.values.get(key)
+    for field in (*session.plan.editable_fields, *session.plan.advanced_fields):
+        if field.key != key:
+            continue
+        for option in field.options:
+            if option.value == value:
+                return option.label
+        break
+    return str(value or "").strip()
