@@ -21,6 +21,8 @@ Complete now:
 Remaining:
 - manual UX QA walkthrough on milestone checkpoints
 - validation against real MA3 hardware before final release signoff
+- v1-alpha model distribution is app-managed through a central registry and local installs under `~/.echozero/models`; model weights are not bundled in the app by default
+- legacy HuggingFace-facing model provider code is compatibility-only; the v1-alpha app path uses static registry manifests plus local import
 
 If this document conflicts with first-principles or sync safety contracts, those higher-order contracts win:
 - `docs/UNIFIED-IMPLEMENTATION-PLAN.md`
@@ -71,6 +73,11 @@ Make EchoZero operate as a production app, not a demo surface:
 ## Smoke packaged build
 - `powershell -File scripts/smoke-test-release.ps1`
 These are the canonical operator commands for local run, packaging, and packaged smoke validation.
+
+## Production alpha package
+- `python scripts/build_app.py --clean`
+
+Use `echozero.spec` plus `packaging_config.json` for production identity. The PowerShell test-release scripts remain useful local gates, but the production alpha package should flow through `scripts/build_app.py`.
 
 ---
 
@@ -146,6 +153,7 @@ Exit criteria:
 | Transfer Safety | Push/pull diff-gate + main-only boundaries | Every transfer/sync PR | Merge | Dev | Transfer suite + app-flow coverage |
 | Packaging Build | Build distributable app | Release prep + weekly | Test release | Dev | Build log + artifact manifest |
 | Packaged Smoke | Launch/use packaged app in real flow | Every test release candidate | Test release publish | Dev | Smoke JSON/log bundle |
+| Model Distribution | Missing/present/outdated model handling | Every alpha package | Alpha publish | Dev | Model manager tests + app-path proof |
 | Manual UX QA | Human walkthrough in app | Milestone checkpoints | Product signoff | Griff + Dev | Checklist + notes/screens |
 
 ---
@@ -158,7 +166,8 @@ A test release can ship only if all are true:
 3. Transfer safety lane green (including main-only constraints)
 4. Packaging build lane green
 5. Packaged smoke lane green
-6. Manual app walkthrough complete (critical flow checklist)
+6. Missing-model and installed-model app paths green
+7. Manual app walkthrough complete (critical flow checklist)
 
 ---
 

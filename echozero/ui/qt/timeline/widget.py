@@ -676,11 +676,12 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._add_menu_action(edit_menu, actions, "redo")
         if any(
             action_id in actions
-            for action_id in ("project_settings", "preferences", "osc_settings")
+            for action_id in ("project_settings", "preferences", "model_manager", "osc_settings")
         ):
             edit_menu.addSeparator()
             self._add_menu_action(edit_menu, actions, "project_settings")
             self._add_menu_action(edit_menu, actions, "preferences")
+            self._add_menu_action(edit_menu, actions, "model_manager")
             self._add_menu_action(edit_menu, actions, "osc_settings")
 
         self._launcher_menu_bar.setVisible(bool(actions))

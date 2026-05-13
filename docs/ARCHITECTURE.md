@@ -110,9 +110,10 @@ echozero/
     layer.py         #   AudioLayer — one decoded audio buffer per layer
     crossfade.py     #   CrossfadeBuffer — equal-power crossfade
 
-  models/            # ML model registry
-    registry.py      #   ModelRegistry — enumerate available models
-    provider.py      #   ModelProvider protocol
+  models/            # app-installed model distribution and legacy catalogs
+    distribution.py  #   Central manifest discovery/install/update path
+    registry.py      #   Legacy local model catalog compatibility
+    provider.py      #   Legacy provider compatibility, not v1-alpha distribution
 
   ui/                # UI constants (tunable design values)
     FEEL.py          #   Timing, sizing, color constants for PyQt6 UI

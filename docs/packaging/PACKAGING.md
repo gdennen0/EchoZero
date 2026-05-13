@@ -5,11 +5,14 @@ Last reviewed: 2026-04-30
 
 
 Production packaging is driven by a single spec and a JSON config so version and identity stay consistent.
+For v1-alpha the production app name is **EchoZero** and the recommended version is
+`1.0.0-alpha.0`.
 
 ## Layout
 
 - **echozero.spec** – PyInstaller spec (entry point, data, hidden imports, macOS bundle).
 - **packaging_config.json** – App name, version, bundle identifier, company, and PyInstaller options. Single source for release metadata.
+- **Model weights** – not bundled by default for v1-alpha. Install mutable model assets under `~/.echozero/models`.
 - **scripts/build_app.py** – Wrapper to run `pyinstaller echozero.spec` with optional `--clean`.
 
 ## Build (from project root)
@@ -123,11 +126,37 @@ Some macOS PyInstaller and Qt combinations can crash during Qt initialization. I
 **App icon shows a white circle with a cross**  
 That icon usually means either (1) the app crashed on launch (fix the crash first), or (2) no custom icon is set. To set an icon, add `packaging/EchoZero.icns` and rebuild (see `packaging/README.md`).
 
+## Model distribution
+
+For v1-alpha, package the app separately from model weights:
+
+- The packaged app must launch without installed models.
+- Model-backed actions should show missing-model state instead of crashing.
+- Operators install models from the central registry or a local bundle into `~/.echozero/models`.
+- Downloads stage into `.staging`, verify size and SHA-256, then promote atomically.
+- Packaging proof should inspect the bundle and confirm large `.pth` model weights were not bundled by default.
+
+CLI helper:
+
+```bash
+python -m echozero.models install default-drums --manifest https://example.com/echozero-models.json
+python -m echozero.models set-registry https://example.com/echozero-models.json
+python -m echozero.models available
+python -m echozero.models import ./local-model-bundle --model-id local-drums --type binary_drum --label "Local Drums" --version 1.0.0-alpha.0 --class kick --class other --runtime-consumer BinaryDrumClassify
+python -m echozero.models list
+python -m echozero.models validate
+```
+
+The alpha path should prefer a simple static HTTPS manifest and file host. The
+older HuggingFace-oriented provider is retained only as a legacy compatibility
+surface unless a later release explicitly chooses and packages that dependency.
+
 ## Releases
 
 When cutting a release:
 
 1. Bump `version` in `pyproject.toml` and in `packaging_config.json`.
 2. Run `python scripts/build_app.py --clean`.
-3. Sign and notarize the macOS .app if distributing outside the team (see Apple docs).
-4. Distribute `dist/EchoZero.app` (macOS) or `dist/EchoZero/` (Windows/Linux).
+3. Confirm `echozero.__version__` and `tests/test_smoke.py` match the release version.
+4. Sign and notarize the macOS .app if distributing outside the team (see Apple docs).
+5. Distribute `dist/EchoZero.app` (macOS) or `dist/EchoZero/` (Windows/Linux) plus build metadata and smoke report.

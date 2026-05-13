@@ -1,6 +1,10 @@
-"""Remote source adapters for the model provider.
-Exists to isolate HuggingFace and local-copy download behavior from provider registry orchestration.
-Connects provider contracts to concrete remote and local model sources.
+"""Legacy source adapters for the pre-v1-alpha model provider.
+Exists to keep old provider tests and local-copy workflows on a compatibility path.
+Connects legacy provider contracts to optional remote and local model sources.
+
+The v1-alpha app path uses central registry manifests in
+``echozero.models.distribution``. HuggingFace remains optional legacy support,
+not the default app model-distribution path.
 """
 
 from __future__ import annotations
@@ -24,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 class HuggingFaceSource:
-    """Remote source backed by HuggingFace Hub."""
+    """Legacy optional remote source backed by HuggingFace Hub."""
 
     def __init__(self) -> None:
         self._hub: Any | None = None

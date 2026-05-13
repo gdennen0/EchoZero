@@ -10,7 +10,8 @@ Design principles:
 - Versioned: multiple versions of the same model type can coexist.
 - Resolvable: ask for a type → get the best (or a specific) version.
 - Extensible: ModelSource enum has LOCAL and CLOUD — cloud is a future plug-in.
-- No downloads at import time: registry is metadata only, ModelProvider handles I/O.
+- No downloads at import time: registry is metadata only. The v1-alpha app path
+  uses `echozero.models.distribution` for central-registry installs.
 
 The registry is a catalog. It doesn't load models, train them, or run inference.
 It answers: "where is the model file, and what do I know about it?"

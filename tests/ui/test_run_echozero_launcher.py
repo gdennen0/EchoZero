@@ -1121,6 +1121,40 @@ def test_launcher_preferences_action_opens_dialog(monkeypatch):
     assert dialog_calls == [(runtime.app_settings_service, widget)]
 
 
+def test_launcher_model_manager_action_opens_dialog(monkeypatch):
+    runtime_audio = FakeRuntimeAudio()
+    dialog_calls: list[object] = []
+    runtime = SimpleNamespace(
+        runtime_audio=runtime_audio,
+        app_settings_service=object(),
+        is_dirty=False,
+        project_path=None,
+        presentation=lambda: "presentation",
+        dispatch=lambda intent: intent,
+    )
+
+    class FakeModelManagerDialog:
+        def __init__(self, *, parent=None) -> None:
+            self.parent = parent
+            dialog_calls.append(parent)
+
+        def exec(self) -> int:
+            return 1
+
+    monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
+    monkeypatch.setattr(launcher_surface, "ModelManagerDialog", FakeModelManagerDialog)
+
+    widget = FakeWidget(
+        runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+    )
+    launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
+    launcher.install()
+
+    widget._launcher_actions["model_manager"].trigger()
+
+    assert dialog_calls == [widget]
+
+
 def test_launcher_osc_settings_action_opens_dialog(monkeypatch):
     runtime_audio = FakeRuntimeAudio()
     dialog_calls: list[tuple[object, object]] = []

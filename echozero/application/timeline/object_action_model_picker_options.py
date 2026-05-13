@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from echozero.pipelines.params import Knob, KnobWidget
+from echozero.models.distribution import list_installed_models, validate_installed_model
 
 if TYPE_CHECKING:
     from echozero.application.timeline.object_actions.settings import ObjectActionSettingOption
@@ -85,6 +86,8 @@ def discover_runtime_model_paths(*, models_root: Path, knob: Knob) -> tuple[Path
         for path in sorted(models_root.rglob(pattern)):
             if not path.is_file():
                 continue
+            if _is_staged_model_path(path=path, models_root=models_root):
+                continue
             resolved = path.resolve()
             normalized = str(resolved)
             if normalized in seen:
@@ -108,10 +111,36 @@ def runtime_model_glob_patterns(knob: Knob) -> tuple[str, ...]:
 
 def runtime_model_option_label(*, path: Path, models_root: Path) -> str:
     label = _runtime_model_relative_label(path=path, models_root=models_root)
+    status_suffix = runtime_model_status_label(path=path, models_root=models_root)
     release_date = runtime_model_release_date(path=path)
+    suffixes = []
     if release_date is None:
+        pass
+    else:
+        suffixes.append(f"Released {release_date}")
+    if status_suffix is not None:
+        suffixes.append(status_suffix)
+    if not suffixes:
         return label
-    return f"{label} · Released {release_date}"
+    return f"{label} · {' · '.join(suffixes)}"
+
+
+def runtime_model_status_label(*, path: Path, models_root: Path) -> str | None:
+    """Return installed-model status text for central registry model records."""
+    try:
+        relative = path.resolve().relative_to(models_root.resolve())
+    except ValueError:
+        return None
+    for record in list_installed_models(models_root):
+        manifest_path = (
+            f"{record.bundle_dir}/{record.manifest_file}" if record.manifest_file else None
+        )
+        weights_path = f"{record.bundle_dir}/{record.weights_file}" if record.weights_file else None
+        if manifest_path == str(relative) or weights_path == str(relative):
+            if validate_installed_model(record, models_dir=models_root):
+                return f"Installed {record.version}"
+            return "Invalid install"
+    return None
 
 
 def runtime_model_release_date(*, path: Path) -> str | None:
@@ -140,6 +169,14 @@ def _runtime_model_relative_label(*, path: Path, models_root: Path) -> str:
         return str(relative)
     except ValueError:
         return str(path)
+
+
+def _is_staged_model_path(*, path: Path, models_root: Path) -> bool:
+    try:
+        relative = path.relative_to(models_root)
+    except ValueError:
+        return False
+    return bool(relative.parts and relative.parts[0] == ".staging")
 
 
 def _load_manifest_payload(path: Path) -> dict[str, object] | None:

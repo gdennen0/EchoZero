@@ -1,15 +1,21 @@
-# EchoZero 2
+# EchoZero v1-alpha
 
 Status: active
-Last verified: 2026-04-30
+Last verified: 2026-05-13
 
 
-EchoZero is now trimmed to the EZ2 app lane in this branch.
+EchoZero is now trimmed to the EZ app lane in this branch. The current release
+preparation target is `1.0.0-alpha.0`.
 
 The canonical app surfaces in this repo are:
 - `run_echozero.py` for the Stage Zero desktop shell
 - `echozero/` for EZ2 core, application, UI, and Foundry code
 - `python -m echozero.foundry.cli --root . ui` for the Foundry desktop UI
+
+Runtime model weights are installed separately from the app under
+`~/.echozero/models`; they are not bundled into v1-alpha packages by default.
+Use the Model Manager or `python -m echozero.models available/install` to
+discover and install models from a central registry manifest.
 
 ## Quick Start
 

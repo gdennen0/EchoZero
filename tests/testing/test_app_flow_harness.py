@@ -210,7 +210,11 @@ def test_app_flow_harness_exposes_launcher_menus():
             action.text() for action in edit_menu.actions() if action.isSeparator() is False
         ]
         assert edit_actions[:2] == ["&Undo", "&Redo"]
-        assert edit_actions[2:] in ([], ["Project &Settings..."])
+        assert edit_actions[2:] in (
+            [],
+            ["Project &Settings..."],
+            ["Project &Settings...", "&Preferences...", "&Model Manager...", "OSC &Settings..."],
+        )
     finally:
         harness.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)

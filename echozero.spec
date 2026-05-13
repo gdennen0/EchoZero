@@ -18,7 +18,7 @@ def _load_packaging_config():
         with open(path, 'r', encoding='utf-8') as f:
             return json.load(f)
     return {
-        'app_name': 'EZ',
+        'app_name': 'EchoZero',
         'version': '0.1.0',
         'bundle_identifier': 'dev.speedoflight.echozero',
         'company': 'Speed of Light',

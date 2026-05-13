@@ -1,6 +1,6 @@
 {
-  "app_name": "EZ",
-  "version": "2.0.0-dev",
+  "app_name": "EchoZero",
+  "version": "1.0.0-alpha.0",
   "bundle_identifier": "dev.speedoflight.echozero",
   "company": "Speed of Light",
   "copyright": "Copyright (c) Speed of Light. All rights reserved.",

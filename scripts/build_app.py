@@ -16,15 +16,19 @@ Output: dist/EchoZero/ (all platforms); dist/EchoZero.app on macOS.
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import platform
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Env vars that can be embedded for zero-config shipping
 # MEMBERSTACK_APP_SECRET must come from environment at build time (never in config)
 # MEMBERSTACK_VERIFY_URL can come from env or from packaging_config.json bundled_runtime_defaults
 BUNDLED_ENV_VARS = ("MEMBERSTACK_APP_SECRET", "MEMBERSTACK_VERIFY_URL")
+MAX_BUNDLED_MODEL_WEIGHT_BYTES = 1_000_000
 
 
 def _load_bundled_defaults(project_root: Path) -> dict[str, str]:
@@ -99,7 +103,7 @@ def _run_env_smoke_check(project_root: Path) -> bool:
 
 
 def _write_bundled_config(project_root: Path) -> None:
-    """Write build/bundled_config.env from env + packaging_config defaults for zero-config shipping."""
+    """Write build/bundled_config.env for zero-config shipping."""
     build_dir = project_root / "build"
     out = build_dir / "bundled_config.env"
     defaults = _load_bundled_defaults(project_root)
@@ -137,6 +141,74 @@ def _validate_production_template(project_root: Path) -> bool:
     return True
 
 
+def _git_value(project_root: Path, *args: str) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=str(project_root),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except Exception:
+        return None
+    return result.stdout.strip() or None
+
+
+def _load_packaging_identity(project_root: Path) -> dict[str, str]:
+    config_path = project_root / "packaging_config.json"
+    if not config_path.is_file():
+        return {"app_name": "EchoZero", "version": "0.0.0"}
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {"app_name": "EchoZero", "version": "0.0.0"}
+    return {
+        "app_name": str(data.get("app_name") or "EchoZero"),
+        "version": str(data.get("version") or "0.0.0"),
+    }
+
+
+def _assert_no_large_bundled_model_weights(dist_dir: Path) -> bool:
+    if not dist_dir.exists():
+        return True
+    matches = [
+        path
+        for path in dist_dir.rglob("*.pth")
+        if path.is_file() and path.stat().st_size > MAX_BUNDLED_MODEL_WEIGHT_BYTES
+    ]
+    if not matches:
+        return True
+    print(
+        "Error: packaged app includes large .pth model weights; "
+        "v1-alpha models must install separately."
+    )
+    for path in matches:
+        print(f"  - {path} ({path.stat().st_size} bytes)")
+    return False
+
+
+def _write_build_metadata(project_root: Path, dist_dir: Path, command: list[str]) -> None:
+    identity = _load_packaging_identity(project_root)
+    metadata = {
+        "schema": "echozero.build_metadata.v1",
+        "app_name": identity["app_name"],
+        "version": identity["version"],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "platform": platform.platform(),
+        "python": sys.version.split()[0],
+        "git_commit": _git_value(project_root, "rev-parse", "HEAD"),
+        "git_branch": _git_value(project_root, "rev-parse", "--abbrev-ref", "HEAD"),
+        "command": " ".join(command),
+        "models_bundled_by_default": False,
+    }
+    dist_dir.mkdir(parents=True, exist_ok=True)
+    (dist_dir / "build-metadata.json").write_text(
+        json.dumps(metadata, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build EchoZero with PyInstaller")
     parser.add_argument(
@@ -167,6 +239,9 @@ def main() -> int:
     result = subprocess.run(cmd, cwd=str(project_root))
     if result.returncode == 0:
         dist = project_root / "dist"
+        if not _assert_no_large_bundled_model_weights(dist):
+            return 1
+        _write_build_metadata(project_root, dist, cmd)
         print(f"Build complete. Output: {dist}")
     return result.returncode
 

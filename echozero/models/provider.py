@@ -1,6 +1,9 @@
-"""Model artifact provider for EchoZero processor models.
-Exists to download, update, and manage installed model files outside the registry catalog.
-Connects remote model distribution and local cache state to processor-facing resolution.
+"""Legacy model artifact provider for EchoZero processor models.
+Exists to preserve compatibility for older tests and local import flows.
+Connects the pre-v1-alpha model catalog to processor-facing resolution.
+
+V1-alpha app distribution uses ``echozero.models.distribution`` and central
+registry manifests instead of this HuggingFace-oriented provider.
 """
 
 from __future__ import annotations
@@ -26,7 +29,7 @@ from echozero.models.provider_shared import (
     sha256_file,
     validate_model_id,
 )
-from echozero.models.provider_sources import HuggingFaceSource, LocalFileSource
+from echozero.models.provider_sources import LocalFileSource
 
 logger = logging.getLogger(__name__)
 
@@ -42,11 +45,11 @@ DEFAULT_MODELS_DIR = ensure_installed_models_dir()
 class ModelProvider:
     """High-level API for model lifecycle management.
 
-    Bridges RemoteSource (HuggingFace/local) with ModelRegistry (catalog).
+    Bridges legacy RemoteSource implementations with ModelRegistry (catalog).
     Handles: download → extract → register → set default.
 
     Usage:
-        provider = ModelProvider(registry, source=HuggingFaceSource())
+        provider = ModelProvider(registry, source=LocalFileSource(path))
 
         # Check for updates
         updates = provider.check_updates(org="echozero")
@@ -75,7 +78,7 @@ class ModelProvider:
         org: str = "echozero",
     ) -> None:
         self._registry = registry
-        self._source = source or HuggingFaceSource()
+        self._source = source or LocalFileSource()
         self._org = org
 
     @property
@@ -335,7 +338,6 @@ def _parse_version(version: str) -> tuple[int, ...]:
 __all__ = [
     "DEFAULT_MODELS_DIR",
     "DownloadProgress",
-    "HuggingFaceSource",
     "LocalFileSource",
     "ModelProvider",
     "ModelUpdate",

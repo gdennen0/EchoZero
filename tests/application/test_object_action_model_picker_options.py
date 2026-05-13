@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from echozero.application.timeline import object_action_model_picker_options
+from echozero.models.distribution import import_local_model_bundle
 from echozero.pipelines.params import KnobWidget, knob
 
 
@@ -80,4 +81,40 @@ def test_build_runtime_model_picker_options_marks_current_manifest_with_release_
     )
     assert (
         labels[str(custom_manifest)] == "Current: custom-kick.manifest.json · Released 2026-03-10"
+    )
+
+
+def test_runtime_model_picker_labels_central_model_status_and_skips_staging(
+    tmp_path: Path,
+) -> None:
+    bundle = tmp_path / "source-bundle"
+    _write_manifest(bundle / "kick.manifest.json", created_at="2026-04-24T17:35:10Z")
+    (bundle / "model.pth").write_bytes(b"weights")
+    record = import_local_model_bundle(
+        bundle_path=bundle,
+        model_id="default-kick",
+        model_type="binary_drum",
+        label="Default Kick",
+        version="1.0.0-alpha.0",
+        classes=("kick", "other"),
+        runtime_consumer="BinaryDrumClassify",
+        models_dir=tmp_path,
+    )
+    staged_manifest = tmp_path / ".staging" / "pending" / "pending.manifest.json"
+    _write_manifest(staged_manifest, created_at="2026-04-25T17:35:10Z")
+
+    discovered = object_action_model_picker_options.discover_runtime_model_paths(
+        models_root=tmp_path,
+        knob=knob("", widget=KnobWidget.MODEL_PICKER),
+    )
+
+    assert staged_manifest.resolve() not in discovered
+    installed_manifest = tmp_path / record.bundle_dir / "kick.manifest.json"
+    assert installed_manifest.resolve() in discovered
+    assert object_action_model_picker_options.runtime_model_option_label(
+        path=installed_manifest,
+        models_root=tmp_path,
+    ) == (
+        f"{record.bundle_dir}/kick.manifest.json · Released 2026-04-24 · "
+        "Installed 1.0.0-alpha.0"
     )

@@ -1,8 +1,6 @@
-"""
-Model registry: Track, resolve, and manage ML models for EchoZero processors.
-
-Local-first. Cloud sync via HuggingFace Hub — the provider handles downloads,
-the registry handles the catalog.
+"""Model distribution and runtime-model catalogs for EchoZero.
+Exists to keep app-installed model assets separate from packaged binaries.
+Connects central registry manifests, local indexes, and legacy model catalog compatibility.
 """
 
 from echozero.models.registry import (
@@ -12,25 +10,31 @@ from echozero.models.registry import (
     ModelStatus,
     ModelType,
 )
-from echozero.models.provider import (
-    DownloadProgress,
-    HuggingFaceSource,
-    LocalFileSource,
-    ModelProvider,
-    ModelUpdate,
-    ProgressCallback,
+from echozero.models.distribution import (
+    InstalledModelRecord,
+    ModelInstallState,
+    RegistryModelListing,
+    RegistryModelEntry,
+    default_registry_manifest_source,
+    discover_registry_models,
+    install_model_from_registry,
+    list_installed_models,
+    save_registry_manifest_source,
 )
 
 __all__ = [
-    "DownloadProgress",
-    "HuggingFaceSource",
-    "LocalFileSource",
+    "InstalledModelRecord",
+    "ModelInstallState",
     "ModelCard",
-    "ModelProvider",
     "ModelRegistry",
     "ModelSource",
     "ModelStatus",
     "ModelType",
-    "ModelUpdate",
-    "ProgressCallback",
+    "RegistryModelEntry",
+    "RegistryModelListing",
+    "default_registry_manifest_source",
+    "discover_registry_models",
+    "install_model_from_registry",
+    "list_installed_models",
+    "save_registry_manifest_source",
 ]

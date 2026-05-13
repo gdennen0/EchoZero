@@ -23,6 +23,7 @@ from echozero.persistence.session import ProjectStorage
 from echozero.ui.qt.app_shell import AppShellRuntime, build_app_shell
 from echozero.ui.qt.app_shell_project_runtime_state import load_project_runtime_state
 from echozero.ui.qt.launcher_review_actions import build_review_launcher_actions
+from echozero.ui.qt.model_manager_dialog import ModelManagerDialog
 from echozero.ui.qt.osc_settings_dialog import OscSettingsDialog
 from echozero.ui.qt.preferences_dialog import PreferencesDialog
 from echozero.ui.qt.project_settings_dialog import ProjectSettingsDialog
@@ -97,6 +98,11 @@ class LauncherController:
                 "&Preferences...",
                 _preferences_shortcut(),
                 self.preferences,
+            )
+            self.actions["model_manager"] = self._create_action(
+                "&Model Manager...",
+                None,
+                self.model_manager,
             )
             self.actions["osc_settings"] = self._create_action(
                 "OSC &Settings...",
@@ -602,6 +608,10 @@ class LauncherController:
                 self._app_settings_service,
                 parent=self.widget,
             )
+        return bool(dialog.exec())
+
+    def model_manager(self) -> bool:
+        dialog = ModelManagerDialog(parent=self.widget)
         return bool(dialog.exec())
 
     def osc_settings(self) -> bool:
