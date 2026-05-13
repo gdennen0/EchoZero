@@ -1,0 +1,62 @@
+# EchoZero Visual Lab tokens.
+# Edit here or use: python -m dev.visual_lab.preview
+
+[global_colors]
+app_background = "#111013"
+surface = "#111013"
+surface_raised = "#111013"
+text_primary = "#e5edf7"
+text_secondary = "#8f9aaa"
+primary = "#3fb6ff"
+secondary = "#f2b84b"
+success = "#42c980"
+warning = "#f2a34b"
+error = "#f05d5e"
+
+[palette]
+window = "#0f1217"
+panel = "#151a21"
+panel_raised = "#1b222c"
+row = "#171d25"
+row_child = "#141922"
+row_selected = "#223146"
+row_muted = "#11161d"
+border = "#303946"
+grid = "#293241"
+text = "#e5edf7"
+text_muted = "#8f9aaa"
+accent = "#3fb6ff"
+accent_secondary = "#f2b84b"
+waveform = "#58c4dd"
+waveform_fill = "#285c6d"
+status_ok = "#42c980"
+status_sync = "#6da9ff"
+status_stale = "#f2a34b"
+status_muted = "#6f7685"
+danger = "#f05d5e"
+
+[fonts]
+family = "Helvetica Neue"
+mono_family = "Menlo"
+base_px = 13
+small_px = 11
+label_px = 12
+title_px = 18
+weight_regular = 400
+weight_medium = 520
+weight_bold = 680
+
+[metrics]
+corner_radius_px = 6
+control_radius_px = 5
+border_width_px = 1
+glow_strength_px = 10
+timeline_header_width_px = 230
+timeline_width_px = 760
+audio_row_height_px = 62
+stem_row_height_px = 42
+transport_height_px = 88
+status_chip_height_px = 20
+gap_px = 8
+padding_px = 14
+waveform_height_px = 24

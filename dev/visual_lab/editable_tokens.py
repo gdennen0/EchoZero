@@ -1,0 +1,113 @@
+"""Visual Lab editable token maps.
+Exists so catalog entries can declare focused style knobs without bloating factories.
+Used only by the support-only Visual Lab style editor.
+"""
+
+from __future__ import annotations
+
+GLOBAL_COLOR_TOKENS = (
+    "global_colors.app_background",
+    "global_colors.surface",
+    "global_colors.surface_raised",
+    "global_colors.text_primary",
+    "global_colors.text_secondary",
+    "global_colors.primary",
+    "global_colors.secondary",
+    "global_colors.success",
+    "global_colors.warning",
+    "global_colors.error",
+)
+SHELL_TOKENS = GLOBAL_COLOR_TOKENS + (
+    "palette.window",
+    "palette.panel",
+    "palette.panel_raised",
+    "palette.border",
+    "palette.text",
+    "palette.text_muted",
+    "fonts.family",
+    "fonts.base_px",
+    "fonts.small_px",
+    "fonts.label_px",
+    "fonts.title_px",
+    "metrics.corner_radius_px",
+    "metrics.control_radius_px",
+    "metrics.border_width_px",
+    "metrics.gap_px",
+    "metrics.padding_px",
+)
+TIMELINE_ROW_TOKENS = (
+    "palette.row",
+    "palette.row_child",
+    "palette.row_selected",
+    "palette.row_muted",
+    "palette.border",
+    "palette.grid",
+    "palette.waveform",
+    "palette.waveform_fill",
+    "palette.accent",
+    "palette.accent_secondary",
+    "palette.status_ok",
+    "palette.status_sync",
+    "palette.status_stale",
+    "palette.status_muted",
+    "fonts.family",
+    "fonts.small_px",
+    "fonts.label_px",
+    "metrics.timeline_header_width_px",
+    "metrics.timeline_width_px",
+    "metrics.audio_row_height_px",
+    "metrics.stem_row_height_px",
+    "metrics.status_chip_height_px",
+    "metrics.waveform_height_px",
+)
+HEADER_TOKENS = (
+    "palette.panel",
+    "palette.panel_raised",
+    "palette.border",
+    "palette.text",
+    "palette.text_muted",
+    "palette.status_ok",
+    "palette.status_sync",
+    "palette.status_stale",
+    "palette.status_muted",
+    "fonts.family",
+    "fonts.small_px",
+    "fonts.label_px",
+    "metrics.timeline_header_width_px",
+    "metrics.control_radius_px",
+    "metrics.status_chip_height_px",
+)
+CONTROL_TOKENS = (
+    "palette.panel",
+    "palette.panel_raised",
+    "palette.border",
+    "palette.text",
+    "palette.text_muted",
+    "palette.accent",
+    "palette.danger",
+    "fonts.family",
+    "fonts.small_px",
+    "fonts.label_px",
+    "metrics.corner_radius_px",
+    "metrics.control_radius_px",
+    "metrics.border_width_px",
+    "metrics.padding_px",
+)
+STATUS_TOKENS = (
+    "palette.panel",
+    "palette.text",
+    "palette.status_ok",
+    "palette.status_sync",
+    "palette.status_stale",
+    "palette.status_muted",
+    "fonts.family",
+    "fonts.small_px",
+    "metrics.status_chip_height_px",
+)
+WAVEFORM_TOKENS = (
+    "palette.panel",
+    "palette.waveform",
+    "palette.waveform_fill",
+    "palette.border",
+    "metrics.waveform_height_px",
+)
