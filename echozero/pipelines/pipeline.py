@@ -8,6 +8,7 @@ named outputs. Engine-level concept — knows nothing about DB, layers, takes, o
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any
 
 from echozero.domain.enums import BlockCategory, Direction, PortType
@@ -57,12 +58,139 @@ class BlockHandle:
 # ---------------------------------------------------------------------------
 
 
-class PipelineOutput:
-    """Declared output of a pipeline — name + port reference."""
+@dataclass(frozen=True)
+class ArtifactPolicy:
+    """Reusable artifact identity hints for a pipeline output."""
 
-    def __init__(self, name: str, port_ref: PortRef) -> None:
+    artifact_kind: str = ""
+    role: str = ""
+    cache_scope: str = "project"
+    source_input: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "artifact_kind": self.artifact_kind,
+            "role": self.role,
+            "cache_scope": self.cache_scope,
+            "source_input": self.source_input,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any] | None) -> "ArtifactPolicy":
+        data = payload or {}
+        return cls(
+            artifact_kind=str(data.get("artifact_kind") or ""),
+            role=str(data.get("role") or ""),
+            cache_scope=str(data.get("cache_scope") or "project"),
+            source_input=str(data.get("source_input") or ""),
+        )
+
+
+@dataclass(frozen=True)
+class PersistenceMapping:
+    """Declares how one pipeline output should be projected into app storage."""
+
+    target: str = "auto"
+    label: str = ""
+    project_as_layer: bool = True
+    params: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "target": self.target,
+            "label": self.label,
+            "project_as_layer": self.project_as_layer,
+            "params": dict(self.params),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any] | None) -> "PersistenceMapping":
+        data = payload or {}
+        return cls(
+            target=str(data.get("target") or "auto"),
+            label=str(data.get("label") or ""),
+            project_as_layer=bool(data.get("project_as_layer", True)),
+            params=dict(data.get("params") or {}),
+        )
+
+
+@dataclass(frozen=True)
+class PipelineOutputSpec:
+    """Metadata for a named pipeline output."""
+
+    data_type: str = ""
+    label: str = ""
+    persistence: PersistenceMapping = field(default_factory=PersistenceMapping)
+    artifact: ArtifactPolicy | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "data_type": self.data_type,
+            "label": self.label,
+            "persistence": self.persistence.to_dict(),
+        }
+        if self.artifact is not None:
+            payload["artifact"] = self.artifact.to_dict()
+        return payload
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any] | None) -> "PipelineOutputSpec":
+        data = payload or {}
+        artifact_payload = data.get("artifact")
+        return cls(
+            data_type=str(data.get("data_type") or ""),
+            label=str(data.get("label") or ""),
+            persistence=PersistenceMapping.from_dict(data.get("persistence")),
+            artifact=(
+                ArtifactPolicy.from_dict(artifact_payload)
+                if isinstance(artifact_payload, dict)
+                else None
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class RuntimeBindingSpec:
+    """Declares how runtime context binds into a pipeline run."""
+
+    key: str
+    source: str
+    target_block: str = ""
+    target_setting: str = ""
+    required: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "key": self.key,
+            "source": self.source,
+            "target_block": self.target_block,
+            "target_setting": self.target_setting,
+            "required": self.required,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "RuntimeBindingSpec":
+        return cls(
+            key=str(payload.get("key") or ""),
+            source=str(payload.get("source") or ""),
+            target_block=str(payload.get("target_block") or ""),
+            target_setting=str(payload.get("target_setting") or ""),
+            required=bool(payload.get("required", False)),
+        )
+
+
+class PipelineOutput:
+    """Declared output of a pipeline — name + port reference + metadata."""
+
+    def __init__(
+        self,
+        name: str,
+        port_ref: PortRef,
+        spec: PipelineOutputSpec | None = None,
+    ) -> None:
         self.name = name
         self.port_ref = port_ref
+        self.spec = spec or PipelineOutputSpec()
 
     def __repr__(self) -> str:
         return f"<PipelineOutput: {self.name} -> {self.port_ref}>"
@@ -194,7 +322,17 @@ class Pipeline:
         handle_ports = {ps.name: ps.port_type for ps in block_spec.output_ports}
         return BlockHandle(block_id, handle_ports)
 
-    def output(self, name: str, port_ref_or_handle: PortRef | BlockHandle) -> None:
+    def output(
+        self,
+        name: str,
+        port_ref_or_handle: PortRef | BlockHandle,
+        *,
+        data_type: str = "",
+        label: str = "",
+        persistence: PersistenceMapping | None = None,
+        artifact: ArtifactPolicy | None = None,
+        project_as_layer: bool | None = None,
+    ) -> None:
         """Declare a named output of this pipeline.
 
         Args:
@@ -222,4 +360,23 @@ class Pipeline:
             raise ValidationError(
                 f"output() expects a PortRef or BlockHandle, got {type(port_ref_or_handle).__name__}"
             )
-        self._outputs.append(PipelineOutput(name, port_ref))
+        resolved_persistence = persistence or PersistenceMapping()
+        if project_as_layer is not None:
+            resolved_persistence = PersistenceMapping(
+                target=resolved_persistence.target,
+                label=resolved_persistence.label,
+                project_as_layer=project_as_layer,
+                params=dict(resolved_persistence.params),
+            )
+        self._outputs.append(
+            PipelineOutput(
+                name,
+                port_ref,
+                PipelineOutputSpec(
+                    data_type=data_type,
+                    label=label,
+                    persistence=resolved_persistence,
+                    artifact=artifact,
+                ),
+            )
+        )

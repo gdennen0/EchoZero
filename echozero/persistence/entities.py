@@ -475,6 +475,7 @@ class PipelineConfigRecord:
                     "name": out.name,
                     "block_id": out.port_ref.block_id,
                     "port_name": out.port_ref.port_name,
+                    "spec": out.spec.to_dict(),
                 }
                 for out in pipeline.outputs
             ]

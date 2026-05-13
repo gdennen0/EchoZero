@@ -425,12 +425,6 @@ class SeparateAudioProcessor:
                 two_stems = None
             else:
                 two_stems = normalized_two_stems
-        include_bass_stem_layer = bool(settings.get("include_bass_stem_layer", False))
-        include_vocals_stem_layer = bool(settings.get("include_vocals_stem_layer", False))
-        include_other_stem_layer = bool(settings.get("include_other_stem_layer", False))
-        if include_bass_stem_layer or include_vocals_stem_layer or include_other_stem_layer:
-            # Full stem outputs are required whenever a non-drums stem is requested.
-            two_stems = None
         output_format = settings.get("output_format", "wav")
         mp3_bitrate = settings.get("mp3_bitrate", 320)
 

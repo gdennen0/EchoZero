@@ -13,6 +13,7 @@ from echozero.pipelines.params import (
     extract_knobs,
     validate_bindings as _validate_knob_bindings,
 )
+from echozero.pipelines.pipeline import RuntimeBindingSpec
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ class PipelineTemplate:
     name: str
     description: str
     knobs: dict[str, Knob] = field(default_factory=dict)
+    runtime_bindings: tuple[RuntimeBindingSpec, ...] = ()
     builder: Callable[..., Any] = None  # Returns Pipeline (from pipelines.pipeline)
 
     def _build_kwargs(self, bindings: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -139,6 +141,7 @@ def pipeline_template(
     name: str,
     description: str = "",
     knobs: dict[str, Knob] | None = None,
+    runtime_bindings: tuple[RuntimeBindingSpec, ...] = (),
 ) -> Callable:
     """Decorator that registers a builder function as a pipeline template.
 
@@ -167,6 +170,7 @@ def pipeline_template(
             name=name,
             description=description or (fn.__doc__ or "").strip(),
             knobs=resolved_knobs,
+            runtime_bindings=tuple(runtime_bindings),
             builder=fn,
         )
         _registry.register(template)

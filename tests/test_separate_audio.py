@@ -240,8 +240,8 @@ class TestSeparateAudioBasic:
         assert is_ok(result)
         assert set(result.value.keys()) == {"drums_out", "no_drums_out"}
 
-    def test_non_drum_stem_selection_forces_full_stem_separation(self):
-        """Requesting bass/vocals/other stems overrides two_stems to full separation."""
+    def test_projection_settings_do_not_change_processor_two_stems_mode(self):
+        """Layer projection policy is handled outside the separator processor."""
         captured: dict[str, Any] = {}
 
         def capture_fn(
@@ -272,8 +272,8 @@ class TestSeparateAudioBasic:
 
         result = proc.execute(sep.id, ctx)
         assert is_ok(result)
-        assert captured["two_stems"] is None
-        assert set(result.value.keys()) == {"drums_out", "bass_out", "other_out", "vocals_out"}
+        assert captured["two_stems"] == "drums"
+        assert set(result.value.keys()) == {"drums_out", "no_drums_out"}
 
     def test_two_stems_none_string_is_treated_as_full_separation(self):
         """two_stems='none' is normalized to full-stem separation."""

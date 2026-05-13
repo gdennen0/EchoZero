@@ -6,7 +6,7 @@ Registers with the pipeline registry on import.
 
 from echozero.pipelines.block_specs import DetectSongSections, LoadAudio
 from echozero.pipelines.params import KnobWidget, knob
-from echozero.pipelines.pipeline import Pipeline
+from echozero.pipelines.pipeline import PersistenceMapping, Pipeline
 from echozero.pipelines.registry import pipeline_template
 
 
@@ -158,6 +158,11 @@ def build_extract_song_sections(
         id="detect_song_sections",
     )
 
-    pipeline.output("sections", detect_sections.events_out)
+    pipeline.output(
+        "sections",
+        detect_sections.events_out,
+        data_type="event",
+        persistence=PersistenceMapping(target="layer_take", params={"manual_kind": "section"}),
+    )
 
     return pipeline

@@ -542,6 +542,12 @@ class TestOrchestratorProgress:
         assert isinstance(result, Ok)
         assert len(progress_calls) >= 3
         assert progress_calls[0].fraction_complete == 0.0
+        assert any(
+            update.stage == "executing_pipeline"
+            and update.fraction_complete is not None
+            and 0.2 <= update.fraction_complete <= 0.8
+            for update in progress_calls
+        )
         assert progress_calls[-1].fraction_complete == 1.0
         assert progress_calls[-1].message == "Complete"
 

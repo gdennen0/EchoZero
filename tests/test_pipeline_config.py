@@ -6,6 +6,7 @@ Verifies the full lifecycle: create from template → edit knobs → execute →
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -697,6 +698,41 @@ class TestConfigToFromPipeline:
         pipeline = config.to_pipeline()
         assert len(pipeline.graph.blocks) >= 2
         assert len(pipeline.outputs) >= 1
+
+    def test_output_metadata_round_trips(self, session, song_version):
+        orch = Orchestrator(get_registry(), _executors())
+        config = unwrap(orch.create_config(session, song_version.id, "stem_separation"))
+
+        pipeline = config.to_pipeline()
+        drums_output = next(output for output in pipeline.outputs if output.name == "drums")
+
+        assert drums_output.spec.data_type == "audio"
+        assert drums_output.spec.label == "Drums"
+        assert drums_output.spec.persistence.project_as_layer is True
+        assert drums_output.spec.artifact is not None
+        assert drums_output.spec.artifact.artifact_kind == "separated_audio"
+        assert drums_output.spec.artifact.role == "drums_stem"
+
+    def test_legacy_output_json_without_metadata_still_loads(self, session, song_version):
+        config = unwrap(
+            Orchestrator(get_registry(), _executors()).create_config(
+                session, song_version.id, "onset_detection"
+            )
+        )
+        legacy_outputs = [
+            {
+                "name": output["name"],
+                "block_id": output["block_id"],
+                "port_name": output["port_name"],
+            }
+            for output in json.loads(config.outputs_json)
+        ]
+        legacy_config = replace(config, outputs_json=json.dumps(legacy_outputs))
+
+        pipeline = legacy_config.to_pipeline()
+
+        assert pipeline.outputs[0].name == "onsets"
+        assert pipeline.outputs[0].spec.persistence.target == "auto"
 
     def test_graph_preserves_settings(self, session, song_version):
         orch = Orchestrator(get_registry(), _executors())

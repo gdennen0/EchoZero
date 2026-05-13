@@ -30,7 +30,7 @@ from echozero.persistence.entities import LayerRecord, PipelineConfigRecord
 from echozero.persistence.session import ProjectStorage
 from echozero.pipelines.pipeline import Pipeline
 from echozero.pipelines.registry import PipelineRegistry
-from echozero.progress import RuntimeBus
+from echozero.progress import ProgressReport, RuntimeBus
 from echozero.result import Err, Result, err, is_err, ok, unwrap
 from echozero.services.provenance import (
     build_analysis_build,
@@ -244,6 +244,16 @@ class Orchestrator:
                     settings=BlockSettings(current_settings),
                 )
                 pipeline.graph.replace_block(updated)
+        for block_id, block in tuple(pipeline.graph.blocks.items()):
+            if block.block_type != "SeparateAudio":
+                continue
+            current_settings = dict(block.settings)
+            if self._needs_full_stem_outputs(config.knob_values):
+                current_settings["two_stems"] = None
+            if "working_dir" not in current_settings:
+                current_settings["working_dir"] = session_working_dir
+            updated = _replace(block, settings=BlockSettings(current_settings))
+            pipeline.graph.replace_block(updated)
 
         if on_progress:
             on_progress(
@@ -255,6 +265,10 @@ class Orchestrator:
             )
 
         runtime_bus = RuntimeBus()
+        if on_progress:
+            runtime_bus.subscribe(
+                lambda report: self._publish_block_progress(report, on_progress=on_progress)
+            )
         engine = ExecutionEngine(pipeline.graph, runtime_bus)
         for block_type, executor in self._executors.items():
             engine.register_executor(block_type, executor)
@@ -372,11 +386,6 @@ class Orchestrator:
             )
         config = session.pipeline_configs.get(pipeline_config_id)
         knob_values = dict(config.knob_values) if config is not None else {}
-        selected_extract_song_stems = self._selected_extract_song_drum_stem_outputs(
-            pipeline_id=pipeline_id,
-            knob_values=knob_values,
-        )
-
         output_items: list[tuple[Any, Any, str, OutputMapping | None, str | None]] = []
         for pipeline_output in pipeline.outputs:
             name = pipeline_output.name
@@ -391,7 +400,9 @@ class Orchestrator:
                 )
                 continue
 
-            mapping = custom_mappings.get(name)
+            mapping = custom_mappings.get(name) or self._output_mapping_from_spec(
+                pipeline_output
+            )
             target = self._resolve_target(data, mapping)
             if target is None:
                 logger.warning(
@@ -406,38 +417,27 @@ class Orchestrator:
                 raw_outputs=raw_outputs,
                 block_id=port_ref.block_id,
             )
-            if (
-                selected_extract_song_stems is not None
-                and name in self._extract_song_drum_stem_output_names()
-                and name not in selected_extract_song_stems
+            if not self._should_project_output_as_layer(
+                pipeline_output,
+                knob_values=knob_values,
             ):
                 if isinstance(data, AudioData):
-                    persist_generated_audio_content(
-                        session,
+                    self._persist_generated_audio_output_content(
+                        session=session,
                         song_version_id=song_version_id,
-                        output_name=name,
-                        audio_file=str(data.file_path),
-                        analysis_build_id=self._analysis_build_id(
-                            pipeline_config_id,
-                            execution_id,
+                        pipeline_id=pipeline_id,
+                        pipeline_config_id=pipeline_config_id,
+                        execution_id=execution_id,
+                        analysis_build_id=analysis_build_id,
+                        generated_at=generated_at,
+                        block_type=(
+                            pipeline.graph.blocks[port_ref.block_id].block_type
+                            if port_ref.block_id in pipeline.graph.blocks
+                            else ""
                         ),
+                        pipeline_output=pipeline_output,
+                        data=data,
                         source_audio_path=source_audio_path,
-                        analysis_build=build_analysis_build(
-                            pipeline_id=pipeline_id,
-                            pipeline_config_id=pipeline_config_id,
-                            block_id=port_ref.block_id,
-                            block_type=(
-                                pipeline.graph.blocks[port_ref.block_id].block_type
-                                if port_ref.block_id in pipeline.graph.blocks
-                                else ""
-                            ),
-                            output_name=name,
-                            data_type="audio",
-                            execution_id=execution_id,
-                            build_id=analysis_build_id,
-                            generated_at=generated_at,
-                        ),
-                        created_at=generated_at,
                     )
                 continue
             output_items.append((pipeline_output, data, target, mapping, source_audio_path))
@@ -479,27 +479,80 @@ class Orchestrator:
         return all_layer_ids, all_take_ids
 
     @staticmethod
-    def _extract_song_drum_stem_output_names() -> tuple[str, ...]:
-        return ("drums", "bass", "vocals", "other")
-
-    def _selected_extract_song_drum_stem_outputs(
-        self,
-        *,
-        pipeline_id: str,
-        knob_values: dict[str, Any],
-    ) -> set[str] | None:
-        if pipeline_id != "extract_song_drum_events":
+    def _output_mapping_from_spec(pipeline_output: Any) -> OutputMapping | None:
+        spec = getattr(pipeline_output, "spec", None)
+        persistence = getattr(spec, "persistence", None)
+        if persistence is None:
             return None
-        selected: set[str] = set()
-        if bool(knob_values.get("include_drums_stem_layer", False)):
-            selected.add("drums")
-        if bool(knob_values.get("include_bass_stem_layer", False)):
-            selected.add("bass")
-        if bool(knob_values.get("include_vocals_stem_layer", False)):
-            selected.add("vocals")
-        if bool(knob_values.get("include_other_stem_layer", False)):
-            selected.add("other")
-        return selected
+        label = persistence.label
+        if persistence.target == "auto" and not label and not persistence.params:
+            return None
+        return OutputMapping(
+            output_name=pipeline_output.name,
+            target=persistence.target,
+            label=label,
+            params=dict(persistence.params),
+        )
+
+    @staticmethod
+    def _should_project_output_as_layer(
+        pipeline_output: Any,
+        *,
+        knob_values: dict[str, Any],
+    ) -> bool:
+        output_name = str(getattr(pipeline_output, "name", "") or "")
+        include_key = f"include_{output_name}_stem_layer"
+        if include_key in knob_values:
+            return bool(knob_values.get(include_key))
+        return bool(pipeline_output.spec.persistence.project_as_layer)
+
+    @staticmethod
+    def _needs_full_stem_outputs(knob_values: dict[str, Any]) -> bool:
+        return any(
+            bool(knob_values.get(key))
+            for key in (
+                "include_bass_stem_layer",
+                "include_vocals_stem_layer",
+                "include_other_stem_layer",
+            )
+        )
+
+    @staticmethod
+    def _persist_generated_audio_output_content(
+        *,
+        session: ProjectStorage,
+        song_version_id: str,
+        pipeline_id: str,
+        pipeline_config_id: str,
+        execution_id: str,
+        analysis_build_id: str,
+        generated_at: datetime,
+        block_type: str,
+        pipeline_output: Any,
+        data: AudioData,
+        source_audio_path: str | None,
+    ) -> None:
+        port_ref = pipeline_output.port_ref
+        persist_generated_audio_content(
+            session,
+            song_version_id=song_version_id,
+            output_name=pipeline_output.name,
+            audio_file=str(data.file_path),
+            analysis_build_id=analysis_build_id,
+            source_audio_path=source_audio_path,
+            analysis_build=build_analysis_build(
+                pipeline_id=pipeline_id,
+                pipeline_config_id=pipeline_config_id,
+                block_id=port_ref.block_id,
+                block_type=block_type,
+                output_name=pipeline_output.name,
+                data_type="audio",
+                execution_id=execution_id,
+                build_id=analysis_build_id,
+                generated_at=generated_at,
+            ),
+            created_at=generated_at,
+        )
 
     @staticmethod
     def _resolve_audio_path(session: ProjectStorage, audio_file: str) -> str:
@@ -507,6 +560,22 @@ class Orchestrator:
         if raw.is_absolute():
             return str(raw)
         return str((session.working_dir / raw).resolve())
+
+    @staticmethod
+    def _publish_block_progress(
+        report: object,
+        *,
+        on_progress: Callable[[OperationProgressUpdate], None],
+    ) -> None:
+        if not isinstance(report, ProgressReport):
+            return
+        on_progress(
+            OperationProgressUpdate(
+                stage="executing_pipeline",
+                message=report.message,
+                fraction_complete=0.2 + (0.6 * report.percent),
+            )
+        )
 
     @classmethod
     def _persist_audio_outputs_for_project(

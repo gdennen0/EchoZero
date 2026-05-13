@@ -22,7 +22,7 @@ from echozero.domain.types import (
     Layer,
     Port,
 )
-from echozero.pipelines.pipeline import Pipeline, PipelineOutput, PortRef
+from echozero.pipelines.pipeline import Pipeline, PipelineOutput, PipelineOutputSpec, PortRef
 from echozero.takes import Take, TakeLayer, TakeSource
 
 # ---------------------------------------------------------------------------
@@ -42,6 +42,7 @@ def serialize_pipeline(pipeline: Pipeline) -> dict[str, Any]:
                 "name": out.name,
                 "block_id": out.port_ref.block_id,
                 "port_name": out.port_ref.port_name,
+                "spec": out.spec.to_dict(),
             }
             for out in pipeline.outputs
         ],
@@ -67,7 +68,13 @@ def deserialize_pipeline(data: dict[str, Any]) -> Pipeline:
             raise ValidationError(f"Duplicate pipeline output name: {name!r}")
         seen_names.add(name)
         port_ref = PortRef(out_data["block_id"], out_data["port_name"])
-        outputs.append(PipelineOutput(name, port_ref))
+        outputs.append(
+            PipelineOutput(
+                name,
+                port_ref,
+                PipelineOutputSpec.from_dict(out_data.get("spec")),
+            )
+        )
 
     return Pipeline(
         id=data["id"],

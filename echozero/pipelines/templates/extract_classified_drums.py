@@ -1,9 +1,13 @@
 """Extract classified drums pipeline template."""
 
-from echozero.pipelines.block_specs import AudioFilter, BinaryDrumClassify, DetectOnsets, LoadAudio
+from echozero.pipelines.block_specs import LoadAudio
 from echozero.pipelines.params import KnobWidget, knob
 from echozero.pipelines.pipeline import Pipeline
 from echozero.pipelines.registry import pipeline_template
+from echozero.pipelines.templates.drum_extraction import (
+    ClassifiedDrumBranchSettings,
+    add_classified_drum_branches,
+)
 
 
 @pipeline_template(
@@ -276,62 +280,35 @@ def build_extract_classified_drums(
         LoadAudio(file_path=audio_file, target_sample_rate=44100),
         id="load_audio",
     )
-    kick_filter = pipeline.add(
-        AudioFilter(
-            enabled=kick_filter_enabled,
-            filter_type=kick_filter_type,
-            freq=kick_filter_freq,
-        ),
-        id="kick_filter",
+    classified = add_classified_drum_branches(
+        pipeline,
         audio_in=audio.audio_out,
-    )
-    kick_onsets = pipeline.add(
-        DetectOnsets(
-            threshold=kick_onset_threshold,
-            min_gap=kick_onset_min_gap,
-            method=kick_onset_method,
-            backtrack=kick_onset_backtrack,
-            timing_offset_ms=kick_onset_timing_offset_ms,
-        ),
-        id="kick_onsets",
-        audio_in=kick_filter.audio_out,
-    )
-    snare_filter = pipeline.add(
-        AudioFilter(
-            enabled=snare_filter_enabled,
-            filter_type=snare_filter_type,
-            freq=snare_filter_freq,
-        ),
-        id="snare_filter",
-        audio_in=audio.audio_out,
-    )
-    snare_onsets = pipeline.add(
-        DetectOnsets(
-            threshold=snare_onset_threshold,
-            min_gap=snare_onset_min_gap,
-            method=snare_onset_method,
-            backtrack=snare_onset_backtrack,
-            timing_offset_ms=snare_onset_timing_offset_ms,
-        ),
-        id="snare_onsets",
-        audio_in=snare_filter.audio_out,
-    )
-    classified = pipeline.add(
-        BinaryDrumClassify(
+        settings=ClassifiedDrumBranchSettings(
             kick_model_path=kick_model_path,
             snare_model_path=snare_model_path,
             device=classify_device,
             kick_positive_threshold=kick_positive_threshold,
             snare_positive_threshold=snare_positive_threshold,
+            kick_filter_enabled=kick_filter_enabled,
+            kick_filter_freq=kick_filter_freq,
+            kick_onset_threshold=kick_onset_threshold,
+            snare_filter_enabled=snare_filter_enabled,
+            snare_filter_freq=snare_filter_freq,
+            snare_onset_threshold=snare_onset_threshold,
+            kick_filter_type=kick_filter_type,
+            kick_onset_min_gap=kick_onset_min_gap,
+            kick_onset_method=kick_onset_method,
+            kick_onset_backtrack=kick_onset_backtrack,
+            kick_onset_timing_offset_ms=kick_onset_timing_offset_ms,
+            snare_filter_type=snare_filter_type,
+            snare_onset_min_gap=snare_onset_min_gap,
+            snare_onset_method=snare_onset_method,
+            snare_onset_backtrack=snare_onset_backtrack,
+            snare_onset_timing_offset_ms=snare_onset_timing_offset_ms,
             assignment_mode=assignment_mode,
             winner_margin=winner_margin,
             event_match_window_ms=event_match_window_ms,
         ),
-        id="classify_drums",
-        audio_in=audio.audio_out,
-        events_in=kick_onsets.events_out,
-        kick_events_in=kick_onsets.events_out,
-        snare_events_in=snare_onsets.events_out,
     )
-    pipeline.output("classified_drums", classified.events_out)
+    pipeline.output("classified_drums", classified.events_out, data_type="event")
     return pipeline

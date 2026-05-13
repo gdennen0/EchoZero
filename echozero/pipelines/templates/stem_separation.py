@@ -6,7 +6,7 @@ Registers with the pipeline registry on import.
 
 from echozero.pipelines.block_specs import LoadAudio, Separator
 from echozero.pipelines.params import knob, KnobWidget
-from echozero.pipelines.pipeline import Pipeline
+from echozero.pipelines.pipeline import ArtifactPolicy, PersistenceMapping, Pipeline
 from echozero.pipelines.registry import pipeline_template
 
 
@@ -73,8 +73,22 @@ def build_stem_separation(
         id="separate",
         audio_in=load.audio_out,
     )
-    p.output("drums", sep.drums_out)
-    p.output("bass", sep.bass_out)
-    p.output("vocals", sep.vocals_out)
-    p.output("other", sep.other_out)
+    for output_name, port_ref in (
+        ("drums", sep.drums_out),
+        ("bass", sep.bass_out),
+        ("vocals", sep.vocals_out),
+        ("other", sep.other_out),
+    ):
+        p.output(
+            output_name,
+            port_ref,
+            data_type="audio",
+            label=output_name.title(),
+            persistence=PersistenceMapping(project_as_layer=True),
+            artifact=ArtifactPolicy(
+                artifact_kind="separated_audio",
+                role=f"{output_name}_stem",
+                source_input="audio_file",
+            ),
+        )
     return p
