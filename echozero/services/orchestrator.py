@@ -884,6 +884,261 @@ class Orchestrator:
         model_name = str(model or "latest_model").strip() or "latest_model"
         return {"latest_model": "htdemucs_ft"}.get(model_name, model_name)
 
+    def _build_stem_reuse_plan(
+        self,
+        *,
+        session: ProjectStorage,
+        pipeline: Pipeline,
+        song_version_id: str,
+        source_audio_path: str,
+        source_audio_hash: str,
+    ) -> StemReusePlan:
+        """Return cached SeparateAudio outputs that can safely seed this execution."""
+
+        if pipeline.id == "stem_separation":
+            return StemReusePlan()
+
+        initial_outputs: dict[tuple[str, str], Any] = {}
+        skip_block_ids: set[str] = set()
+        for block_id, block in pipeline.graph.blocks.items():
+            if block.block_type != "SeparateAudio":
+                continue
+            required_ports = self._required_separate_audio_ports(
+                pipeline=pipeline,
+                block_id=block_id,
+            )
+            if not required_ports:
+                continue
+            cached_outputs: dict[str, AudioData] = {}
+            for port_name in required_ports:
+                stem_name = self._stem_name_for_port(port_name)
+                if stem_name is None:
+                    cached_outputs = {}
+                    break
+                cached_audio = self._find_reusable_stem_audio(
+                    session=session,
+                    song_version_id=song_version_id,
+                    stem_name=stem_name,
+                    source_audio_hash=source_audio_hash,
+                    block_settings=dict(block.settings),
+                )
+                if cached_audio is None:
+                    cached_outputs = {}
+                    break
+                cached_outputs[port_name] = cached_audio
+            if len(cached_outputs) != len(required_ports):
+                continue
+            for port_name, cached_audio in cached_outputs.items():
+                initial_outputs[(block_id, port_name)] = cached_audio
+            skip_block_ids.add(block_id)
+        return StemReusePlan(initial_outputs=initial_outputs, skip_block_ids=skip_block_ids)
+
+    def _required_separate_audio_ports(
+        self,
+        *,
+        pipeline: Pipeline,
+        block_id: str,
+    ) -> set[str]:
+        """Identify SeparateAudio output ports that the current pipeline must satisfy."""
+
+        required = {
+            connection.source_output_name
+            for connection in pipeline.graph.connections
+            if connection.source_block_id == block_id
+        }
+        for pipeline_output in pipeline.outputs:
+            if pipeline_output.port_ref.block_id != block_id:
+                continue
+            if pipeline.id == "extract_song_drum_events" and pipeline_output.name in {
+                "bass",
+                "vocals",
+                "other",
+            }:
+                block = pipeline.graph.blocks.get(block_id)
+                if block is None or not bool(
+                    block.settings.get(f"include_{pipeline_output.name}_stem_layer", False)
+                ):
+                    continue
+            required.add(pipeline_output.port_ref.port_name)
+        return required
+
+    @staticmethod
+    def _stem_name_for_port(port_name: str) -> str | None:
+        """Convert a SeparateAudio output port name into its persisted stem label."""
+
+        normalized = str(port_name or "").strip().lower()
+        if not normalized.endswith("_out"):
+            return None
+        stem_name = normalized[: -len("_out")]
+        if stem_name in {"drums", "bass", "vocals", "other"}:
+            return stem_name
+        return None
+
+    def _find_reusable_stem_audio(
+        self,
+        *,
+        session: ProjectStorage,
+        song_version_id: str,
+        stem_name: str,
+        source_audio_hash: str,
+        block_settings: dict[str, Any],
+    ) -> AudioData | None:
+        """Find the newest non-archived persisted stem take matching source and settings."""
+
+        expected_reuse_key = self._stem_reuse_key(
+            stem_name=stem_name,
+            source_audio_hash=source_audio_hash,
+            block_settings=block_settings,
+        )
+        layers = session.layers.list_by_version(song_version_id)
+        for layer in reversed(layers):
+            takes = [take for take in session.takes.list_by_layer(layer.id) if not take.is_archived]
+            for take in reversed(takes):
+                if not isinstance(take.data, AudioData) or take.source is None:
+                    continue
+                snapshot = dict(take.source.settings_snapshot or {})
+                if str(snapshot.get("output_name") or "").strip().lower() != stem_name:
+                    continue
+                if str(snapshot.get("data_type") or "").strip().lower() != "audio":
+                    continue
+                reuse_key = snapshot.get("stem_reuse_key")
+                if isinstance(reuse_key, dict):
+                    if not self._stem_reuse_key_matches_source(
+                        reuse_key,
+                        expected_reuse_key,
+                    ):
+                        continue
+                elif not self._legacy_stem_source_matches(
+                    session=session,
+                    song_version_id=song_version_id,
+                    take=take,
+                    source_audio_hash=source_audio_hash,
+                ):
+                    continue
+                resolved_path = resolve_project_audio_path(session, str(take.data.file_path))
+                if not resolved_path.exists():
+                    continue
+                return replace(take.data, file_path=str(resolved_path))
+        return None
+
+    def _legacy_stem_source_matches(
+        self,
+        *,
+        session: ProjectStorage,
+        song_version_id: str,
+        take: Take,
+        source_audio_hash: str,
+    ) -> bool:
+        """Match pre-key stem takes by persisted source revision, not active state."""
+
+        if take.source is None:
+            return False
+        object_id = f"object_{self._layer_id_for_take(session, song_version_id, take.id)}"
+        for content in session.object_contents.list_by_object(object_id):
+            if content.payload.get("take_id") != take.id:
+                continue
+            source_ref = content.source_ref or {}
+            return source_ref.get("revision_id") == imported_song_revision_id(source_audio_hash)
+        return False
+
+    @staticmethod
+    def _layer_id_for_take(
+        session: ProjectStorage,
+        song_version_id: str,
+        take_id: str,
+    ) -> str:
+        """Locate the layer that owns a take within one song version."""
+
+        for layer in session.layers.list_by_version(song_version_id):
+            if any(take.id == take_id for take in session.takes.list_by_layer(layer.id)):
+                return layer.id
+        return ""
+
+    @staticmethod
+    def _audio_path_candidates(session: ProjectStorage, audio_file: str) -> set[str]:
+        """Return comparable absolute and project-relative spellings for an audio path."""
+
+        if not str(audio_file or "").strip():
+            return set()
+        resolved = resolve_project_audio_path(session, str(audio_file))
+        candidates = {str(resolved)}
+        try:
+            candidates.add(resolved.relative_to(session.working_dir.resolve()).as_posix())
+        except ValueError:
+            pass
+        candidates.add(str(audio_file))
+        return candidates
+
+    def _source_audio_hash_for_stem(
+        self,
+        *,
+        session: ProjectStorage,
+        song_version_id: str,
+        source_audio_path: str | None,
+    ) -> str:
+        """Resolve the source audio hash used by stem reuse metadata."""
+
+        version = session.song_versions.get(song_version_id)
+        if version is not None and source_audio_path is not None:
+            requested = self._audio_path_candidates(session, source_audio_path)
+            version_paths = self._audio_path_candidates(session, version.audio_file)
+            if requested & version_paths:
+                return str(version.audio_hash)
+        if source_audio_path is not None and str(source_audio_path).strip():
+            source = resolve_project_audio_path(session, str(source_audio_path))
+            if source.exists():
+                from echozero.persistence.audio import compute_audio_hash
+
+                return compute_audio_hash(source)
+        return str(version.audio_hash) if version is not None else ""
+
+    @classmethod
+    def _stem_reuse_key(
+        cls,
+        *,
+        stem_name: str,
+        source_audio_hash: str,
+        block_settings: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Build the auditable cache identity for one separated stem output."""
+
+        return {
+            "schema": "echozero.stem-reuse-key.v1",
+            "source_audio_hash": str(source_audio_hash or "").strip(),
+            "stem_name": str(stem_name or "").strip().lower(),
+            "model": cls._normalized_stem_model(block_settings.get("model")),
+            "shifts": int(block_settings.get("shifts", 1)),
+            "output_format": str(block_settings.get("output_format", "wav")).strip().lower(),
+            "mp3_bitrate": int(block_settings.get("mp3_bitrate", 320)),
+        }
+
+    @staticmethod
+    def _stem_reuse_key_matches_source(
+        candidate: dict[str, Any],
+        expected: dict[str, Any],
+    ) -> bool:
+        """Match reusable stems by immutable source identity and stem label.
+
+        Separation settings stay recorded in ``stem_reuse_key`` for audit/debugging, but the
+        workflow-level reuse contract is: if this source audio hash already has the requested
+        stem, downstream pipelines can consume it instead of separating the unchanged song again.
+        """
+
+        return (
+            str(candidate.get("schema") or "") == str(expected.get("schema") or "")
+            and str(candidate.get("source_audio_hash") or "").strip()
+            == str(expected.get("source_audio_hash") or "").strip()
+            and str(candidate.get("stem_name") or "").strip().lower()
+            == str(expected.get("stem_name") or "").strip().lower()
+        )
+
+    @staticmethod
+    def _normalized_stem_model(model: Any) -> str:
+        """Normalize known stem model aliases without importing the processor layer."""
+
+        model_name = str(model or "latest_model").strip() or "latest_model"
+        return {"latest_model": "htdemucs_ft"}.get(model_name, model_name)
+
     @staticmethod
     def _resolve_audio_path(session: ProjectStorage, audio_file: str) -> str:
         raw = Path(audio_file)
