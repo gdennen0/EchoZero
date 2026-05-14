@@ -1,6 +1,6 @@
 """Transfer and live-sync timeline-shell support cases.
 Exists to isolate MA3 operator workflow coverage from layout and direct interaction tests.
-Connects the compatibility wrapper to the bounded transfer support slice.
+Connects the workspace transfer helpers to the bounded transfer support slice.
 """
 
 from tests.ui.timeline_shell_shared_support import *  # noqa: F401,F403

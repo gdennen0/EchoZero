@@ -61,7 +61,6 @@ from echozero.ui.qt.timeline.widget_action_contract_mixin import (
     _coerce_take_id,
     TimelineWidgetContractActionMixin,
 )
-
 _NATURAL_TOKEN_PATTERN = re.compile(r"(\d+)")
 _FINAL_PIPELINE_RUN_STATUSES = frozenset({"completed", "failed", "cancelled"})
 
