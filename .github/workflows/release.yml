@@ -98,7 +98,7 @@ jobs:
           $versionedHash = (Get-FileHash -LiteralPath $versionedPath -Algorithm SHA256).Hash.ToLowerInvariant()
           $convenienceHash = (Get-FileHash -LiteralPath $conveniencePath -Algorithm SHA256).Hash.ToLowerInvariant()
           $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-          [System.IO.File]::WriteAllText((Resolve-Path -LiteralPath $shaPath), "$versionedHash  $versioned`n", $utf8NoBom)
+          [System.IO.File]::WriteAllText((Join-Path (Resolve-Path -LiteralPath 'dist') (Split-Path -Leaf $shaPath)), "$versionedHash  $versioned`n", $utf8NoBom)
           if ($versionedHash -ne $convenienceHash) {
             throw "Windows convenience and versioned zip SHA256 values differ: $versionedHash vs $convenienceHash"
           }
