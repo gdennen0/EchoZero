@@ -627,7 +627,7 @@ def _build_service_process_command(
     """Build the playback service command for source and frozen runtimes."""
     command = [sys.executable]
     if getattr(sys, "frozen", False):
-        command.append("--playback-service")
+        command.append("--echozero-playback-service")
     else:
         command.extend(["-m", "echozero.application.playback.process_service_entry"])
     command.extend(

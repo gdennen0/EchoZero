@@ -11,23 +11,64 @@ import sys
 import tempfile
 from pathlib import Path
 
-from PyQt6.QtCore import QTimer
-from PyQt6.QtWidgets import QApplication
-
 from echozero.application.settings import (
     AppSettingsLaunchOverrides,
     build_default_app_settings_service,
 )
-from echozero.infrastructure.osc import OscUdpSendTransport
-from echozero.infrastructure.sync.ma3_osc import MA3OSCBridge
-from echozero.ui.qt.launcher_surface import (
-    PROJECT_FILE_FILTER,
-    LauncherController,
-    build_launcher_surface,
-)
-from echozero.ui.qt.runtime_logging import install_runtime_logging
-from echozero.ui.qt.window_geometry import fit_window_to_available_screen
-from echozero.ui.style.qt import ensure_qt_theme_installed
+_QT_LAUNCH_SYMBOLS = {
+    "QApplication",
+    "QTimer",
+    "OscUdpSendTransport",
+    "MA3OSCBridge",
+    "PROJECT_FILE_FILTER",
+    "LauncherController",
+    "build_launcher_surface",
+    "install_runtime_logging",
+    "fit_window_to_available_screen",
+    "ensure_qt_theme_installed",
+}
+
+
+def _ensure_qt_launch_symbols() -> None:
+    """Load Qt launch symbols lazily so frozen helper modes stay lightweight."""
+
+    if "QApplication" in globals():
+        return
+    from PyQt6.QtCore import QTimer as _QTimer
+    from PyQt6.QtWidgets import QApplication as _QApplication
+
+    from echozero.infrastructure.osc import OscUdpSendTransport as _OscUdpSendTransport
+    from echozero.infrastructure.sync.ma3_osc import MA3OSCBridge as _MA3OSCBridge
+    from echozero.ui.qt.launcher_surface import (
+        PROJECT_FILE_FILTER as _PROJECT_FILE_FILTER,
+        LauncherController as _LauncherController,
+        build_launcher_surface as _build_launcher_surface,
+    )
+    from echozero.ui.qt.runtime_logging import install_runtime_logging as _install_runtime_logging
+    from echozero.ui.qt.window_geometry import (
+        fit_window_to_available_screen as _fit_window_to_available_screen,
+    )
+    from echozero.ui.style.qt import ensure_qt_theme_installed as _ensure_qt_theme_installed
+
+    globals().update(
+        QApplication=_QApplication,
+        QTimer=_QTimer,
+        OscUdpSendTransport=_OscUdpSendTransport,
+        MA3OSCBridge=_MA3OSCBridge,
+        PROJECT_FILE_FILTER=_PROJECT_FILE_FILTER,
+        LauncherController=_LauncherController,
+        build_launcher_surface=_build_launcher_surface,
+        install_runtime_logging=_install_runtime_logging,
+        fit_window_to_available_screen=_fit_window_to_available_screen,
+        ensure_qt_theme_installed=_ensure_qt_theme_installed,
+    )
+
+
+def __getattr__(name: str):
+    if name in _QT_LAUNCH_SYMBOLS:
+        _ensure_qt_launch_symbols()
+        return globals()[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 _REPO_UI_AUTOMATION_SRC = Path(__file__).resolve().parent / "packages" / "ui_automation" / "src"
 
@@ -81,6 +122,21 @@ def _build_automation_bridge_server(*, runtime, widget, launcher, app, port: int
 
 
 def main(argv: list[str] | None = None) -> int:
+    raw_args = list(argv) if argv is not None else sys.argv[1:]
+    if raw_args and raw_args[0] == "--echozero-playback-service":
+        # PyTorch's distributed import path can call socket.getfqdn(), which may block
+        # on reverse DNS in packaged macOS app helpers before the health server starts.
+        # The playback service does not need FQDN resolution, so keep helper startup local
+        # and deterministic.
+        import socket
+
+        socket.getfqdn = lambda name="": name or socket.gethostname()
+        from echozero.application.playback.process_service_entry import main as service_main
+
+        return service_main(raw_args[1:])
+
+    _ensure_qt_launch_symbols()
+
     parser = argparse.ArgumentParser(description="Run the EchoZero Stage Zero shell.")
     parser.add_argument(
         "--playback-service",
@@ -141,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="If set, send MA3 commands to this OSC port using the production bridge.",
     )
-    parsed, qt_args = parser.parse_known_args(list(argv) if argv is not None else sys.argv[1:])
+    parsed, qt_args = parser.parse_known_args(raw_args)
 
     if parsed.playback_service:
         return _run_playback_service(qt_args)
