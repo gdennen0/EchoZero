@@ -6,7 +6,8 @@ mapping from simple sensitivity presets to low-level onset/classifier thresholds
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from typing import Any
 
 _PRESET_DELTAS: dict[str, tuple[float, float]] = {
@@ -15,6 +16,14 @@ _PRESET_DELTAS: dict[str, tuple[float, float]] = {
     "custom": (0.0, 0.0),
     "fewer_events": (0.05, 0.04),
 }
+
+
+@dataclass(frozen=True, slots=True)
+class DrumModelReadiness:
+    label: str
+    status: str
+    is_ready: bool
+    value: str = ""
 
 
 def apply_drum_event_sensitivity_preset(
@@ -44,6 +53,37 @@ def apply_drum_event_sensitivity_preset(
     return result
 
 
+def model_readiness_from_fields(fields: Iterable[object]) -> tuple[DrumModelReadiness, ...]:
+    """Summarize per-drum model field readiness from settings fields."""
+
+    readiness: list[DrumModelReadiness] = []
+    for field in fields:
+        key = str(getattr(field, "key", ""))
+        if not key.endswith("_model_path"):
+            continue
+        label = _model_label_from_key(key)
+        value = str(getattr(field, "value", "") or "")
+        enabled = bool(getattr(field, "enabled", True))
+        options = tuple(getattr(field, "options", ()) or ())
+        selected_option = next(
+            (option for option in options if str(getattr(option, "value", "")) == value),
+            None,
+        )
+        metadata = getattr(selected_option, "metadata", {}) if selected_option is not None else {}
+        status = str(getattr(metadata, "get", lambda _k, _d=None: _d)("status", "") or "")
+        if not status:
+            status = "ready" if enabled and value else "missing"
+        readiness.append(
+            DrumModelReadiness(
+                label=label,
+                status=status,
+                is_ready=status.lower() == "ready" and bool(value),
+                value=value,
+            )
+        )
+    return tuple(readiness)
+
+
 def _clamped_threshold(value: Any, delta: float) -> float:
     try:
         threshold = float(value)
@@ -53,4 +93,13 @@ def _clamped_threshold(value: Any, delta: float) -> float:
     return round(threshold, 6)
 
 
-__all__ = ["apply_drum_event_sensitivity_preset"]
+def _model_label_from_key(key: str) -> str:
+    label = key[: -len("_model_path")].replace("_", " ").strip()
+    return label or "model"
+
+
+__all__ = [
+    "DrumModelReadiness",
+    "apply_drum_event_sensitivity_preset",
+    "model_readiness_from_fields",
+]
