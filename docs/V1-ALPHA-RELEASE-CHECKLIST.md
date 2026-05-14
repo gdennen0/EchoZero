@@ -1,13 +1,13 @@
-# EchoZero v1-alpha Release Checklist
+# EchoZero v1 Release Checklist
 
 Status: active
 Last verified: 2026-05-13
 
-This checklist owns the v1-alpha release/install/model-distribution gate. It is intentionally narrower than architecture cleanup.
+This checklist owns the v1 release/install/model-distribution gate. It is intentionally narrower than architecture cleanup.
 
 ## Identity
 
-- Release version: `1.0.0-alpha.0`
+- Release version: `1.0.0`
 - Production app name: `EchoZero`
 - Canonical desktop entrypoint: `run_echozero.py`
 - Production packaging command: `python scripts/build_app.py --clean`
@@ -85,13 +85,13 @@ zip(s) before asking anyone to test:
 python scripts/verify_macos_release_artifact.py ~/Downloads/EchoZero-macOS.zip \
   --expected-sha256 b761a78ae276762402e62d85632727cd4245641622abea719936ce71a7e7c7ce \
   --expected-binary-uuid AC4A6A20-9E69-F717-9BBE-F9025FA69EB7 \
-  --compare-zip ~/Downloads/EchoZero-v1.0.0-alpha.0-macos-arm64.zip
+  --compare-zip ~/Downloads/EchoZero-v1.0.0-macos-arm64.zip
 ```
 
 Current approved alpha macOS facts:
 
 - main/tag commit: `bbef89e937a8165cab8cbb359b625431fb0432c8`
-- tag: `v1.0.0-alpha.0`
+- tag: `v1.0.0`
 - zip SHA-256: `b761a78ae276762402e62d85632727cd4245641622abea719936ce71a7e7c7ce`
 - binary UUID: `AC4A6A20-9E69-F717-9BBE-F9025FA69EB7`
 - rejected stale/bad UUIDs: `5081D799-579B-064C-8AA6-A16866024922`,

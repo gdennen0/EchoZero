@@ -5,14 +5,14 @@ Last reviewed: 2026-04-30
 
 
 Production packaging is driven by a single spec and a JSON config so version and identity stay consistent.
-For v1-alpha the production app name is **EchoZero** and the recommended version is
-`1.0.0-alpha.0`.
+For v1 the production app name is **EchoZero** and the recommended version is
+`1.0.0`.
 
 ## Layout
 
 - **echozero.spec** – PyInstaller spec (entry point, data, hidden imports, macOS bundle).
 - **packaging_config.json** – App name, version, bundle identifier, company, and PyInstaller options. Single source for release metadata.
-- **Model weights** – not bundled by default for v1-alpha. Install mutable model assets under `~/.echozero/models`.
+- **Model weights** – not bundled by default for v1. Install mutable model assets under `~/.echozero/models`.
 - **scripts/build_app.py** – Wrapper to run `pyinstaller echozero.spec` with optional `--clean`.
 - **scripts/smoke_packaged_app.py** – Cross-platform packaged launch smoke for
   `EchoZero.app`, one-folder builds, and extracted release folders.
@@ -149,7 +149,7 @@ asset you will send them, not the local `dist/EchoZero.app`:
 python scripts/verify_macos_release_artifact.py ~/Downloads/EchoZero-macOS.zip \
   --expected-sha256 b761a78ae276762402e62d85632727cd4245641622abea719936ce71a7e7c7ce \
   --expected-binary-uuid AC4A6A20-9E69-F717-9BBE-F9025FA69EB7 \
-  --compare-zip ~/Downloads/EchoZero-v1.0.0-alpha.0-macos-arm64.zip
+  --compare-zip ~/Downloads/EchoZero-v1.0.0-macos-arm64.zip
 ```
 
 This gate must pass after the GitHub upload/download cycle because mutating a
@@ -161,7 +161,7 @@ That icon usually means either (1) the app crashed on launch (fix the crash firs
 
 ## Model distribution
 
-For v1-alpha, package the app separately from model weights:
+For v1, package the app separately from model weights:
 
 - The packaged app must launch without installed models.
 - Model-backed actions should show missing-model state instead of crashing.
@@ -175,7 +175,7 @@ CLI helper:
 python -m echozero.models install default-drums --manifest https://example.com/echozero-models.json
 python -m echozero.models set-registry https://example.com/echozero-models.json
 python -m echozero.models available
-python -m echozero.models import ./local-model-bundle --model-id local-drums --type binary_drum --label "Local Drums" --version 1.0.0-alpha.0 --class kick --class other --runtime-consumer BinaryDrumClassify
+python -m echozero.models import ./local-model-bundle --model-id local-drums --type binary_drum --label "Local Drums" --version 1.0.0 --class kick --class other --runtime-consumer BinaryDrumClassify
 python -m echozero.models list
 python -m echozero.models validate
 ```

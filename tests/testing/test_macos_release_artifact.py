@@ -123,7 +123,7 @@ def test_release_verifier_rejects_runtime_config_created_by_smoke(tmp_path, monk
 def test_release_verifier_compares_named_zip_asset_equivalence(tmp_path, monkeypatch):
     module = _load_verifier_module()
     archive = tmp_path / "EchoZero-macOS.zip"
-    renamed = tmp_path / "EchoZero-v1.0.0-alpha.0-macos-arm64.zip"
+    renamed = tmp_path / "EchoZero-v1.0.0-macos-arm64.zip"
     _write_release_zip(archive)
     _write_release_zip(
         renamed,

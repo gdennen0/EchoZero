@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "echozero"
-version = "1.0.0-alpha.0"
+version = "1.0.0"
 description = "Desktop audio analysis and event editing workstation for live production"
 readme = "README.md"
 requires-python = ">=3.11"
