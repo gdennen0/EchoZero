@@ -51,8 +51,8 @@ from echozero.ui.qt.timeline.style import TIMELINE_STYLE
 _SECTION_CONTENT_MARGIN_PX = 6
 _PANEL_COLLAPSED_WIDTH = 28
 _PANEL_DEFAULT_EXPANDED_WIDTH = 296
-_PANEL_COLLAPSED_GLYPH = "◀"
-_PANEL_EXPANDED_GLYPH = "▶"
+_PANEL_COLLAPSED_GLYPH = "<"
+_PANEL_EXPANDED_GLYPH = ">"
 
 
 class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):

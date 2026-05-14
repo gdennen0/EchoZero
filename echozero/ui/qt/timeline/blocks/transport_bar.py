@@ -26,7 +26,7 @@ class TransportLayout:
         def centered_rect(x: float, item_width: float, item_height: float) -> QRectF:
             return QRectF(x, center_y - (item_height / 2.0), item_width, item_height)
 
-        horizontal_padding = 16.0
+        horizontal_padding = 24.0
         section_gap = 10.0
         inner_left = horizontal_padding
         inner_right = max(inner_left, width - horizontal_padding)

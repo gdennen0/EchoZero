@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import QRectF, Qt
-from PyQt6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPen
+from PyQt6.QtGui import QBrush, QColor, QFont, QFontMetrics, QGuiApplication, QPainter, QPen
 
 from echozero.application.shared.enums import FollowMode
 from echozero.application.presentation.models import TimelinePresentation
@@ -53,7 +53,7 @@ class TransportBarBlock:
             f"{presentation.current_time_label} / {presentation.end_time_label}",
         )
 
-        if layout.meta_rect.width() > 1.0:
+        if layout.meta_rect.width() > 1.0 and QGuiApplication.instance() is not None:
             status_color = (
                 QColor("#7fd1ae") if presentation.is_playing else QColor(self.style.meta_hex)
             )
@@ -158,6 +158,8 @@ class TransportBarBlock:
         painter.setBrush(QBrush(badge_fill))
         painter.drawRoundedRect(badge_rect, 8, 8)
 
+        if QGuiApplication.instance() is None:
+            return
         prior_font = painter.font()
         clock_font = QFont(prior_font)
         clock_font.setPointSize(max(10, prior_font.pointSize() + 2))
@@ -197,6 +199,8 @@ class TransportBarBlock:
         painter.setPen(QPen(border_color, 1))
         painter.setBrush(QBrush(fill_color))
         painter.drawRoundedRect(rect, button_style.corner_radius, button_style.corner_radius)
+        if QGuiApplication.instance() is None:
+            return
         painter.setPen(text_color)
         prior_font = painter.font()
         button_font = QFont(prior_font)
