@@ -50,9 +50,9 @@ def main(argv: list[str] | None = None) -> int:
         timeout=float(args.timeout),
     )
 
-    temp_root = Path(
-        tempfile.mkdtemp(prefix="echozero_ma3_app_path_", dir=str(REPO_ROOT / "artifacts"))
-    )
+    artifacts_root = REPO_ROOT / "artifacts"
+    artifacts_root.mkdir(parents=True, exist_ok=True)
+    temp_root = Path(tempfile.mkdtemp(prefix="echozero_ma3_app_path_", dir=str(artifacts_root)))
     keep_working_dir = bool(args.keep_working_dir)
     harness = AppFlowHarness(sync_bridge=bridge, working_dir_root=temp_root / "working")
     try:

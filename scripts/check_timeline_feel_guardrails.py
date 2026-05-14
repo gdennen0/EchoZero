@@ -107,7 +107,10 @@ def _check_call_defaults(path: Path, node: ast.FunctionDef | ast.AsyncFunctionDe
 def _check_file(path: Path) -> list[str]:
     failures: list[str] = []
     repo_root = Path(__file__).resolve().parents[1]
-    relative_path = path.resolve().relative_to(repo_root).as_posix()
+    try:
+        relative_path = path.resolve().relative_to(repo_root).as_posix()
+    except ValueError:
+        relative_path = path.as_posix()
     module = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     for node in ast.walk(module):
         if getattr(node, "lineno", None) in BASELINE_ALLOWLIST.get(relative_path, set()):

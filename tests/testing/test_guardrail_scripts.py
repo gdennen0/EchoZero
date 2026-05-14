@@ -4,7 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 
-REPO_ROOT = Path("/Users/march/Documents/GitHub/EchoZero")
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _load_script_module(name: str):

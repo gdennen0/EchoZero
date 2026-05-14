@@ -232,8 +232,9 @@ def test_timeline_widget_auto_dismisses_ma3_success_status_banner(monkeypatch):
         widget.show()
         app.processEvents()
         assert widget._pipeline_status.isHidden() is False
+        assert widget._pipeline_status_auto_dismiss_timer.isActive() is True
 
-        QTest.qWait(40)
+        widget._on_pipeline_status_auto_dismiss_timeout()
         app.processEvents()
         assert widget._pipeline_status.isHidden() is True
     finally:

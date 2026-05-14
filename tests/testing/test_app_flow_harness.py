@@ -626,7 +626,10 @@ def test_app_flow_harness_real_pipeline_playback_survives_active_song_switch():
 @pytest.mark.slow
 def test_app_flow_harness_real_pipeline_playback_routes_main_then_each_stem():
     temp_root = _repo_local_temp_root()
-    harness = AppFlowHarness(working_dir_root=temp_root / "working-real-route-sequence")
+    harness = AppFlowHarness(
+        working_dir_root=temp_root / "working-real-route-sequence",
+        analysis_service=build_mock_analysis_service(),
+    )
 
     try:
         runtime_audio = _install_deterministic_runtime_audio(harness)

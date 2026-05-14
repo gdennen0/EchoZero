@@ -968,6 +968,50 @@ def test_runtime_controller_mute_and_solo_controls_update_effective_mix_without_
     controller.shutdown()
 
 
+def test_runtime_controller_solo_monitor_overrides_muted_generated_audio_layer():
+    base = build_demo_app().presentation()
+    layers = [
+        LayerPresentation(
+            layer_id=LayerId("song_layer"),
+            title="Song",
+            kind=LayerKind.AUDIO,
+            source_audio_path="song.wav",
+        ),
+        LayerPresentation(
+            layer_id=LayerId("stem_drums"),
+            title="Drums",
+            kind=LayerKind.AUDIO,
+            source_audio_path="drums.wav",
+            muted=True,
+            soloed=True,
+        ),
+    ]
+    presentation = replace(
+        base,
+        layers=layers,
+        selected_layer_id=LayerId("stem_drums"),
+    )
+    engine = AudioEngine(stream_factory=_fake_stream_factory)
+
+    def _loader(path: str):
+        if path == "song.wav":
+            return np.full(44100, 0.25, dtype=np.float32), 44100
+        if path == "drums.wav":
+            return np.full(44100, 0.75, dtype=np.float32), 44100
+        raise AssertionError(path)
+
+    controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
+    controller.build_for_presentation(presentation)
+
+    mixed = engine.mixer.read_mix(0, 32)
+
+    routed_drums = engine.mixer.get_layer("__ez_route__stem_drums")
+    assert routed_drums is not None
+    assert routed_drums.muted is False
+    np.testing.assert_allclose(mixed[:2], np.array([0.75, 0.75], dtype=np.float32))
+    controller.shutdown()
+
+
 def test_runtime_controller_route_change_applies_immediately_during_mix_sync():
     base = _event_slice_presentation()
     presentation = replace(

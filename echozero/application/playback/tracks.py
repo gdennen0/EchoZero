@@ -304,8 +304,8 @@ class PlaybackTrackBuilder:
                 )
             if playback_track is None or playback_track.track_id in seen_track_ids:
                 continue
-            layer_muted = bool(getattr(layer, "muted", False))
             layer_soloed = bool(getattr(layer, "soloed", False))
+            layer_muted = bool(getattr(layer, "muted", False)) and not layer_soloed
             playback_track.muted = layer_muted or (has_soloed_layers and not layer_soloed)
             tracks.append(playback_track)
             seen_track_ids.add(playback_track.track_id)

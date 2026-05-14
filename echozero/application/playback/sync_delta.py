@@ -133,7 +133,9 @@ def _select_playback_tracks(payload: PlaybackSyncPayload) -> tuple[_SyncTrackIde
             )
         if identity is None or identity.track_id in seen_track_ids:
             continue
-        effective_muted = bool(layer.muted) or (has_soloed_layers and not bool(layer.soloed))
+        layer_soloed = bool(layer.soloed)
+        layer_muted = bool(layer.muted) and not layer_soloed
+        effective_muted = layer_muted or (has_soloed_layers and not layer_soloed)
         tracks.append(
             _SyncTrackIdentity(
                 track_id=identity.track_id,

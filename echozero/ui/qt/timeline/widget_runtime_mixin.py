@@ -530,6 +530,7 @@ class TimelineWidgetRuntimeMixin:
                     tone = "error"
                 banner_text = message if message else prefix
                 banner_key = f"ma3:{operation_status}:{banner_text}"
+                previous_banner_key = self._pipeline_status_visible_key
                 self._pipeline_status_visible_key = banner_key
                 if self._pipeline_status_dismissed_key == banner_key:
                     self._pipeline_status.setVisible(False)
@@ -537,10 +538,12 @@ class TimelineWidgetRuntimeMixin:
                 self._pipeline_status_label.setText(banner_text)
                 self._set_pipeline_status_tone(tone)
                 self._pipeline_status.setVisible(True)
-                if hasattr(timer, "stop"):
+                if operation_status != "success" and hasattr(timer, "stop"):
                     timer.stop()
                 if operation_status == "success" and hasattr(timer, "start"):
-                    timer.start(_MA3_PUSH_SUCCESS_BANNER_AUTO_DISMISS_MS)
+                    timer_active = bool(timer.isActive()) if hasattr(timer, "isActive") else False
+                    if previous_banner_key != banner_key or not timer_active:
+                        timer.start(_MA3_PUSH_SUCCESS_BANNER_AUTO_DISMISS_MS)
                 return
             self._pipeline_status_visible_key = None
             self._pipeline_status_label.setText("")
