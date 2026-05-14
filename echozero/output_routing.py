@@ -42,7 +42,7 @@ def parse_output_bus_token(value: object) -> OutputBusRoute | None:
     token = f"outputs_{start_channel}_{end_channel}"
     return OutputBusRoute(
         token=token,
-        label=output_bus_label(token),
+        label=_format_output_bus_label(start_channel, end_channel),
         start_channel=start_channel,
         end_channel=end_channel,
     )
@@ -131,13 +131,16 @@ def output_bus_label(value: object) -> str:
     routes = _parse_routes(value, reject_invalid=False)
     if not routes:
         return "Master Output"
-    labels = []
-    for route in routes:
-        if route.start_channel == route.end_channel:
-            labels.append(f"Output {route.start_channel}")
-        else:
-            labels.append(f"Outputs {route.start_channel}-{route.end_channel}")
+    labels = [
+        _format_output_bus_label(route.start_channel, route.end_channel) for route in routes
+    ]
     return ", ".join(labels)
+
+
+def _format_output_bus_label(start_channel: int, end_channel: int) -> str:
+    if start_channel == end_channel:
+        return f"Output {start_channel}"
+    return f"Outputs {start_channel}-{end_channel}"
 
 
 def output_bus_channel_spans(
