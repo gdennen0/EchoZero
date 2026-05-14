@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QDragEnterEvent, QDragMoveEvent, QDropEvent
 from PyQt6.QtWidgets import QPushButton, QTreeWidget, QTreeWidgetItem, QWidget
 
@@ -145,14 +145,17 @@ class SongBrowserTree(QTreeWidget):
     """Setlist tree that accepts audio drops and resolves the hovered song target."""
 
     audio_drop_requested = pyqtSignal(object)
+    song_reorder_drop_completed = pyqtSignal(object)
 
     def __init__(
         self,
         resolve_song_target: Callable[[QTreeWidgetItem | None], tuple[str | None, str | None]],
+        current_song_order: Callable[[], tuple[str, ...]],
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._resolve_song_target = resolve_song_target
+        self._current_song_order = current_song_order
         self.setAcceptDrops(True)
 
     def dragEnterEvent(self, event: QDragEnterEvent | None) -> None:
@@ -176,7 +179,11 @@ class SongBrowserTree(QTreeWidget):
             return
         paths = dropped_audio_paths(event, include_directory_audio=True)
         if not paths:
+            prior_song_order = self._current_song_order()
             super().dropEvent(event)
+            current_song_order = self._current_song_order()
+            if current_song_order and current_song_order != prior_song_order:
+                self.song_reorder_drop_completed.emit(current_song_order)
             return
         target_song_id, target_song_title = self._resolve_song_target(
             self.itemAt(event.position().toPoint())
