@@ -429,10 +429,13 @@ class ProcessPlaybackClient:
         return decoded
 
     def _spawn_service_process(self):
-        command = [
-            sys.executable,
-            "-m",
-            "echozero.application.playback.process_service_entry",
+        command = [sys.executable]
+        if getattr(sys, "frozen", False):
+            command.append("--echozero-playback-service")
+        else:
+            command.extend(["-m", "echozero.application.playback.process_service_entry"])
+        command.extend(
+            [
             "--host",
             self._host,
             "--port",
@@ -440,7 +443,8 @@ class ProcessPlaybackClient:
             "--ws-port",
             str(self._ws_port),
             f"--token={self._token}",
-        ]
+            ]
+        )
         if self._audio_output_config is not None:
             with tempfile.NamedTemporaryFile(
                 mode="w",
