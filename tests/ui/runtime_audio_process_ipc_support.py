@@ -190,6 +190,45 @@ def test_process_client_reconfigure_device_serializes_hardware_settings(monkeypa
     ]
 
 
+def test_process_client_serializes_audio_diagnostics_capture_commands(monkeypatch, tmp_path) -> None:
+    client = ProcessPlaybackClient.__new__(ProcessPlaybackClient)
+    client._shutdown = False
+    client._audio_diagnostics_capture_status = {"active": False}
+    commands: list[tuple[str, dict[str, object]]] = []
+
+    def _fake_command(operation: str, params: dict[str, object]) -> dict[str, object]:
+        commands.append((operation, dict(params)))
+        if operation == "start_audio_diagnostics_capture":
+            return {"active": True, "capture_id": "cap-1"}
+        if operation == "stop_audio_diagnostics_capture":
+            return {"active": False, "bundle_path": "artifacts/audio-diagnostics/cap-1"}
+        return {}
+
+    monkeypatch.setattr(client, "_command", _fake_command)
+
+    started = client.start_audio_diagnostics_capture(
+        output_dir=tmp_path,
+        include_audio_buffers=False,
+        max_audio_blocks=2,
+    )
+    stopped = client.stop_audio_diagnostics_capture()
+
+    assert started == {"active": True, "capture_id": "cap-1"}
+    assert stopped == {"active": False, "bundle_path": "artifacts/audio-diagnostics/cap-1"}
+    assert client.audio_diagnostics_capture_status() == stopped
+    assert commands == [
+        (
+            "start_audio_diagnostics_capture",
+            {
+                "output_dir": str(tmp_path),
+                "include_audio_buffers": False,
+                "max_audio_blocks": 2,
+            },
+        ),
+        ("stop_audio_diagnostics_capture", {}),
+    ]
+
+
 def test_playback_state_ipc_round_trips_device_reinit_diagnostics() -> None:
     state = PlaybackState(
         output_sample_rate=48000,
@@ -199,6 +238,14 @@ def test_playback_state_ipc_round_trips_device_reinit_diagnostics() -> None:
             stream_latency="high",
             stream_blocksize=512,
             device_reinit_count=3,
+            recent_audio_runtime_events=(
+                {
+                    "source": "audio_engine",
+                    "kind": "overlay-start",
+                    "reason": "play-overlay",
+                    "clock_samples": 128,
+                },
+            ),
         ),
     )
 
@@ -210,6 +257,14 @@ def test_playback_state_ipc_round_trips_device_reinit_diagnostics() -> None:
     assert restored.diagnostics.stream_latency == "high"
     assert restored.diagnostics.stream_blocksize == 512
     assert restored.diagnostics.device_reinit_count == 3
+    assert restored.diagnostics.recent_audio_runtime_events == (
+        {
+            "source": "audio_engine",
+            "kind": "overlay-start",
+            "reason": "play-overlay",
+            "clock_samples": 128,
+        },
+    )
 
 
 def test_process_service_reconfigure_device_restores_projection_time_and_play_state(

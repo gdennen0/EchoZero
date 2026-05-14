@@ -6,6 +6,7 @@ Connects inspector actions to app intents and runtime shell callbacks on the can
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 import inspect
 from pathlib import Path
 from typing import Protocol, cast
@@ -20,17 +21,19 @@ from echozero.application.presentation.models import (
 )
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId
+from echozero.application.shared.layer_kinds import is_event_like_layer_kind
 from echozero.application.sync.models import LiveSyncState
 from echozero.application.timeline.event_batch_scope import event_batch_scope_from_params
 from echozero.application.timeline.object_content import is_imported_song_layer
 from echozero.application.timeline.intents import (
     ClearLayerLiveSyncPauseReason,
     DuplicateSelectedEvents,
+    MoveSelectedEvents,
     NudgeSelectedEvents,
     RenumberEventCueNumbers,
     Seek,
     SelectEveryOtherEvents,
-    SelectSimilarSoundingEvents,
+    SetSelectedEvents,
     SetGain,
     SetLayerMute,
     SetLayerOutputBus,
@@ -41,33 +44,38 @@ from echozero.application.timeline.intents import (
     TriggerTakeAction,
 )
 from echozero.application.timeline.object_actions import resolve_action_id
+from echozero.foundry.services.selection_model_improvement_service import (
+    ImproveModelTrainingRequest,
+)
 from echozero.persistence.audio import detect_ltc_channel, scan_audio_metadata
+from echozero.ui.qt.timeline.find_similar_dialog import EventComparisonDialog
 from echozero.ui.qt.timeline.layer_routing_dialog import LayerRoutingSettingsDialog
+from echozero.output_routing import canonical_layer_output_bus
 
 _AUDIO_FILE_DIALOG_FILTER = "Audio Files (*.wav *.mp3 *.flac *.aiff *.aif *.ogg);;All Files (*)"
-_FIND_SIMILAR_SCOPE_LABELS: tuple[tuple[str, str], ...] = (
-    ("This Take", "take"),
-    ("This Layer (All Takes)", "layer"),
-    ("Selected Layers (Main Takes)", "selected_layers_main"),
-)
-_FIND_SIMILAR_STRENGTH_LABELS: tuple[tuple[str, str], ...] = (
-    ("Very Strict", "very_strict"),
-    ("Strict", "strict"),
-    ("Balanced", "balanced"),
-    ("Loose", "loose"),
-)
-_FIND_SIMILAR_THRESHOLD_LABELS: tuple[tuple[str, float | None], ...] = (
-    ("Use Strength Default", None),
-    ("0.98 (Extreme)", 0.98),
-    ("0.95 (Very High)", 0.95),
-    ("0.90 (High)", 0.90),
-    ("0.85 (Moderate)", 0.85),
-)
 _IMPORT_SMPTE_AS_IS_LABEL = "Import As-Is (No LTC Extraction)"
+
+
+@dataclass(slots=True)
+class _MoveSelectionDestinationOption:
+    label: str
+    layer_id: LayerId | None = None
+    take_id: TakeId | None = None
+    create_layer_kind: LayerKind | None = None
+    default_layer_title: str | None = None
 
 
 class _TimelineRuntimeShell(Protocol):
     def presentation(self) -> TimelinePresentation: ...
+
+
+class _ImproveModelRuntimeShell(_TimelineRuntimeShell, Protocol):
+    def summarize_improve_model_selection(self, event_refs: list[object]) -> object: ...
+
+    def train_improved_model_from_selection(
+        self,
+        request: ImproveModelTrainingRequest,
+    ) -> object: ...
 
 
 class _AddSongRuntimeShell(_TimelineRuntimeShell, Protocol):
@@ -136,6 +144,14 @@ class _MA3TimecodeRuntimeShell(_TimelineRuntimeShell, Protocol):
         self,
         song_version_id: str,
         timecode_pool_no: int | None,
+    ) -> TimelinePresentation | None: ...
+
+
+class _SongVersionBeatGridRuntimeShell(_TimelineRuntimeShell, Protocol):
+    def set_song_version_beat_anchor_seconds(
+        self,
+        song_version_id: str,
+        beat_anchor_seconds: float,
     ) -> TimelinePresentation | None: ...
 
 
@@ -240,6 +256,9 @@ class _ContractActionHost(Protocol):
 
 
 class TimelineWidgetContractActionMixin:
+    _event_comparison_dialog_class = EventComparisonDialog
+    _find_similar_dialog_class = EventComparisonDialog
+
     def _default_song_title_from_audio_path(self, audio_path: str) -> str:
         stem = Path(audio_path).stem.strip()
         return stem or "Imported Song"
@@ -360,32 +379,93 @@ class TimelineWidgetContractActionMixin:
                 DuplicateSelectedEvents(steps=_coerce_step_count(params.get("steps", 1)))
             )
             return
+        if action_id == "selection.move_to_destination":
+            self._run_move_selected_events_destination_action()
+            return
         if action_id == "selection.select_every_other":
             scope = event_batch_scope_from_params(params)
             if scope is not None:
                 host._dispatch(SelectEveryOtherEvents(scope=scope))
             return
-        if action_id == "selection.find_similar_sounding":
+        if action_id == "selection.improve_model_from_selection":
+            runtime = cast(_ImproveModelRuntimeShell | None, host._resolve_runtime_shell())
+            if runtime is None:
+                host._message_box.warning(
+                    host._widget,
+                    "Improve Model From Selection",
+                    "Open a project before training a candidate model from selected reviewed events.",
+                )
+                return
+            selected_event_refs = list(host._get_presentation().resolved_selected_event_refs())
+            if not selected_event_refs:
+                host._message_box.warning(
+                    host._widget,
+                    "Improve Model From Selection",
+                    "Select one or more reviewed events first.",
+                )
+                return
+            try:
+                summary = runtime.summarize_improve_model_selection(selected_event_refs)
+            except Exception as exc:
+                host._message_box.warning(
+                    host._widget,
+                    "Improve Model From Selection",
+                    str(exc),
+                )
+                return
+            from echozero.ui.qt.improve_model_dialog import ImproveModelDialog
+
+            dialog = ImproveModelDialog(summary, parent=host._widget)
+            if dialog.exec() != dialog.DialogCode.Accepted:
+                return
+            try:
+                result = runtime.train_improved_model_from_selection(dialog.result_payload().request)
+            except Exception as exc:
+                host._message_box.warning(
+                    host._widget,
+                    "Improve Model From Selection",
+                    str(exc),
+                )
+                return
+            comparison_note = (
+                "Compared against the selected base model."
+                if getattr(result, "compared_to_base_model", False)
+                else "No base-model comparison was recorded for this V1 run."
+            )
+            host._message_box.information(
+                host._widget,
+                "Improve Model From Selection",
+                (
+                    f"Candidate run complete for '{result.target_label}'.\n\n"
+                    f"Run: {result.run_id}\n"
+                    f"Artifact: {result.artifact_id}\n"
+                    f"Anchors: {result.anchor_sample_count}\n"
+                    f"Related: {result.related_sample_count}\n\n"
+                    f"{comparison_note}"
+                ),
+            )
+            return
+        if action_id in {"selection.compare_events", "selection.find_similar_sounding"}:
             layer_id = _coerce_layer_id(params.get("layer_id"))
             take_id = _coerce_take_id(params.get("take_id"))
             event_id = _coerce_event_id(params.get("event_id"))
             if layer_id is None or take_id is None or event_id is None:
                 return
-            options = self._prompt_find_similar_sounding_options(
+            payload = self._run_event_comparison_dialog(
+                layer_id=layer_id,
+                take_id=take_id,
+                event_id=event_id,
                 default_scope_mode="take",
-                default_match_strength="balanced",
             )
-            if options is None:
+            if payload is None:
                 return
-            scope_mode, match_strength, similarity_threshold_override = options
             host._dispatch(
-                SelectSimilarSoundingEvents(
-                    layer_id=layer_id,
-                    take_id=take_id,
-                    event_id=event_id,
-                    scope_mode=scope_mode,
-                    match_strength=match_strength,
-                    similarity_threshold_override=similarity_threshold_override,
+                SetSelectedEvents(
+                    event_ids=list(payload["event_ids"]),
+                    event_refs=list(payload["event_refs"]),
+                    anchor_layer_id=payload["anchor_layer_id"],
+                    anchor_take_id=payload["anchor_take_id"],
+                    selected_layer_ids=list(payload["selected_layer_ids"]),
                 )
             )
             return
@@ -427,6 +507,12 @@ class TimelineWidgetContractActionMixin:
         if action_id == "song.version.set_ma3_timecode_pool":
             self._run_set_song_version_ma3_timecode_pool_action(params)
             return
+        if action_id in {
+            "song.version.set_first_beat_here",
+            "song.version.set_first_beat_to_playhead",
+        }:
+            self._run_set_song_version_beat_anchor_action(action_id, params)
+            return
         if action_id == "project.settings.set_ma3_push_offset":
             self._run_set_project_ma3_push_offset_action(params)
             return
@@ -455,24 +541,26 @@ class TimelineWidgetContractActionMixin:
             self._open_layer_routing_settings(params)
             return
         if action_id in {"gain_down", "gain_unity", "gain_up", "set_gain_custom"}:
-            layer_id = _coerce_layer_id(params.get("layer_id"))
             gain_db = params.get("gain_db")
-            if layer_id is not None and isinstance(gain_db, (int, float)):
-                host._dispatch(SetGain(layer_id=layer_id, gain_db=float(gain_db)))
+            if isinstance(gain_db, (int, float)):
+                for layer_id in self._coerce_target_layer_ids(params):
+                    host._dispatch(SetGain(layer_id=layer_id, gain_db=float(gain_db)))
             return
         if action_id in {"set_layer_mute_on", "set_layer_mute_off"}:
-            layer_id = _coerce_layer_id(params.get("layer_id"))
-            if layer_id is None:
+            target_layer_ids = self._coerce_target_layer_ids(params)
+            if not target_layer_ids:
                 return
             muted = bool(params.get("muted", action_id == "set_layer_mute_on"))
-            host._dispatch(SetLayerMute(layer_id=layer_id, muted=muted))
+            for layer_id in target_layer_ids:
+                host._dispatch(SetLayerMute(layer_id=layer_id, muted=muted))
             return
         if action_id in {"set_layer_solo_on", "set_layer_solo_off"}:
-            layer_id = _coerce_layer_id(params.get("layer_id"))
-            if layer_id is None:
+            target_layer_ids = self._coerce_target_layer_ids(params)
+            if not target_layer_ids:
                 return
             soloed = bool(params.get("soloed", action_id == "set_layer_solo_on"))
-            host._dispatch(SetLayerSolo(layer_id=layer_id, soloed=soloed))
+            for layer_id in target_layer_ids:
+                host._dispatch(SetLayerSolo(layer_id=layer_id, soloed=soloed))
             return
         if action_id == "set_layer_output_bus_auto" or action_id.startswith(
             "set_layer_output_bus_"
@@ -481,11 +569,7 @@ class TimelineWidgetContractActionMixin:
             if layer_id is None:
                 return
             raw_output_bus = params.get("output_bus")
-            output_bus = (
-                str(raw_output_bus).strip()
-                if isinstance(raw_output_bus, str) and raw_output_bus.strip()
-                else None
-            )
+            output_bus = canonical_layer_output_bus(raw_output_bus, reject_invalid=True)
             host._dispatch(SetLayerOutputBus(layer_id=layer_id, output_bus=output_bus))
             return
         if action_id in {
@@ -593,6 +677,159 @@ class TimelineWidgetContractActionMixin:
         else:
             state = LiveSyncState.OFF
         host._dispatch(SetLayerLiveSyncState(layer_id=layer_id, live_sync_state=state))
+
+    def _run_move_selected_events_destination_action(self) -> None:
+        host = cast(_ContractActionHost, self)
+        presentation = host._get_presentation()
+        selected_refs = list(presentation.resolved_selected_event_refs())
+        if not selected_refs:
+            host._message_box.warning(
+                host._widget,
+                "Move Selected Events",
+                "Select one or more events before choosing a destination.",
+            )
+            return
+
+        layers_by_id = {layer.layer_id: layer for layer in presentation.layers}
+        selected_layers = [
+            layers_by_id[event_ref.layer_id]
+            for event_ref in selected_refs
+            if event_ref.layer_id in layers_by_id
+        ]
+        if not selected_layers:
+            host._message_box.warning(
+                host._widget,
+                "Move Selected Events",
+                "The selected events could not be resolved to timeline layers.",
+            )
+            return
+
+        layer_kinds = {layer.kind for layer in selected_layers}
+        if len(layer_kinds) != 1:
+            host._message_box.warning(
+                host._widget,
+                "Move Selected Events",
+                "Move To works with selections from one layer type at a time.",
+            )
+            return
+
+        source_kind = next(iter(layer_kinds))
+        if not is_event_like_layer_kind(source_kind):
+            host._message_box.warning(
+                host._widget,
+                "Move Selected Events",
+                "Move To is available for event and section layers only.",
+            )
+            return
+
+        destination_options = self._move_selection_destination_options(
+            presentation,
+            source_kind=source_kind,
+        )
+        if not destination_options:
+            host._message_box.warning(
+                host._widget,
+                "Move Selected Events",
+                "No compatible destinations are available.",
+            )
+            return
+
+        selected_label, accepted = host._input_dialog.getItem(
+            host._widget,
+            "Move Selected Events",
+            "Destination",
+            [option.label for option in destination_options],
+            0,
+            False,
+        )
+        if not accepted:
+            return
+
+        selected_option = next(
+            (option for option in destination_options if option.label == selected_label),
+            None,
+        )
+        if selected_option is None:
+            return
+
+        if selected_option.create_layer_kind is not None:
+            default_title = (
+                selected_option.default_layer_title
+                or (
+                    "New Section Layer"
+                    if selected_option.create_layer_kind is LayerKind.SECTION
+                    else "New Event Layer"
+                )
+            )
+            entered_title, accepted = host._input_dialog.getText(
+                host._widget,
+                "Create Destination Layer",
+                "Layer name",
+                text=default_title,
+            )
+            if not accepted:
+                return
+            layer_title = entered_title.strip() or default_title
+            host._dispatch(
+                MoveSelectedEvents(
+                    delta_seconds=0.0,
+                    create_layer_title=layer_title,
+                )
+            )
+            return
+
+        host._dispatch(
+            MoveSelectedEvents(
+                delta_seconds=0.0,
+                target_layer_id=selected_option.layer_id,
+                target_take_id=selected_option.take_id,
+            )
+        )
+
+    def _move_selection_destination_options(
+        self,
+        presentation: TimelinePresentation,
+        *,
+        source_kind: LayerKind,
+    ) -> list[_MoveSelectionDestinationOption]:
+        options: list[_MoveSelectionDestinationOption] = []
+        for layer in presentation.layers:
+            if layer.kind is not source_kind:
+                continue
+            if not layer.visible or layer.locked:
+                continue
+            if layer.main_take_id is not None:
+                options.append(
+                    _MoveSelectionDestinationOption(
+                        label=f"{layer.title} -> Main",
+                        layer_id=layer.layer_id,
+                        take_id=layer.main_take_id,
+                    )
+                )
+            for take in layer.takes:
+                options.append(
+                    _MoveSelectionDestinationOption(
+                        label=f"{layer.title} -> {take.name}",
+                        layer_id=layer.layer_id,
+                        take_id=take.take_id,
+                    )
+                )
+
+        default_title = (
+            "New Section Layer" if source_kind is LayerKind.SECTION else "New Event Layer"
+        )
+        options.append(
+            _MoveSelectionDestinationOption(
+                label=(
+                    "Create New Section Layer..."
+                    if source_kind is LayerKind.SECTION
+                    else "Create New Event Layer..."
+                ),
+                create_layer_kind=source_kind,
+                default_layer_title=default_title,
+            )
+        )
+        return options
 
     def _run_add_song_from_path_action(self, params: dict[str, object] | None = None) -> None:
         host = cast(_ContractActionHost, self)
@@ -1320,6 +1557,60 @@ class TimelineWidgetContractActionMixin:
             return
         host._set_presentation(updated if updated is not None else runtime.presentation())
 
+    def _run_set_song_version_beat_anchor_action(
+        self,
+        action_id: str,
+        params: dict[str, object],
+    ) -> None:
+        host = cast(_ContractActionHost, self)
+        runtime = cast(_SongVersionBeatGridRuntimeShell | None, host._resolve_runtime_shell())
+        if runtime is None or not callable(
+            getattr(runtime, "set_song_version_beat_anchor_seconds", None)
+        ):
+            host._message_box.warning(
+                host._widget,
+                "Set First Beat",
+                "This runtime does not support first-beat alignment.",
+            )
+            return
+
+        presentation = host._get_presentation()
+        song_version_id = params.get("song_version_id")
+        if not isinstance(song_version_id, str) or not song_version_id.strip():
+            song_version_id = presentation.active_song_version_id
+        if not isinstance(song_version_id, str) or not song_version_id.strip():
+            host._message_box.warning(
+                host._widget,
+                "Set First Beat",
+                "Select a song version before aligning the first beat.",
+            )
+            return
+
+        if action_id == "song.version.set_first_beat_to_playhead":
+            beat_anchor_seconds = float(presentation.playhead)
+        else:
+            raw_anchor = params.get("beat_anchor_seconds")
+            if not isinstance(raw_anchor, (int, float)):
+                host._message_box.warning(
+                    host._widget,
+                    "Set First Beat",
+                    "Choose a timeline position before aligning the first beat.",
+                )
+                return
+            beat_anchor_seconds = float(raw_anchor)
+        if beat_anchor_seconds < 0.0:
+            beat_anchor_seconds = 0.0
+
+        try:
+            updated = runtime.set_song_version_beat_anchor_seconds(
+                song_version_id.strip(),
+                beat_anchor_seconds,
+            )
+        except Exception as exc:
+            host._message_box.warning(host._widget, "Set First Beat", str(exc))
+            return
+        host._set_presentation(updated if updated is not None else runtime.presentation())
+
     def _run_set_project_ma3_push_offset_action(
         self,
         params: dict[str, object],
@@ -1561,6 +1852,13 @@ class TimelineWidgetContractActionMixin:
             return normalized
         return None
 
+    def _coerce_target_layer_ids(self, params: dict[str, object]) -> list[LayerId]:
+        selected_layer_ids = self._coerce_transfer_layer_ids(params.get("selected_layer_ids"))
+        if selected_layer_ids:
+            return [LayerId(layer_id) for layer_id in selected_layer_ids]
+        layer_id = _coerce_layer_id(params.get("layer_id"))
+        return [] if layer_id is None else [layer_id]
+
     def _resolve_song_id_for_new_version(self) -> str | None:
         host = cast(_ContractActionHost, self)
         presentation = host._get_presentation()
@@ -1594,76 +1892,50 @@ class TimelineWidgetContractActionMixin:
         )
         return None if selected_song is None else selected_song.song_id
 
-    def _prompt_find_similar_sounding_options(
+    def _run_event_comparison_dialog(
         self,
         *,
+        layer_id: LayerId,
+        take_id: TakeId,
+        event_id: EventId,
         default_scope_mode: str,
-        default_match_strength: str,
-    ) -> tuple[str, str, float | None] | None:
+    ) -> dict[str, object] | None:
         host = cast(_ContractActionHost, self)
-        scope_labels = [label for label, _value in _FIND_SIMILAR_SCOPE_LABELS]
-        scope_lookup = {label: value for label, value in _FIND_SIMILAR_SCOPE_LABELS}
-        default_scope_index = next(
-            (
-                index
-                for index, (_label, value) in enumerate(_FIND_SIMILAR_SCOPE_LABELS)
-                if value == default_scope_mode
-            ),
-            0,
+        legacy_dialog_override = self.__dict__.get("_find_similar_dialog_class")
+        if legacy_dialog_override is not None:
+            dialog_class = legacy_dialog_override
+        else:
+            dialog_class = getattr(
+                self,
+                "_event_comparison_dialog_class",
+                getattr(self, "_find_similar_dialog_class", EventComparisonDialog),
+            )
+        dialog = dialog_class(
+            presentation=host._get_presentation(),
+            layer_id=layer_id,
+            take_id=take_id,
+            event_id=event_id,
+            default_scope_mode=default_scope_mode,
+            parent=host._widget,
         )
-        selected_scope_label, accepted = host._input_dialog.getItem(
-            host._widget,
-            "Find Similar Sounds",
-            "Scope",
-            scope_labels,
-            default_scope_index,
-            False,
-        )
-        if not accepted:
+        if dialog.exec() != dialog.DialogCode.Accepted:
             return None
-        scope_mode = scope_lookup.get(selected_scope_label)
-        if scope_mode is None:
-            return None
+        return dialog.selected_payload()
 
-        strength_labels = [label for label, _value in _FIND_SIMILAR_STRENGTH_LABELS]
-        strength_lookup = {label: value for label, value in _FIND_SIMILAR_STRENGTH_LABELS}
-        default_strength_index = next(
-            (
-                index
-                for index, (_label, value) in enumerate(_FIND_SIMILAR_STRENGTH_LABELS)
-                if value == default_match_strength
-            ),
-            1,
+    def _run_find_similar_sounding_dialog(
+        self,
+        *,
+        layer_id: LayerId,
+        take_id: TakeId,
+        event_id: EventId,
+        default_scope_mode: str,
+    ) -> dict[str, object] | None:
+        return self._run_event_comparison_dialog(
+            layer_id=layer_id,
+            take_id=take_id,
+            event_id=event_id,
+            default_scope_mode=default_scope_mode,
         )
-        selected_strength_label, accepted = host._input_dialog.getItem(
-            host._widget,
-            "Find Similar Sounds",
-            "Match Strength",
-            strength_labels,
-            default_strength_index,
-            False,
-        )
-        if not accepted:
-            return None
-        match_strength = strength_lookup.get(selected_strength_label)
-        if match_strength is None:
-            return None
-
-        threshold_labels = [label for label, _value in _FIND_SIMILAR_THRESHOLD_LABELS]
-        threshold_lookup = {label: value for label, value in _FIND_SIMILAR_THRESHOLD_LABELS}
-        selected_threshold_label, accepted = host._input_dialog.getItem(
-            host._widget,
-            "Find Similar Sounds",
-            "Similarity Threshold",
-            threshold_labels,
-            0,
-            False,
-        )
-        if not accepted:
-            return None
-        if selected_threshold_label not in threshold_lookup:
-            return None
-        return (scope_mode, match_strength, threshold_lookup[selected_threshold_label])
 
     def _resolve_song_title(self, song_id: str) -> str:
         host = cast(_ContractActionHost, self)

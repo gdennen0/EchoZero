@@ -3,7 +3,9 @@ Exists to isolate controller and demo-dispatch coverage from widget timing suppo
 Connects the compatibility wrapper to the bounded runtime-audio controller slice.
 """
 
+import json
 import threading
+from pathlib import Path
 
 from tests.ui.runtime_audio_shared_support import *  # noqa: F401,F403
 
@@ -676,9 +678,10 @@ def test_runtime_controller_keeps_active_event_lane_when_routed_layers_are_prese
 
 def test_runtime_controller_preview_clip_plays_sliced_audio_on_preview_engine():
     engine = AudioEngine(stream_factory=_fake_stream_factory)
+    decoded = np.arange(10, dtype=np.float32)
     controller = TimelineRuntimeAudioController(
         engine=engine,
-        audio_loader=lambda _path: (np.arange(10, dtype=np.float32), 10),
+        audio_loader=lambda _path: (decoded, 10),
     )
 
     played = controller.preview_clip("kick.wav", start_seconds=0.2, end_seconds=0.6)
@@ -687,12 +690,13 @@ def test_runtime_controller_preview_clip_plays_sliced_audio_on_preview_engine():
     preview_layer = getattr(engine, "_overlay_buffer", None)
     assert preview_layer is not None
     np.testing.assert_array_equal(preview_layer, np.array([2.0, 3.0, 4.0, 5.0], dtype=np.float32))
+    assert not np.shares_memory(preview_layer, decoded)
     assert engine.overlay_active is True
     controller.shutdown()
 
 
 def test_runtime_controller_preview_clip_tears_down_preview_stream_after_end():
-    engine = AudioEngine(stream_factory=_fake_stream_factory)
+    engine = AudioEngine(sample_rate=10, stream_factory=_fake_stream_factory)
     controller = TimelineRuntimeAudioController(
         engine=engine,
         audio_loader=lambda _path: (np.arange(10, dtype=np.float32), 10),
@@ -708,6 +712,95 @@ def test_runtime_controller_preview_clip_tears_down_preview_stream_after_end():
     controller.current_time_seconds()
 
     assert engine.overlay_active is False
+    controller.shutdown()
+
+
+def test_runtime_controller_snapshot_exposes_preview_audio_runtime_sensor_events():
+    presentation = _audio_presentation()
+    engine = AudioEngine(sample_rate=10, stream_factory=_fake_stream_factory)
+    controller = TimelineRuntimeAudioController(
+        engine=engine,
+        audio_loader=lambda _path: (np.arange(10, dtype=np.float32), 10),
+    )
+
+    assert controller.preview_clip("kick.wav", start_seconds=0.0, end_seconds=0.4)
+
+    state = controller.snapshot_state(presentation)
+    events = state.diagnostics.recent_audio_runtime_events
+    kinds = {str(event.get("kind")) for event in events}
+
+    assert "preview-start" in kinds
+    assert "overlay-start" in kinds
+    assert any(event.get("source") == "audio_engine" for event in events)
+    assert any(event.get("source") == "playback_controller" for event in events)
+    controller.shutdown()
+
+
+def test_runtime_controller_audio_diagnostics_capture_writes_bundle(tmp_path):
+    presentation = _audio_presentation()
+    engine = AudioEngine(sample_rate=10, channels=1, stream_factory=_fake_stream_factory)
+    controller = TimelineRuntimeAudioController(
+        engine=engine,
+        audio_loader=lambda _path: (np.arange(10, dtype=np.float32), 10),
+    )
+
+    started = controller.start_audio_diagnostics_capture(
+        output_dir=tmp_path,
+        include_audio_buffers=True,
+        max_audio_blocks=4,
+    )
+    assert started["active"] is True
+
+    assert controller.preview_clip("kick.wav", start_seconds=0.0, end_seconds=0.4)
+    outdata = np.zeros((4, 1), dtype=np.float32)
+    engine._audio_callback(outdata, 4, None, None)
+    controller.snapshot_state(presentation)
+
+    stopped = controller.stop_audio_diagnostics_capture()
+
+    assert stopped["active"] is False
+    assert int(stopped["audio_block_count"]) >= 1
+    assert Path(str(stopped["json_path"])).exists()
+    assert Path(str(stopped["npy_path"])).exists()
+    assert Path(str(stopped["wav_path"])).exists()
+    payload = json.loads(Path(str(stopped["json_path"])).read_text(encoding="utf-8"))
+    event_kinds = {str(event.get("kind")) for event in payload["runtime_sensor_events"]}
+    assert "preview-start" in event_kinds
+    assert "overlay-start" in event_kinds
+    assert payload["device_config"]["sample_rate"] == 10
+    controller.shutdown()
+
+
+def test_runtime_controller_rapid_preview_replacement_is_declick_safe_and_non_mutating():
+    engine = AudioEngine(sample_rate=48000, channels=1, stream_factory=_fake_stream_factory)
+    decoded = np.concatenate(
+        (
+            np.ones(512, dtype=np.float32),
+            -np.ones(512, dtype=np.float32),
+        )
+    )
+    original = decoded.copy()
+    controller = TimelineRuntimeAudioController(
+        engine=engine,
+        audio_loader=lambda _path: (decoded, 48000),
+    )
+
+    assert controller.preview_clip("events.wav", start_seconds=0.0, end_seconds=512 / 48000)
+    first = np.zeros((128, 1), dtype=np.float32)
+    engine._audio_callback(first, 128, None, None)
+
+    assert controller.preview_clip("events.wav", start_seconds=512 / 48000, end_seconds=1024 / 48000)
+    replaced = np.zeros((128, 1), dtype=np.float32)
+    continued = np.zeros((128, 1), dtype=np.float32)
+    engine._audio_callback(replaced, 128, None, None)
+    engine._audio_callback(continued, 128, None, None)
+
+    np.testing.assert_array_equal(decoded, original)
+    staged = getattr(engine, "_overlay_buffer", None)
+    assert staged is not None
+    np.testing.assert_array_equal(staged, decoded[512:1024])
+    joined = np.concatenate((first, replaced, continued), axis=0)
+    assert float(np.max(np.abs(np.diff(joined, axis=0)))) <= 0.18
     controller.shutdown()
 
 

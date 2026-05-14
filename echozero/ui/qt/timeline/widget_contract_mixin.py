@@ -6,7 +6,7 @@ Connects canvas signals and object-info actions to canonical timeline intents an
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
 from PyQt6.QtGui import QCursor
 from PyQt6.QtWidgets import QMenu, QWidget
@@ -78,6 +78,18 @@ class _TimelineWidgetActionRouter(Protocol):
     def _handle_runtime_pipeline_action(
         self, action_id: str, params: dict[str, object]
     ) -> bool: ...
+
+
+class _ClipboardRuntimeShell(_TimelineRuntimeShell, Protocol):
+    def copy_selected_events_to_clipboard(self) -> int: ...
+    def has_copied_events(self) -> bool: ...
+    def paste_event_clipboard(
+        self,
+        *,
+        target_layer_id: str | None = None,
+        target_take_id: str | None = None,
+        insert_at_seconds: float | None = None,
+    ) -> TimelinePresentation | None: ...
 
 
 class _TimelineWidgetContractHost(Protocol):
@@ -409,6 +421,55 @@ class TimelineWidgetContractMixin:
         steps: int,
     ) -> None:
         self._dispatch(DuplicateSelectedEvents(steps=steps))
+
+    def _copy_selected_events(self: _TimelineWidgetContractHost) -> None:
+        runtime = cast(_ClipboardRuntimeShell | None, self._resolve_runtime_shell())
+        if runtime is None or not callable(getattr(runtime, "copy_selected_events_to_clipboard", None)):
+            return
+        runtime.copy_selected_events_to_clipboard()
+
+    def _cut_selected_events(self: _TimelineWidgetContractHost) -> None:
+        selected_refs = list(self.presentation.resolved_selected_event_refs())
+        if not selected_refs:
+            return
+        runtime = cast(_ClipboardRuntimeShell | None, self._resolve_runtime_shell())
+        if runtime is None or not callable(getattr(runtime, "copy_selected_events_to_clipboard", None)):
+            return
+        copied_count = int(runtime.copy_selected_events_to_clipboard() or 0)
+        if copied_count <= 0:
+            return
+        self._delete_events(selected_refs)
+
+    def _paste_copied_events(self: _TimelineWidgetContractHost) -> None:
+        runtime = cast(_ClipboardRuntimeShell | None, self._resolve_runtime_shell())
+        if runtime is None or not all(
+            callable(getattr(runtime, method_name, None))
+            for method_name in ("has_copied_events", "paste_event_clipboard")
+        ):
+            return
+        if not runtime.has_copied_events():
+            return
+        updated = runtime.paste_event_clipboard(
+            target_layer_id=(
+                str(self.presentation.selected_layer_id)
+                if self.presentation.selected_layer_id is not None
+                else None
+            ),
+            target_take_id=(
+                str(self.presentation.selected_take_id)
+                if self.presentation.selected_take_id is not None
+                else None
+            ),
+            insert_at_seconds=float(self.presentation.playhead),
+        )
+        if updated is None:
+            return
+        host = cast(Any, self)
+        set_presentation = getattr(host, "set_presentation", None)
+        if callable(set_presentation):
+            set_presentation(updated)
+            return
+        self.presentation = updated
 
     def _trigger_take_action(
         self: _TimelineWidgetContractHost,

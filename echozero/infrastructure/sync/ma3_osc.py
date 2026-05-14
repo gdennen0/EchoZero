@@ -127,9 +127,12 @@ class MA3OSCBridge:
         self._plugin_health: dict[str, object] | None = None
         self._plugin_version: dict[str, object] | None = None
         self._ping_snapshot: dict[str, object] | None = None
+        self._connection_report: dict[str, object] | None = None
         self._transport_updates: list[dict[str, object]] = []
         self._datapool_children_by_path: dict[str, list[dict[str, object]]] = {}
         self._datapool_object_by_path: dict[str, dict[str, object]] = {}
+        self._message_chunk_parts: dict[str, dict[int, str]] = {}
+        self._message_chunk_totals: dict[str, int] = {}
 
     @property
     def is_running(self) -> bool:
@@ -449,6 +452,32 @@ class MA3OSCBridge:
         with self._lock:
             self._plugin_health = dict(message.fields)
             return dict(self._plugin_health)
+
+    def get_connection_report(self) -> dict[str, object]:
+        if self._command_transport is None:
+            with self._lock:
+                return dict(self._connection_report or {})
+
+        request_id = self._next_request_token()
+        self._ensure_command_ready()
+        after_index = self._message_count()
+        self._send_command(f"EZ.ConnectionReport({request_id})")
+        message = self._wait_for_message(
+            after_index=after_index,
+            predicate=lambda message, request_id=request_id: (
+                message.key == "connection.report"
+                and _optional_int(message.fields.get("request_id")) == request_id
+            )
+            or (
+                message.key == "connection.report"
+                and _optional_int(message.fields.get("request_id")) is None
+            ),
+            timeout=self._response_timeout,
+            missing="Timed out waiting for MA3 connection report",
+        )
+        with self._lock:
+            self._connection_report = dict(message.fields)
+            return dict(self._connection_report)
 
     def list_datapool_objects(self, path: str | None = None) -> list[dict[str, object]]:
         requested_path = self._normalize_datapool_path(path)
@@ -1860,10 +1889,21 @@ class MA3OSCBridge:
             return False
         tc_no, tg_no, track_no = parse_track_coord(coord)
         self._ensure_command_ready()
+        after_index = self._message_count()
         self._send_command(f"EZ.HookTrack({tc_no}, {tg_no}, {track_no})")
-        with self._lock:
-            self._hooked_tracks.add(coord)
-        return True
+        try:
+            message = self._wait_for_message(
+                after_index=after_index,
+                predicate=lambda message, coord=coord: (
+                    message.key in {"subtrack.hooked", "track.hooked", "hooks.error"}
+                    and self._coord_from_fields(message.fields) == coord
+                ),
+                timeout=self._response_timeout,
+                missing=f"Timed out waiting for MA3 hook confirmation for {coord}",
+            )
+        except TimeoutError:
+            return False
+        return message.key != "hooks.error"
 
     def unhook_track(self, track_coord: str) -> bool:
         coord = str(track_coord or "").strip()
@@ -1906,6 +1946,8 @@ class MA3OSCBridge:
             self._sequence_cues_by_sequence_no.clear()
             self._pending_sequence_cue_requests.clear()
             self._sequence_cue_chunks.clear()
+            self._message_chunk_parts.clear()
+            self._message_chunk_totals.clear()
             self._pending_datapool_children_requests.clear()
             self._pending_datapool_object_requests.clear()
             self._datapool_children_by_path.clear()
@@ -2006,11 +2048,47 @@ class MA3OSCBridge:
 
         message = parse_ma3_osc_payload(payload)
         with self._condition:
+            reassembled_payload = self._consume_message_chunk_locked(message)
+            if message.message_type == "osc_chunk" and reassembled_payload is None:
+                self._last_message_at = monotonic()
+                self._connected = True
+                self._condition.notify_all()
+                return
+            if reassembled_payload is not None:
+                message = parse_ma3_osc_payload(reassembled_payload)
             self._messages.append(message)
             self._last_message_at = monotonic()
             self._connected = True
             self._ingest_message_locked(message)
             self._condition.notify_all()
+
+    def _consume_message_chunk_locked(self, message: MA3OSCMessage) -> str | None:
+        if message.message_type != "osc_chunk" or message.change != "part":
+            return None
+        fields = message.fields
+        chunk_id = str(fields.get("chunk_id") or "").strip()
+        chunk_index = _optional_int(fields.get("chunk_index"))
+        total_chunks = _optional_int(fields.get("total_chunks"))
+        raw_payload = fields.get("payload")
+        chunk_text = ""
+        if isinstance(raw_payload, dict):
+            chunk_text = str(raw_payload.get("text") or "")
+        elif raw_payload is not None:
+            chunk_text = str(raw_payload)
+        if not chunk_id or chunk_index is None or total_chunks is None or chunk_index < 1 or total_chunks < 1:
+            return None
+        parts = self._message_chunk_parts.setdefault(chunk_id, {})
+        parts[int(chunk_index)] = chunk_text
+        self._message_chunk_totals[chunk_id] = int(total_chunks)
+        if len(parts) < int(total_chunks):
+            return None
+        try:
+            reassembled = "".join(parts[index] for index in range(1, int(total_chunks) + 1))
+        except KeyError:
+            return None
+        self._message_chunk_parts.pop(chunk_id, None)
+        self._message_chunk_totals.pop(chunk_id, None)
+        return reassembled
 
     def _ingest_message_locked(self, message: MA3OSCMessage) -> None:
         message_type = message.message_type
@@ -2121,6 +2199,10 @@ class MA3OSCBridge:
 
         if message_type == "connection" and change == "ping":
             self._ping_snapshot = dict(fields)
+            return
+
+        if message_type == "connection" and change == "report":
+            self._connection_report = dict(fields)
             return
 
         if message_type == "transport":

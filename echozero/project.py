@@ -371,6 +371,7 @@ class Project:
         artist: str = "",
         label: str = "Original",
         default_templates: list[str] | None = None,
+        seed_default_song_id: str | None = None,
         audio_import_options: Any = None,
         scan_fn: Any = None,
     ) -> tuple[SongRecord, SongVersionRecord]:
@@ -382,6 +383,7 @@ class Project:
             artist: Artist name (optional).
             label: Version label (default "Original").
             default_templates: Template IDs to create configs for. None = all registered.
+            seed_default_song_id: Optional song whose saved defaults should seed the new song.
             audio_import_options: Optional import-time audio preprocessing options.
             scan_fn: Optional injectable for audio scanning (testing).
 
@@ -394,6 +396,7 @@ class Project:
             artist=artist,
             label=label,
             default_templates=default_templates,
+            seed_default_song_id=seed_default_song_id,
             audio_import_options=audio_import_options,
             scan_fn=scan_fn,
         )

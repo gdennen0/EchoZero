@@ -8,6 +8,7 @@ layer/take persistence, using mock executors for isolation from real audio.
 from __future__ import annotations
 
 import os
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -22,6 +23,7 @@ from echozero.execution import ExecutionContext
 from echozero.persistence.entities import PipelineConfigRecord, SongRecord, SongVersionRecord
 from echozero.persistence.session import ProjectStorage
 from echozero.pipelines.registry import get_registry
+from echozero.progress import ProgressReport
 from echozero.result import Err, Ok, err, ok
 from echozero.services.orchestrator import AnalysisResult, Orchestrator
 from echozero.services.setlist import SetlistProcessor, SetlistResult
@@ -101,6 +103,60 @@ class SettingsCapturingExecutor:
             EventData(
                 layers=(Layer(id="onsets_layer", name="onsets", events=()),),
             )
+        )
+
+
+class ProgressReportingSeparatorExecutor:
+    """Publishes runtime progress so orchestrator execution progress can advance live."""
+
+    def execute(self, block_id: str, context: ExecutionContext) -> Any:
+        for percent, message in (
+            (0.25, "Stem separation warming up"),
+            (0.5, "Stem separation processing"),
+            (0.75, "Stem separation finalizing"),
+        ):
+            context.progress_bus.publish(
+                ProgressReport(
+                    block_id=block_id,
+                    phase="separate_audio",
+                    percent=percent,
+                    message=message,
+                )
+            )
+
+        def _temp_audio_path(stem_name: str) -> str:
+            handle = tempfile.NamedTemporaryFile(suffix=f"_{stem_name}.wav", delete=False)
+            handle.write(b"RIFF0000WAVEfmt ")
+            handle.close()
+            return handle.name
+
+        return ok(
+            {
+                "drums_out": AudioData(
+                    sample_rate=44100,
+                    duration=180.0,
+                    file_path=_temp_audio_path("drums"),
+                    channel_count=2,
+                ),
+                "bass_out": AudioData(
+                    sample_rate=44100,
+                    duration=180.0,
+                    file_path=_temp_audio_path("bass"),
+                    channel_count=2,
+                ),
+                "vocals_out": AudioData(
+                    sample_rate=44100,
+                    duration=180.0,
+                    file_path=_temp_audio_path("vocals"),
+                    channel_count=2,
+                ),
+                "other_out": AudioData(
+                    sample_rate=44100,
+                    duration=180.0,
+                    file_path=_temp_audio_path("other"),
+                    channel_count=2,
+                ),
+            }
         )
 
 
@@ -553,6 +609,43 @@ class TestOrchestratorProgress:
 
         session.close()
 
+    def test_stem_separation_progress_callback_advances_during_execution(self, tmp_path: Any) -> None:
+        session, song, version = _create_session_with_song(tmp_path)
+        service = Orchestrator(
+            get_registry(),
+            {
+                "LoadAudio": MockLoadAudioExecutor(),
+                "SeparateAudio": ProgressReportingSeparatorExecutor(),
+            },
+        )
+
+        progress_calls: list[OperationProgressUpdate] = []
+
+        def on_progress(update: OperationProgressUpdate) -> None:
+            progress_calls.append(update)
+
+        result = service.analyze(
+            session,
+            version.id,
+            "stem_separation",
+            on_progress=on_progress,
+        )
+
+        assert isinstance(result, Ok)
+        executing_updates = [
+            update
+            for update in progress_calls
+            if update.stage == "executing_pipeline" and update.fraction_complete is not None
+        ]
+
+        assert len(executing_updates) >= 5
+        assert executing_updates[0].fraction_complete == 0.2
+        assert any(update.fraction_complete > 0.2 for update in executing_updates)
+        assert max(update.fraction_complete for update in executing_updates) > 0.7
+        assert progress_calls[-1].fraction_complete == 1.0
+
+        session.close()
+
 
 # ---------------------------------------------------------------------------
 # Orchestrator — persistence round-trip
@@ -589,6 +682,27 @@ class TestOrchestratorRoundTrip:
         assert len(takes[0].data.layers[0].events) == 3
 
         session2.close()
+
+    def test_event_layer_source_audio_prefers_event_detection_source(self) -> None:
+        domain_layer = Layer(
+            id="cymbal",
+            name="cymbal",
+            events=(
+                Event(
+                    id="evt_cymbal",
+                    time=1.0,
+                    duration=0.1,
+                    classifications={"class": "cymbal"},
+                    metadata={"detection": {"source_audio": "audio/generated/cymbal.wav"}},
+                    origin="binary_drum_classify:cymbal",
+                ),
+            ),
+        )
+
+        assert (
+            Orchestrator._event_layer_source_audio_path(domain_layer)
+            == "audio/generated/cymbal.wav"
+        )
 
 
 # ---------------------------------------------------------------------------

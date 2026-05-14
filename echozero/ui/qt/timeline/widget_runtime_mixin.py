@@ -744,6 +744,11 @@ class TimelineWidgetRuntimeMixin:
                     runtime_time,
                     playing=runtime_playing,
                 )
+                runtime_time = _preserve_paused_playhead_on_visual_regression(
+                    previous_presentation=self.presentation,
+                    runtime_time=runtime_time,
+                    playing=runtime_playing,
+                )
             updated = replace(
                 updated,
                 playhead=runtime_time,
@@ -924,6 +929,11 @@ class TimelineWidgetRuntimeMixin:
 
         current_time, playing = self._sample_runtime_playhead()
         current_time = self._stabilize_runtime_playhead(current_time, playing=playing)
+        current_time = _preserve_paused_playhead_on_visual_regression(
+            previous_presentation=self.presentation,
+            runtime_time=current_time,
+            playing=playing,
+        )
         current_label = self._runtime_time_label(current_time)
         if (
             abs(current_time - self.presentation.playhead) < 0.001
@@ -1034,6 +1044,23 @@ class TimelineWidgetRuntimeMixin:
 
 def _format_time_label(seconds: float) -> str:
     return format_clock_label(seconds)
+
+
+def _preserve_paused_playhead_on_visual_regression(
+    *,
+    previous_presentation: TimelinePresentation,
+    runtime_time: float,
+    playing: bool,
+) -> float:
+    next_time = max(0.0, float(runtime_time))
+    if playing or next_time > 0.0:
+        return next_time
+    if not bool(previous_presentation.is_playing):
+        return next_time
+    previous_playhead = max(0.0, float(previous_presentation.playhead))
+    if previous_playhead <= 0.0:
+        return next_time
+    return previous_playhead
 
 
 def _resolve_transport_seek_seconds(payload: dict[str, object] | None) -> float | None:

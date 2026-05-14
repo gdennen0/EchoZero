@@ -15,10 +15,12 @@ from echozero.execution import ExecutionContext
 from echozero.processors.song_sections_determine_style import (
     DETERMINE_SECTIONS_STYLE_METHOD,
     MFCC_SEQUENCE_POOLING_METHOD,
+    MIR_SELF_SIMILARITY_METHOD,
     determine_sections_style_segments,
     label_segments_from_embeddings,
     resolve_detect_method,
 )
+from echozero.processors.song_structure_mir import segment_song_structure_with_mir
 from echozero.progress import ProgressReport
 from echozero.result import Result, err, ok
 
@@ -355,10 +357,14 @@ class SongSectionsProcessor:
         self,
         segment_song_sections_fn: SegmentSongSectionsFn | None = None,
         determine_sections_segment_fn: SegmentSongSectionsFn | None = None,
+        mir_self_similarity_segment_fn: SegmentSongSectionsFn | None = None,
     ) -> None:
         self._segment_song_sections_fn = segment_song_sections_fn or _default_segment_song_sections
         self._determine_sections_segment_fn = (
             determine_sections_segment_fn or _determine_sections_style_segment_song_sections
+        )
+        self._mir_self_similarity_segment_fn = (
+            mir_self_similarity_segment_fn or self._segment_song_sections_with_mir
         )
 
     def execute(self, block_id: str, context: ExecutionContext) -> Result[EventData]:
@@ -400,16 +406,15 @@ class SongSectionsProcessor:
         detect_method = resolve_detect_method(
             settings.get("detect_method", MFCC_SEQUENCE_POOLING_METHOD)
         )
-        segment_song_sections_fn = (
-            self._determine_sections_segment_fn
-            if detect_method == DETERMINE_SECTIONS_STYLE_METHOD
-            else self._segment_song_sections_fn
-        )
-        generator = (
-            "determine_sections_style_v1"
-            if detect_method == DETERMINE_SECTIONS_STYLE_METHOD
-            else "mfcc_sequence_pooling_v1"
-        )
+        if detect_method == DETERMINE_SECTIONS_STYLE_METHOD:
+            segment_song_sections_fn = self._determine_sections_segment_fn
+            generator = "determine_sections_style_v1"
+        elif detect_method == MIR_SELF_SIMILARITY_METHOD:
+            segment_song_sections_fn = self._mir_self_similarity_segment_fn
+            generator = "mir_self_similarity_v1"
+        else:
+            segment_song_sections_fn = self._segment_song_sections_fn
+            generator = "mfcc_sequence_pooling_v1"
 
         context.progress_bus.publish(
             ProgressReport(
@@ -489,3 +494,42 @@ class SongSectionsProcessor:
         )
 
         return ok(EventData(layers=(layer,)))
+
+    @staticmethod
+    def _segment_song_sections_with_mir(
+        file_path: str,
+        sample_rate: int,
+        n_mfcc: int,
+        n_fft: int,
+        hop_length: int,
+        history_pool_frames: int,
+        boundary_sensitivity: float,
+        min_section_seconds: float,
+        max_sections: int,
+        similarity_threshold: float,
+        intro_tail_seconds: float,
+        end_tail_seconds: float,
+    ) -> tuple[_SectionLabel, ...]:
+        del history_pool_frames
+        segments = segment_song_structure_with_mir(
+            file_path=file_path,
+            sample_rate=sample_rate,
+            n_mfcc=n_mfcc,
+            n_fft=n_fft,
+            hop_length=hop_length,
+            boundary_sensitivity=boundary_sensitivity,
+            min_section_seconds=min_section_seconds,
+            max_sections=max_sections,
+            similarity_threshold=similarity_threshold,
+            intro_tail_seconds=intro_tail_seconds,
+            end_tail_seconds=end_tail_seconds,
+        )
+        return tuple(
+            _SectionLabel(
+                start_seconds=float(segment.start_seconds),
+                cue_ref=str(segment.cue_ref),
+                label=str(segment.label),
+                confidence=float(segment.confidence),
+            )
+            for segment in segments
+        )

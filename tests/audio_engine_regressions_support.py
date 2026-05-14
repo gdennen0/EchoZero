@@ -337,11 +337,12 @@ class TestBatch2Fixes:
         class FakeStatus:
             pass
 
-        engine._audio_callback(out_a, 64, None, None)
+        while engine.ramp_samples_remaining > 0:
+            engine._audio_callback(out_a, 64, None, None)
         engine._audio_callback(out_b, 64, None, FakeStatus())
 
-        # First sample of second block should remain the true waveform value (+1.0),
-        # not be pulled toward the previous tail by forced declick shaping.
+        # First sample after warmup should remain the true waveform value (+1.0),
+        # not be pulled toward the previous tail by status-triggered declick shaping.
         assert out_b[0, 0] == pytest.approx(1.0, abs=1e-6)
 
     # -- A15: Solo count optimization --

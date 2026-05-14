@@ -46,9 +46,11 @@ def _event_badges(event: object) -> tuple[str, ...]:
 
 
 def _event_slice_fade_samples(sample_rate: int, total_samples: int) -> int:
-    if total_samples < 64:
+    if total_samples <= 1:
         return 0
     requested = max(2, int(round(float(sample_rate) * 0.0015)))
+    if total_samples < 16:
+        return min(requested, total_samples)
     return min(requested, max(0, total_samples // 8))
 
 

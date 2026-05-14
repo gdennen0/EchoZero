@@ -6,6 +6,7 @@ Connects selected event context to atomic event-edit and take-edit operations on
 from __future__ import annotations
 
 from copy import deepcopy
+import uuid
 
 from echozero.application.shared.cue_numbers import CueNumber, cue_number_text
 from echozero.application.shared.enums import LayerKind
@@ -25,7 +26,9 @@ from echozero.application.timeline.orchestrator_selection_state_mixin import (
     TimelineOrchestratorSelectionStateMixin,
 )
 from echozero.application.timeline.intents import (
+    CopiedEventClip,
     EventCueMappingEdit,
+    PasteCopiedEvents,
     ReplaceSectionCues,
     SectionCueEdit,
     TrimEvent,
@@ -506,7 +509,9 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
         timeline: Timeline,
         delta_seconds: float,
         target_layer_id: LayerId | None,
+        target_take_id: TakeId | None = None,
         copy_selected: bool = False,
+        create_layer_title: str | None = None,
     ) -> None:
         selected_refs = self._selected_event_refs(timeline)
         if not selected_refs:
@@ -521,22 +526,44 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
         applied_delta = max(float(delta_seconds), -min(record.event.start for record in records))
         source_layer_ids = {record.layer.id for record in records}
         source_layer_id = timeline.selection.selected_layer_id
-        transfer_target: Layer | None = None
+        destination_layer: Layer | None = None
+        destination_take: Take | None = None
 
-        if target_layer_id is not None and target_layer_id not in source_layer_ids:
-            transfer_target = self._find_layer(timeline, target_layer_id)
+        if create_layer_title is not None:
+            destination_layer = self._create_move_destination_layer(
+                timeline,
+                source_kind=records[0].layer.kind,
+                layer_title=create_layer_title,
+            )
+            destination_take = self._resolve_or_create_main_take(destination_layer)
+        elif target_layer_id is not None or target_take_id is not None:
+            resolved_target_layer_id = (
+                target_layer_id if target_layer_id is not None else records[0].layer.id
+            )
+            destination_layer = self._find_layer(timeline, resolved_target_layer_id)
             if (
-                transfer_target.kind != records[0].layer.kind
-                or not is_event_like_layer_kind(transfer_target.kind)
-                or transfer_target.presentation_hints.locked
-                or not transfer_target.presentation_hints.visible
+                destination_layer.id not in source_layer_ids
+                and (
+                    destination_layer.kind != records[0].layer.kind
+                    or not is_event_like_layer_kind(destination_layer.kind)
+                    or destination_layer.presentation_hints.locked
+                    or not destination_layer.presentation_hints.visible
+                )
             ):
                 return
+            if target_take_id is not None:
+                destination_take = self._find_take(destination_layer, target_take_id)
+                if destination_take is None:
+                    return
+            else:
+                destination_take = self._main_take(destination_layer)
+                if destination_take is None:
+                    destination_take = self._resolve_or_create_main_take(destination_layer)
 
         if copy_selected:
             existing_ids = self._all_event_ids(timeline)
             copied_refs: list[EventRef] = []
-            if transfer_target is None:
+            if destination_take is None or destination_layer is None:
                 affected_takes: dict[TakeId, Take] = {}
                 for record in records:
                     duplicate_id = self._next_duplicate_event_id(
@@ -577,38 +604,40 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
                 self._set_selected_event_refs(timeline, copied_refs)
                 return
 
-            target_take = self._main_take(transfer_target)
-            if target_take is None:
-                return
-
             for record in records:
+                self._inherit_event_source_context(
+                    destination_layer,
+                    destination_take,
+                    source_layer=record.layer,
+                    source_take=record.take,
+                )
                 duplicate_id = self._next_duplicate_event_id(
-                    target_take,
+                    destination_take,
                     record.event,
                     existing_ids,
                 )
                 duplicate = self._duplicate_event(
                     record.event,
                     duplicate_id=duplicate_id,
-                    target_take_id=target_take.id,
+                    target_take_id=destination_take.id,
                     start=record.event.start + applied_delta,
                     end=record.event.end + applied_delta,
                 )
-                target_take.events.append(duplicate)
+                destination_take.events.append(duplicate)
                 existing_ids.add(str(duplicate.id))
                 copied_refs.append(
-                    self._event_ref(transfer_target.id, target_take.id, duplicate.id)
+                    self._event_ref(destination_layer.id, destination_take.id, duplicate.id)
                 )
 
-            self._sort_take_events(target_take)
-            timeline.selection.selected_layer_id = transfer_target.id
-            timeline.selection.selected_layer_ids = [transfer_target.id]
-            timeline.selection.selected_take_id = target_take.id
+            self._sort_take_events(destination_take)
+            timeline.selection.selected_layer_id = destination_layer.id
+            timeline.selection.selected_layer_ids = [destination_layer.id]
+            timeline.selection.selected_take_id = destination_take.id
             self._set_selected_event_refs(timeline, copied_refs)
             return
 
         affected_takes: dict[TakeId, Take] = {}
-        if transfer_target is None:
+        if destination_take is None or destination_layer is None:
             for record in records:
                 record.event.start += applied_delta
                 record.event.end += applied_delta
@@ -641,32 +670,75 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
             )
             return
 
-        target_take = self._main_take(transfer_target)
-        if target_take is None:
-            return
-
         for record in records:
+            self._inherit_event_source_context(
+                destination_layer,
+                destination_take,
+                source_layer=record.layer,
+                source_take=record.take,
+            )
+            record.event.start += applied_delta
+            record.event.end += applied_delta
+            if record.layer.id == destination_layer.id and record.take.id == destination_take.id:
+                affected_takes[record.take.id] = record.take
+                continue
             record.take.events = [
                 candidate for candidate in record.take.events if candidate.id != record.event.id
             ]
             affected_takes[record.take.id] = record.take
-            record.event.start += applied_delta
-            record.event.end += applied_delta
-            record.event.take_id = target_take.id
-            target_take.events.append(record.event)
+            record.event.take_id = destination_take.id
+            destination_take.events.append(record.event)
 
-        affected_takes[target_take.id] = target_take
+        affected_takes[destination_take.id] = destination_take
         self._sort_take_events(*affected_takes.values())
-        timeline.selection.selected_layer_id = transfer_target.id
-        timeline.selection.selected_layer_ids = [transfer_target.id]
-        timeline.selection.selected_take_id = target_take.id
+        timeline.selection.selected_layer_id = destination_layer.id
+        timeline.selection.selected_layer_ids = [destination_layer.id]
+        timeline.selection.selected_take_id = destination_take.id
         self._set_selected_event_refs(
             timeline,
             [
-                self._event_ref(transfer_target.id, target_take.id, record.event.id)
+                self._event_ref(destination_layer.id, destination_take.id, record.event.id)
                 for record in records
             ],
         )
+
+    @staticmethod
+    def _next_created_event_layer_id(timeline: Timeline) -> LayerId:
+        existing_ids = {str(layer.id) for layer in timeline.layers}
+        while True:
+            candidate = LayerId(f"layer_{uuid.uuid4().hex[:12]}")
+            if str(candidate) not in existing_ids:
+                return candidate
+
+    def _create_move_destination_layer(
+        self,
+        timeline: Timeline,
+        *,
+        source_kind: LayerKind,
+        layer_title: str,
+    ) -> Layer:
+        if source_kind is LayerKind.SECTION:
+            section_layer = self._create_section_layer(timeline)
+            section_layer.name = layer_title
+            self._resolve_or_create_main_take(section_layer)
+            return section_layer
+
+        new_layer = Layer(
+            id=self._next_created_event_layer_id(timeline),
+            timeline_id=timeline.id,
+            name=layer_title,
+            kind=source_kind,
+            order_index=self._next_timeline_layer_order_index(timeline),
+            takes=[],
+        )
+        timeline.layers.append(new_layer)
+        return new_layer
+
+    @staticmethod
+    def _next_timeline_layer_order_index(timeline: Timeline) -> int:
+        if not timeline.layers:
+            return 0
+        return max(int(layer.order_index) for layer in timeline.layers) + 1
 
     def _handle_reorder_layer(
         self,
@@ -725,6 +797,164 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
         for index, layer in enumerate(next_layers):
             layer.order_index = index
         timeline.layers = next_layers
+
+    def _handle_paste_copied_events(
+        self,
+        timeline: Timeline,
+        *,
+        clips: list[CopiedEventClip],
+        target_layer_id: LayerId | None,
+        target_take_id: TakeId | None,
+        insert_at_seconds: float | None,
+    ) -> None:
+        if not clips:
+            return
+
+        source_kinds = {clip.source_layer_kind for clip in clips}
+        if len(source_kinds) != 1:
+            return
+        source_kind = next(iter(source_kinds))
+        if not is_event_like_layer_kind(source_kind):
+            return
+
+        destination_layer = self._resolve_paste_destination_layer(
+            timeline,
+            target_layer_id=target_layer_id,
+            source_kind=source_kind,
+            clips=clips,
+        )
+        if destination_layer is None:
+            return
+        if (
+            destination_layer.kind is not source_kind
+            or destination_layer.presentation_hints.locked
+            or not destination_layer.presentation_hints.visible
+        ):
+            return
+
+        destination_take = self._resolve_paste_destination_take(
+            destination_layer,
+            target_take_id=target_take_id,
+        )
+        if destination_take is None:
+            return
+
+        anchor_start = min(float(clip.event.start) for clip in clips)
+        paste_start = anchor_start if insert_at_seconds is None else max(0.0, float(insert_at_seconds))
+        applied_delta = paste_start - anchor_start
+        existing_ids = self._all_event_ids(timeline)
+        pasted_refs: list[EventRef] = []
+
+        for clip in clips:
+            source_layer = self._find_layer(timeline, clip.source_layer_id)
+            source_take = self._find_take(source_layer, clip.source_take_id)
+            self._inherit_event_source_context(
+                destination_layer,
+                destination_take,
+                source_layer=source_layer,
+                source_take=source_take,
+            )
+            duplicate_id = self._next_duplicate_event_id(destination_take, clip.event, existing_ids)
+            duplicate = self._duplicate_event(
+                clip.event,
+                duplicate_id=duplicate_id,
+                target_take_id=destination_take.id,
+                start=max(0.0, float(clip.event.start) + applied_delta),
+                end=max(0.0, float(clip.event.end) + applied_delta),
+            )
+            destination_take.events.append(duplicate)
+            existing_ids.add(str(duplicate.id))
+            pasted_refs.append(
+                self._event_ref(destination_layer.id, destination_take.id, duplicate.id)
+            )
+
+        self._sort_take_events(destination_take)
+        timeline.selection.selected_layer_id = destination_layer.id
+        timeline.selection.selected_layer_ids = [destination_layer.id]
+        timeline.selection.selected_take_id = destination_take.id
+        self._set_selected_event_refs(timeline, pasted_refs)
+
+    def _resolve_paste_destination_layer(
+        self,
+        timeline: Timeline,
+        *,
+        target_layer_id: LayerId | None,
+        source_kind: LayerKind,
+        clips: list[CopiedEventClip],
+    ) -> Layer | None:
+        if target_layer_id is not None:
+            return self._find_layer(timeline, target_layer_id)
+
+        selected_layer_id = timeline.selection.selected_layer_id
+        if selected_layer_id is not None:
+            try:
+                selected_layer = self._find_layer(timeline, selected_layer_id)
+            except ValueError:
+                selected_layer = None
+            if selected_layer is not None and selected_layer.kind is source_kind:
+                return selected_layer
+
+        try:
+            source_layer = self._find_layer(timeline, clips[0].source_layer_id)
+        except ValueError:
+            return None
+        return source_layer if source_layer.kind is source_kind else None
+
+    def _resolve_paste_destination_take(
+        self,
+        layer: Layer,
+        *,
+        target_take_id: TakeId | None,
+    ) -> Take | None:
+        if target_take_id is not None:
+            return self._find_take(layer, target_take_id)
+        main_take = self._main_take(layer)
+        return main_take if main_take is not None else self._resolve_or_create_main_take(layer)
+
+    @staticmethod
+    def _inherit_event_source_context(
+        destination_layer: Layer,
+        destination_take: Take,
+        *,
+        source_layer: Layer,
+        source_take: Take | None,
+    ) -> None:
+        source_content_ref = (
+            source_take.source_content_ref
+            if source_take is not None and source_take.source_content_ref is not None
+            else source_layer.source_content_ref
+        )
+        if destination_take.source_content_ref is None and source_content_ref is not None:
+            destination_take.source_content_ref = source_content_ref
+        if destination_layer.source_content_ref is None and source_content_ref is not None:
+            destination_layer.source_content_ref = source_content_ref
+
+        source_audio_ref = (
+            str(source_content_ref.locator).strip()
+            if source_content_ref is not None and source_content_ref.locator
+            else str(source_layer.playback.armed_source_ref or "").strip()
+        )
+        if not str(destination_layer.playback.armed_source_ref or "").strip() and source_audio_ref:
+            destination_layer.playback.armed_source_ref = source_audio_ref
+
+        if not str(destination_take.source_ref or "").strip():
+            inherited_source_ref = (
+                str(source_take.source_ref).strip()
+                if source_take is not None and str(source_take.source_ref or "").strip()
+                else str(source_layer.name).strip()
+            )
+            destination_take.source_ref = inherited_source_ref or None
+
+        if destination_layer.provenance.source_layer_id is None:
+            destination_layer.provenance.source_layer_id = (
+                source_layer.provenance.source_layer_id
+                if source_layer.provenance.source_layer_id is not None
+                else source_layer.id
+            )
+        if destination_layer.provenance.source_song_version_id is None:
+            destination_layer.provenance.source_song_version_id = (
+                source_layer.provenance.source_song_version_id
+            )
 
     def _handle_move_selected_events_to_adjacent_layer(
         self,

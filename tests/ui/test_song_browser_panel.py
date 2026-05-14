@@ -61,6 +61,9 @@ def test_song_browser_panel_renders_song_and_version_lists():
         assert panel._songs_tree.dragDropMode() == QAbstractItemView.DragDropMode.InternalMove
         assert panel._songs_tree.topLevelItem(0).text(0) == "1"
         assert panel._songs_tree.topLevelItem(1).text(0) == "2"
+        assert panel._songs_tree.topLevelItem(0).textAlignment(0) == int(
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
+        )
         assert panel._songs_tree.topLevelItem(0).text(1) == "Alpha Song"
         assert panel._songs_tree.topLevelItem(1).text(1) == "Beta Song"
 
@@ -83,6 +86,7 @@ def test_song_browser_panel_keeps_double_digit_row_numbers_visible():
         assert panel._songs_tree.topLevelItem(10).text(0) == "11"
         assert panel._songs_tree.topLevelItem(11).text(0) == "12"
         assert panel._songs_tree.columnWidth(0) >= 40
+        assert panel._songs_tree.columnWidth(0) <= 48
     finally:
         panel.close()
         app.processEvents()
@@ -113,7 +117,7 @@ def test_song_browser_panel_collapses_to_compact_rail():
     panel = SongBrowserPanel(_song_switching_presentation())
     try:
         assert panel.is_collapsed is False
-        assert panel.width() == 300
+        assert panel.width() == 280
         assert panel.property("collapsed") is False
         assert panel._add_button.isHidden() is False
         assert panel._collapse_button.text() == "<"

@@ -6,6 +6,7 @@ Connects application playback control to one output backend through a narrow cal
 
 from __future__ import annotations
 
+from collections import deque
 import time
 from typing import Any, Callable
 
@@ -28,8 +29,83 @@ from echozero.audio.sounddevice_backend import (
 from echozero.audio.transport import Transport
 
 DEFAULT_SCRATCH_FRAMES = 32768
-_DECLICK_RAMP_SAMPLES = 64
+_DECLICK_DURATION_SECONDS = 0.004
 _DECLICK_DELTA_THRESHOLD = 0.05
+_RUNTIME_EVENT_LIMIT = 32
+
+
+def _declick_ramp_samples(sample_rate: int) -> int:
+    """Return the standard render-boundary declick length for a sample rate."""
+
+    return max(2, int(round(max(1, int(sample_rate)) * _DECLICK_DURATION_SECONDS)))
+
+
+def _copy_with_edge_declick_fades(
+    buffer: np.ndarray,
+    fade_in: np.ndarray,
+    fade_out: np.ndarray,
+) -> np.ndarray:
+    """Copy one preview/overlay buffer and apply non-mutating edge fades."""
+
+    faded = np.array(buffer, dtype=np.float32, copy=True)
+    if faded.size == 0:
+        return faded
+    frames = int(faded.shape[0])
+    if frames <= 1:
+        return faded
+    if frames < 4:
+        fade_in_frames = frames
+        fade_out_frames = frames
+    else:
+        fade_in_frames = min(frames // 2, int(fade_in.shape[0]))
+        fade_out_frames = min(frames // 2, int(fade_out.shape[0]))
+    if fade_in_frames > 1:
+        fade_in_ramp = (
+            fade_in[:fade_in_frames]
+            if fade_in_frames == int(fade_in.shape[0])
+            else np.linspace(0.0, 1.0, fade_in_frames, dtype=np.float32)
+        )
+        if faded.ndim == 1:
+            faded[:fade_in_frames] *= fade_in_ramp
+        else:
+            faded[:fade_in_frames] *= fade_in_ramp[:, None]
+    if fade_out_frames > 1:
+        tail_start = frames - fade_out_frames
+        fade_out_ramp = (
+            fade_out[:fade_out_frames]
+            if fade_out_frames == int(fade_out.shape[0])
+            else np.linspace(1.0, 0.0, fade_out_frames, dtype=np.float32)
+        )
+        if faded.ndim == 1:
+            faded[tail_start:frames] *= fade_out_ramp
+        else:
+            faded[tail_start:frames] *= fade_out_ramp[:, None]
+    return faded
+
+
+def _apply_declick_fade_out_slice(
+    buffer: np.ndarray,
+    start: int,
+    stop: int,
+    fade_out: np.ndarray,
+) -> None:
+    """Apply one in-place fade to an output slice that must end at silence."""
+
+    fade_frames = max(0, int(stop) - int(start))
+    if fade_frames <= 1:
+        if fade_frames == 1:
+            buffer[start:stop] = 0.0
+        return
+    if fade_frames == int(fade_out.shape[0]):
+        if buffer.ndim == 1:
+            buffer[start:stop] *= fade_out[:fade_frames]
+        else:
+            buffer[start:stop] *= fade_out[:fade_frames, None]
+        return
+    denominator = np.float32(fade_frames - 1)
+    for index in range(fade_frames):
+        gain = np.float32(1.0) - (np.float32(index) / denominator)
+        buffer[start + index] *= gain
 
 
 def _create_audio_buffer(frames: int, channels: int) -> np.ndarray:
@@ -70,14 +146,28 @@ class AudioEngine:
         "_last_output_tail",
         "_pending_declick",
         "_pending_declick_reason",
+        "_declick_ramp_samples",
         "_declick_fade_in",
         "_declick_fade_out",
+        "_declick_correction_delta",
+        "_declick_correction_total",
+        "_declick_correction_remaining",
         "_last_discontinuity_reason",
         "_last_ramp_reason",
         "_overlay_buffer",
         "_overlay_playback_buffer",
         "_overlay_read_index",
         "_overlay_volume",
+        "_overlay_release_buffer",
+        "_overlay_release_read_index",
+        "_overlay_release_volume",
+        "_runtime_event_sequence",
+        "_recent_runtime_events",
+        "_diagnostics_capture_active",
+        "_diagnostics_capture_include_audio",
+        "_diagnostics_capture_blocks",
+        "_diagnostics_capture_max_blocks",
+        "_diagnostics_capture_sequence",
     )
 
     def __init__(
@@ -90,6 +180,7 @@ class AudioEngine:
         stream_latency: str | float | None = None,
         prime_output_buffers_using_stream_callback: bool = True,
         output_device: int | str | None = None,
+        master_output_bus: object = None,
         backend: AudioOutputBackend | None = None,
     ) -> None:
         self._backend = backend or SounddeviceBackend(stream_factory=stream_factory)
@@ -107,6 +198,7 @@ class AudioEngine:
         self._clock = Clock(sample_rate=self._output_config.sample_rate)
         self._transport = Transport(self._clock)
         self._mixer = Mixer()
+        self._mixer.master_output_bus = master_output_bus
         self._mixer.configure_gain_smoothing(sample_rate=self._clock.sample_rate)
         self._crossfade = CrossfadeBuffer(
             crossfade_samples=int(self._output_config.sample_rate * 0.004)
@@ -137,14 +229,38 @@ class AudioEngine:
             self._last_output_tail = np.zeros(self._channels, dtype=np.float32)
         self._pending_declick = True
         self._pending_declick_reason = "engine-startup"
-        self._declick_fade_in = np.linspace(0.0, 1.0, _DECLICK_RAMP_SAMPLES, dtype=np.float32)
-        self._declick_fade_out = np.linspace(1.0, 0.0, _DECLICK_RAMP_SAMPLES, dtype=np.float32)
+        self._declick_ramp_samples = _declick_ramp_samples(self._output_config.sample_rate)
+        self._declick_fade_in = np.linspace(
+            0.0,
+            1.0,
+            self._declick_ramp_samples,
+            dtype=np.float32,
+        )
+        self._declick_fade_out = np.linspace(
+            1.0,
+            0.0,
+            self._declick_ramp_samples,
+            dtype=np.float32,
+        )
+        self._declick_correction_delta = np.zeros_like(self._last_output_tail)
+        self._declick_correction_total = 0
+        self._declick_correction_remaining = 0
         self._last_discontinuity_reason: str | None = "engine-startup"
         self._last_ramp_reason: str | None = None
         self._overlay_buffer: np.ndarray | None = None
         self._overlay_playback_buffer: np.ndarray | None = None
         self._overlay_read_index = 0
         self._overlay_volume = np.float32(1.0)
+        self._overlay_release_buffer: np.ndarray | None = None
+        self._overlay_release_read_index = 0
+        self._overlay_release_volume = np.float32(1.0)
+        self._runtime_event_sequence = 0
+        self._recent_runtime_events = deque(maxlen=_RUNTIME_EVENT_LIMIT)
+        self._diagnostics_capture_active = False
+        self._diagnostics_capture_include_audio = False
+        self._diagnostics_capture_blocks = deque(maxlen=0)
+        self._diagnostics_capture_max_blocks = 0
+        self._diagnostics_capture_sequence = 0
 
     @property
     def clock(self) -> Clock:
@@ -177,6 +293,20 @@ class AudioEngine:
     @property
     def output_channels(self) -> int:
         return self._channels
+
+    @property
+    def master_output_bus(self) -> str | None:
+        """Default route for tracks without an explicit output bus."""
+
+        return self._mixer.master_output_bus
+
+    def set_master_output_bus(self, output_bus: object) -> None:
+        """Set the default route for un-routed master/song playback."""
+
+        before = self._mixer.master_output_bus
+        self._mixer.master_output_bus = output_bus
+        if self._mixer.master_output_bus != before:
+            self._request_declick("master-output-bus-changed")
 
     @property
     def buffer_size(self) -> int:
@@ -256,9 +386,10 @@ class AudioEngine:
     def ramp_samples_remaining(self) -> int:
         """Return current declick/gain ramp samples left for diagnostics."""
 
-        pending_declick = _DECLICK_RAMP_SAMPLES if self._pending_declick else 0
+        pending_declick = self._declick_ramp_samples if self._pending_declick else 0
+        correction_remaining = int(self._declick_correction_remaining)
         mixer_remaining = int(getattr(self._mixer, "ramp_samples_remaining", 0))
-        return max(0, pending_declick, mixer_remaining)
+        return max(0, pending_declick, correction_remaining, mixer_remaining)
 
     @property
     def last_discontinuity_reason(self) -> str | None:
@@ -271,6 +402,65 @@ class AudioEngine:
         """Return the last ramp/declick reason."""
 
         return self._last_ramp_reason
+
+    @property
+    def recent_runtime_events(self) -> tuple[dict[str, object], ...]:
+        """Return recent playback-thread sensor events for diagnostics."""
+
+        return tuple(dict(event) for event in self._recent_runtime_events)
+
+    def start_diagnostics_capture(
+        self,
+        *,
+        include_audio_buffers: bool = True,
+        max_audio_blocks: int = 64,
+    ) -> dict[str, object]:
+        """Arm a bounded dev diagnostics capture on the callback path."""
+
+        max_blocks = max(0, min(256, int(max_audio_blocks)))
+        self._diagnostics_capture_active = True
+        self._diagnostics_capture_include_audio = bool(include_audio_buffers and max_blocks > 0)
+        self._diagnostics_capture_max_blocks = max_blocks
+        self._diagnostics_capture_blocks = deque(maxlen=max_blocks)
+        self._diagnostics_capture_sequence = 0
+        self._record_runtime_event(
+            "diagnostics-capture-start",
+            reason="manual-capture",
+            include_audio_buffers=bool(self._diagnostics_capture_include_audio),
+            max_audio_blocks=int(max_blocks),
+        )
+        return self.diagnostics_capture_status()
+
+    def stop_diagnostics_capture(self) -> dict[str, object]:
+        """Disarm diagnostics capture and return buffered callback blocks."""
+
+        was_active = bool(self._diagnostics_capture_active)
+        blocks = tuple(dict(block) for block in self._diagnostics_capture_blocks)
+        self._diagnostics_capture_active = False
+        self._diagnostics_capture_include_audio = False
+        self._diagnostics_capture_blocks = deque(maxlen=0)
+        self._diagnostics_capture_max_blocks = 0
+        if was_active:
+            self._record_runtime_event(
+                "diagnostics-capture-stop",
+                reason="manual-capture",
+                captured_audio_blocks=len(blocks),
+            )
+        return {
+            "active": False,
+            "audio_blocks": blocks,
+            "audio_block_count": len(blocks),
+        }
+
+    def diagnostics_capture_status(self) -> dict[str, object]:
+        """Return the current bounded diagnostics capture state."""
+
+        return {
+            "active": bool(self._diagnostics_capture_active),
+            "include_audio_buffers": bool(self._diagnostics_capture_include_audio),
+            "audio_block_count": int(len(self._diagnostics_capture_blocks)),
+            "max_audio_blocks": int(self._diagnostics_capture_max_blocks),
+        }
 
     def create_track(
         self,
@@ -408,8 +598,8 @@ class AudioEngine:
         self._transport.stop()
         self._last_audible_time_seconds = 0.0
         self._last_audible_monotonic_seconds = None
-        self._request_declick("stop")
         self.stop_overlay()
+        self._request_declick("stop")
 
     def seek(self, position_samples: int) -> None:
         self._end_of_content = False
@@ -423,8 +613,14 @@ class AudioEngine:
 
     def toggle_play_pause(self) -> None:
         self._end_of_content = False
+        if self._transport.is_playing:
+            self._transport.toggle_play_pause()
+            self._last_audible_monotonic_seconds = None
+            self._request_declick("toggle-pause")
+            return
         if not self._active:
             self._open_stream()
+        self._request_declick("toggle-play")
         self._transport.toggle_play_pause()
 
     def shutdown(self) -> None:
@@ -449,6 +645,47 @@ class AudioEngine:
         self._pending_declick = True
         self._pending_declick_reason = str(reason or "unspecified")
         self._last_discontinuity_reason = self._pending_declick_reason
+        self._record_runtime_event(
+            "discontinuity-request",
+            reason=self._pending_declick_reason,
+        )
+
+    def _record_runtime_event(
+        self,
+        kind: str,
+        *,
+        reason: str = "",
+        **metrics: object,
+    ) -> None:
+        """Append one bounded, best-effort runtime sensor event."""
+
+        try:
+            self._runtime_event_sequence += 1
+            event: dict[str, object] = {
+                "seq": int(self._runtime_event_sequence),
+                "source": "audio_engine",
+                "kind": str(kind or "runtime-event"),
+                "reason": str(reason or ""),
+                "monotonic_seconds": float(time.monotonic()),
+                "clock_samples": int(self._clock.position),
+                "clock_seconds": float(self._clock.position_seconds),
+                "is_playing": bool(self._transport.is_playing),
+                "overlay_active": bool(self.overlay_active),
+                "ramp_samples_remaining": int(self.ramp_samples_remaining),
+            }
+            for key, value in metrics.items():
+                if value is None:
+                    continue
+                if isinstance(value, (str, bool, int, float)):
+                    event[str(key)] = value
+                    continue
+                try:
+                    event[str(key)] = float(value)  # type: ignore[arg-type]
+                except (TypeError, ValueError):
+                    event[str(key)] = str(value)
+            self._recent_runtime_events.append(event)
+        except Exception:
+            return
 
     @property
     def overlay_active(self) -> bool:
@@ -466,7 +703,8 @@ class AudioEngine:
         if buffer.size == 0 or sample_rate <= 0:
             self.stop_overlay()
             return False
-        source = np.asarray(buffer, dtype=np.float32)
+        replacing_overlay = self._overlay_playback_buffer is not None
+        source = np.array(buffer, dtype=np.float32, copy=True)
         prepared = source
         if int(sample_rate) != int(self._clock.sample_rate):
             prepared = resample_buffer(prepared, int(sample_rate), int(self._clock.sample_rate))
@@ -486,10 +724,24 @@ class AudioEngine:
                 prepared = np.concatenate((prepared, pad), axis=1)
             elif prepared.shape[1] > self._channels:
                 prepared = np.asarray(prepared[:, : self._channels], dtype=np.float32)
-        self._overlay_buffer = np.asarray(source, dtype=np.float32)
-        self._overlay_playback_buffer = np.asarray(prepared, dtype=np.float32)
+        playback = _copy_with_edge_declick_fades(
+            prepared,
+            self._declick_fade_in,
+            self._declick_fade_out,
+        )
+        self._schedule_overlay_release_tail()
+        self._overlay_buffer = source
+        self._overlay_playback_buffer = playback
         self._overlay_read_index = 0
         self._overlay_volume = np.float32(max(0.0, float(volume)))
+        self._record_runtime_event(
+            "overlay-replace" if replacing_overlay else "overlay-start",
+            reason="play-overlay",
+            source_frames=int(source.shape[0]),
+            playback_frames=int(playback.shape[0]),
+            sample_rate=int(sample_rate),
+            volume=float(self._overlay_volume),
+        )
         self._request_declick("overlay-start")
         if not self._active:
             self._open_stream()
@@ -498,11 +750,47 @@ class AudioEngine:
     def stop_overlay(self) -> None:
         """Stop one-shot overlay playback and clear staged overlay samples."""
 
+        stopping_overlay = self._overlay_playback_buffer is not None
+        self._schedule_overlay_release_tail()
+        self._clear_overlay()
+        if stopping_overlay:
+            self._record_runtime_event("overlay-stop", reason="stop-overlay")
+        self._request_declick("overlay-stop")
+
+    def _clear_overlay(self) -> None:
         self._overlay_buffer = None
         self._overlay_playback_buffer = None
         self._overlay_read_index = 0
         self._overlay_volume = np.float32(1.0)
-        self._request_declick("overlay-stop")
+
+    def _schedule_overlay_release_tail(self) -> None:
+        overlay = self._overlay_playback_buffer
+        start = int(self._overlay_read_index)
+        if overlay is None or start <= 0 or start >= int(overlay.shape[0]):
+            return
+        available = int(overlay.shape[0]) - start
+        release_frames = min(available, int(self._declick_ramp_samples))
+        if release_frames <= 1:
+            return
+        release = np.array(overlay[start : start + release_frames], dtype=np.float32, copy=True)
+        if release_frames == int(self._declick_fade_out.shape[0]):
+            release_ramp = self._declick_fade_out[:release_frames]
+        else:
+            release_ramp = np.linspace(1.0, 0.0, release_frames, dtype=np.float32)
+        if release.ndim == 1:
+            release *= release_ramp
+        else:
+            release *= release_ramp[:, None]
+        self._overlay_release_buffer = release
+        self._overlay_release_read_index = 0
+        self._overlay_release_volume = np.float32(self._overlay_volume)
+        self._record_runtime_event(
+            "overlay-release",
+            reason="overlay-replaced-or-stopped",
+            release_frames=int(release_frames),
+            overlay_read_index=int(start),
+            overlay_frames=int(overlay.shape[0]),
+        )
 
     def _open_stream(self) -> None:
         if self._active:
@@ -533,6 +821,8 @@ class AudioEngine:
             )
             return
         mixed = self._output_scratch[:frames]
+        end_fade_position = -1
+        end_fade_duration = 0
         if not self._transport.is_playing:
             mixed[:] = 0.0
         else:
@@ -581,7 +871,11 @@ class AudioEngine:
                         )
                 else:
                     self._mixer.read_mix_into(self._output_scratch, position, frames)
+                if duration > 0 and not self._clock.loop_enabled:
+                    end_fade_position = int(position)
+                    end_fade_duration = int(duration)
 
+        self._mix_overlay_release_into(mixed, frames)
         self._mix_overlay_into(mixed, frames)
 
         self._sanitize_output_samples(mixed, frames)
@@ -590,7 +884,15 @@ class AudioEngine:
             frames=frames,
             force=bool(self._pending_declick),
         )
+        if end_fade_duration > 0:
+            self._apply_end_of_content_fade(
+                mixed,
+                position=end_fade_position,
+                frames=frames,
+                duration=end_fade_duration,
+            )
         self._pending_declick = False
+        self._capture_output_callback_block(mixed, frames=frames)
         if self._channels == 1:
             outdata[:, 0] = mixed if mixed.ndim == 1 else mixed[:, 0]
             return
@@ -599,39 +901,52 @@ class AudioEngine:
             return
         outdata[:, :] = mixed[:, : self._channels]
 
+    def _capture_output_callback_block(self, mixed: np.ndarray, *, frames: int) -> None:
+        if not self._diagnostics_capture_active or not self._diagnostics_capture_include_audio:
+            return
+        if frames <= 0 or self._diagnostics_capture_max_blocks <= 0:
+            return
+        try:
+            block = np.array(mixed[:frames], dtype=np.float32, copy=True)
+            self._diagnostics_capture_sequence += 1
+            self._diagnostics_capture_blocks.append(
+                {
+                    "seq": int(self._diagnostics_capture_sequence),
+                    "kind": "output_callback_mixed",
+                    "monotonic_seconds": float(time.monotonic()),
+                    "clock_samples": int(self._clock.position),
+                    "clock_seconds": float(self._clock.position_seconds),
+                    "frames": int(frames),
+                    "channels": int(self._channels),
+                    "sample_rate": int(self._clock.sample_rate),
+                    "is_playing": bool(self._transport.is_playing),
+                    "overlay_active": bool(self.overlay_active),
+                    "peak_abs": float(np.max(np.abs(block))) if block.size else 0.0,
+                    "rms": float(np.sqrt(np.mean(np.square(block)))) if block.size else 0.0,
+                    "samples": block,
+                }
+            )
+        except Exception:
+            return
+
     def _mix_overlay_into(self, mixed: np.ndarray, frames: int) -> None:
         overlay = self._overlay_playback_buffer
         if overlay is None:
             return
         start = int(self._overlay_read_index)
         if start >= int(overlay.shape[0]):
-            self.stop_overlay()
+            self._clear_overlay()
             return
         available = int(overlay.shape[0]) - start
         chunk_frames = min(int(frames), available)
         if chunk_frames <= 0:
-            self.stop_overlay()
+            self._clear_overlay()
             return
         overlay_view = overlay[start : start + chunk_frames]
         if start == 0:
-            fade_frames = min(chunk_frames, int(_DECLICK_RAMP_SAMPLES))
-            if fade_frames > 1:
-                if overlay_view.ndim == 1:
-                    overlay_view[:fade_frames] *= self._declick_fade_in[:fade_frames]
-                else:
-                    overlay_view[:fade_frames] *= self._declick_fade_in[:fade_frames, None]
-                self._last_ramp_reason = "overlay-start"
+            self._last_ramp_reason = "overlay-start"
         if start + chunk_frames >= int(overlay.shape[0]):
-            fade_frames = min(chunk_frames, int(_DECLICK_RAMP_SAMPLES))
-            if fade_frames > 1:
-                tail_start = chunk_frames - fade_frames
-                if overlay_view.ndim == 1:
-                    overlay_view[tail_start:chunk_frames] *= self._declick_fade_out[:fade_frames]
-                else:
-                    overlay_view[tail_start:chunk_frames] *= self._declick_fade_out[
-                        :fade_frames, None
-                    ]
-                self._last_ramp_reason = "overlay-end"
+            self._last_ramp_reason = "overlay-end"
         if mixed.ndim == 1:
             if overlay_view.ndim == 2:
                 overlay_view = overlay_view[:, 0]
@@ -645,7 +960,66 @@ class AudioEngine:
                 )
         self._overlay_read_index = start + chunk_frames
         if self._overlay_read_index >= int(overlay.shape[0]):
-            self.stop_overlay()
+            self._clear_overlay()
+
+    def _mix_overlay_release_into(self, mixed: np.ndarray, frames: int) -> None:
+        release = self._overlay_release_buffer
+        if release is None:
+            return
+        start = int(self._overlay_release_read_index)
+        if start >= int(release.shape[0]):
+            self._clear_overlay_release()
+            return
+        available = int(release.shape[0]) - start
+        chunk_frames = min(int(frames), available)
+        if chunk_frames <= 0:
+            self._clear_overlay_release()
+            return
+        release_view = release[start : start + chunk_frames]
+        if mixed.ndim == 1:
+            if release_view.ndim == 2:
+                release_view = release_view[:, 0]
+            mixed[:chunk_frames] += release_view * self._overlay_release_volume
+        else:
+            if release_view.ndim == 1:
+                mixed[:chunk_frames, :] += release_view[:, None] * self._overlay_release_volume
+            else:
+                mixed[:chunk_frames, : release_view.shape[1]] += (
+                    release_view * self._overlay_release_volume
+                )
+        self._overlay_release_read_index = start + chunk_frames
+        self._last_ramp_reason = "overlay-release"
+        if self._overlay_release_read_index >= int(release.shape[0]):
+            self._clear_overlay_release()
+
+    def _apply_end_of_content_fade(
+        self,
+        mixed: np.ndarray,
+        *,
+        position: int,
+        frames: int,
+        duration: int,
+    ) -> None:
+        end_offset = int(duration) - int(position)
+        if end_offset <= 0 or end_offset > int(frames):
+            return
+        fade_frames = min(end_offset, int(self._declick_ramp_samples))
+        fade_start = max(0, end_offset - fade_frames)
+        _apply_declick_fade_out_slice(mixed, fade_start, end_offset, self._declick_fade_out)
+        if end_offset < int(frames):
+            mixed[end_offset:frames] = 0.0
+        if mixed.ndim == 1:
+            self._last_output_tail[0] = np.float32(mixed[frames - 1])
+        else:
+            self._last_output_tail[:] = np.asarray(mixed[frames - 1], dtype=np.float32)
+        self._transport.pause()
+        self._end_of_content = True
+        self._last_ramp_reason = "end-of-content"
+
+    def _clear_overlay_release(self) -> None:
+        self._overlay_release_buffer = None
+        self._overlay_release_read_index = 0
+        self._overlay_release_volume = np.float32(1.0)
 
     def add_clock_subscriber(self, sub: ClockSubscriber) -> None:
         self._clock.add_subscriber(sub)
@@ -671,29 +1045,55 @@ class AudioEngine:
     def _apply_boundary_declick(self, buffer: np.ndarray, *, frames: int, force: bool) -> None:
         if frames <= 0:
             return
-        declick_frames = min(int(frames), int(_DECLICK_RAMP_SAMPLES))
-        if declick_frames <= 1:
-            return
 
-        if buffer.ndim == 1:
-            start_sample = float(buffer[0])
-            prior_tail = float(self._last_output_tail[0])
+        if force:
+            if buffer.ndim == 1:
+                start_sample = np.array([float(buffer[0])], dtype=np.float32)
+            else:
+                start_sample = np.asarray(buffer[0], dtype=np.float32)
+            prior_tail = np.asarray(self._last_output_tail, dtype=np.float32)
             delta = start_sample - prior_tail
-            if force and abs(delta) >= _DECLICK_DELTA_THRESHOLD:
-                ramp = self._declick_fade_out[:declick_frames]
-                buffer[:declick_frames] -= np.float32(delta) * ramp
+            if bool(np.any(np.abs(delta) >= _DECLICK_DELTA_THRESHOLD)):
+                self._declick_correction_delta = np.array(delta, dtype=np.float32, copy=True)
+                self._declick_correction_total = int(self._declick_ramp_samples)
+                self._declick_correction_remaining = int(self._declick_ramp_samples)
                 self._last_ramp_reason = self._pending_declick_reason
+                self._record_runtime_event(
+                    "callback-discontinuity",
+                    reason=self._pending_declick_reason,
+                    frames=int(frames),
+                    peak_delta=float(np.max(np.abs(delta))),
+                )
+
+        self._apply_declick_correction(buffer, frames=frames)
+        if buffer.ndim == 1:
             self._last_output_tail[0] = np.float32(buffer[frames - 1])
             return
-
-        start_sample = np.asarray(buffer[0], dtype=np.float32)
-        prior_tail = np.asarray(self._last_output_tail, dtype=np.float32)
-        delta = start_sample - prior_tail
-        if force and bool(np.any(np.abs(delta) >= _DECLICK_DELTA_THRESHOLD)):
-            ramp = self._declick_fade_out[:declick_frames, None]
-            buffer[:declick_frames] -= delta[None, :] * ramp
-            self._last_ramp_reason = self._pending_declick_reason
         self._last_output_tail[:] = np.asarray(buffer[frames - 1], dtype=np.float32)
+
+    def _apply_declick_correction(self, buffer: np.ndarray, *, frames: int) -> None:
+        remaining = int(self._declick_correction_remaining)
+        total = int(self._declick_correction_total)
+        if frames <= 0 or remaining <= 0 or total <= 1:
+            return
+        declick_frames = min(int(frames), remaining)
+        if declick_frames <= 0:
+            return
+        start = total - remaining
+        stop = start + declick_frames
+        ramp = self._declick_fade_out[start:stop]
+        if ramp.shape[0] != declick_frames:
+            return
+        delta = np.asarray(self._declick_correction_delta, dtype=np.float32)
+        if buffer.ndim == 1:
+            buffer[:declick_frames] -= delta[0] * ramp
+        else:
+            buffer[:declick_frames] -= delta[None, :] * ramp[:, None]
+        remaining -= declick_frames
+        self._declick_correction_remaining = max(0, remaining)
+        if self._declick_correction_remaining == 0:
+            self._declick_correction_total = 0
+            self._declick_correction_delta = np.zeros_like(self._last_output_tail)
 
     def _update_callback_timing_snapshot(self, time_info: Any) -> None:
         output_latency_seconds = self._reported_output_latency_seconds

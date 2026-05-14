@@ -15,6 +15,10 @@ from echozero.ui.style.qt.qss import (
     build_object_info_panel_qss,
 )
 from echozero.ui.qt.timeline.widget import TimelineWidget
+from echozero.ui.FEEL import (
+    TIMELINE_LAUNCHER_SUBMENU_ARROW_RIGHT_PADDING_PX,
+    TIMELINE_LAUNCHER_SUBMENU_ARROW_SIZE_PX,
+)
 from tests.ui.test_timeline_shell import _selection_test_presentation
 
 
@@ -47,6 +51,10 @@ def test_echozero_shell_qss_builder_uses_shared_shell_tokens():
     assert SHELL_TOKENS.window_bg in qss
     assert SHELL_TOKENS.control_bg in qss
     assert f"border-radius: {SHELL_TOKENS.scales.panel_radius}px;" in qss
+    assert "QMenu::right-arrow" in qss
+    assert f"width: {TIMELINE_LAUNCHER_SUBMENU_ARROW_SIZE_PX}px;" in qss
+    assert f"height: {TIMELINE_LAUNCHER_SUBMENU_ARROW_SIZE_PX}px;" in qss
+    assert f"right: {TIMELINE_LAUNCHER_SUBMENU_ARROW_RIGHT_PADDING_PX}px;" in qss
 
 
 def test_foundry_surface_qss_builder_stays_foundry_specific():

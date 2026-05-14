@@ -4,6 +4,7 @@ Connects the compatibility wrapper to the bounded project support slice.
 """
 
 import echozero.ui.qt.app_shell_project_lifecycle as project_lifecycle
+from echozero.application.timeline.intents import ReorderLayer
 from echozero.application.timeline.ma3_push_intents import SetLayerMA3Route
 from echozero.application.timeline.object_content_persistence import object_id_for_layer
 from echozero.persistence.audio import AudioMetadata, PreparedAudioSource, compute_audio_hash
@@ -134,6 +135,56 @@ def test_app_shell_runtime_persists_take_lane_expansion_state_across_save_and_op
             lane for lane in runtime.presentation().layers if lane.title == "Lane Manual"
         )
         assert reopened_collapsed.is_expanded is False
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_preserves_layer_order_above_source_audio_across_save_and_open():
+    temp_root = _repo_local_temp_root()
+    working_root = temp_root / "working"
+    save_path = temp_root / "layer-order-above-source.ez"
+
+    runtime = build_app_shell(
+        working_dir_root=working_root,
+        initial_project_name="Layer Order Runtime",
+    )
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        audio = write_test_wav(temp_root / "fixtures" / "layer-order.wav")
+        runtime.add_song_from_path("Layer Order Song", audio)
+        runtime.add_layer(LayerKind.EVENT, "Manual Events")
+
+        before_reorder = runtime.presentation()
+        source_layer = before_reorder.layers[0]
+        manual_layer = next(
+            layer for layer in before_reorder.layers if layer.title == "Manual Events"
+        )
+
+        reordered = runtime.dispatch(
+            ReorderLayer(
+                source_layer_id=manual_layer.layer_id,
+                target_after_layer_id=None,
+                insert_at_start=True,
+            )
+        )
+        assert [layer.title for layer in reordered.layers[:2]] == [
+            "Manual Events",
+            "Layer Order Song",
+        ]
+
+        runtime.save_project_as(save_path)
+        runtime.open_project(save_path)
+
+        reloaded = runtime.presentation()
+        assert [layer.title for layer in reloaded.layers[:2]] == [
+            "Manual Events",
+            "Layer Order Song",
+        ]
+        assert reloaded.layers[0].layer_id == manual_layer.layer_id
+        assert reloaded.layers[1].layer_id == source_layer.layer_id
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)

@@ -513,6 +513,8 @@ class TimelinePresentation:
     available_songs: list[SongOptionPresentation] = field(default_factory=list)
     available_song_versions: list[SongVersionOptionPresentation] = field(default_factory=list)
     bpm: float | None = None
+    bpm_confidence: float | None = None
+    beat_anchor_seconds: float | None = None
     playhead: float = 0.0
     is_playing: bool = False
     loop_region: TimeRange | None = None

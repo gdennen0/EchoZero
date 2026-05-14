@@ -266,6 +266,7 @@ class _SimulatedMA3OSCServer:
         self._recipe_line_rows: list[dict[str, object]] = _default_recipe_line_rows()
         self._drop_ping_reply_count = 0
         self._hooked_tracks: set[str] = set()
+        self._hook_fail_coords: set[str] = set()
         self._ez_version = "2.0"
         self._ez_build = "2026-04-30.hitmaker-health-1"
         self._hitmaker_loaded = True
@@ -534,6 +535,15 @@ class _SimulatedMA3OSCServer:
     def set_drop_ping_reply_count(self, count: int) -> None:
         self._drop_ping_reply_count = max(0, int(count))
 
+    def set_hook_failure(self, track_coord: str, *, should_fail: bool = True) -> None:
+        coord = str(track_coord or "").strip()
+        if not coord:
+            return
+        if should_fail:
+            self._hook_fail_coords.add(coord)
+        else:
+            self._hook_fail_coords.discard(coord)
+
     def _handle_command(self, _address: str, *args: object) -> None:
         command = ""
         for arg in args:
@@ -612,6 +622,40 @@ class _SimulatedMA3OSCServer:
                 "hitmaker_supports_version_info": self._hitmaker_supports_version_info,
             },
         )
+
+    def _handle_ConnectionReport(self, request_id: int | None = None) -> None:
+        payload: dict[str, object] = {
+            "schema_version": 1,
+            "status": "ok",
+            "ez_version": self._ez_version,
+            "ez_build": self._ez_build,
+            "hitmaker_loaded": self._hitmaker_loaded,
+            "hitmaker_version": self._hitmaker_version,
+            "hitmaker_build": self._hitmaker_build,
+            "target_ip": self._target[0] if self._target is not None else "",
+            "target_port": self._target[1] if self._target is not None else 0,
+            "socket_ok": True,
+            "osc_module_loaded": True,
+            "hooks": 0,
+            "hook_keys": [],
+            "capabilities": {
+                "ping": True,
+                "status": True,
+                "version": True,
+                "plugin_health": True,
+                "connection_report": True,
+                "hook_track": True,
+            },
+            "send": {
+                "send_sequence": len(self.commands),
+                "send_ok_count": len(self.commands),
+                "send_fail_count": 0,
+                "last_send_error": "",
+            },
+        }
+        if request_id is not None:
+            payload["request_id"] = int(request_id)
+        self._send_message("connection", "report", payload)
 
     def _handle_GetDataPoolObjects(
         self, path: str | None = None, request_id: int | None = None
@@ -1658,6 +1702,19 @@ class _SimulatedMA3OSCServer:
 
     def _handle_HookTrack(self, tc_no: int, tg_no: int, track_no: int) -> None:
         coord = format_track_coord(int(tc_no), int(tg_no), int(track_no))
+        if coord in self._hook_fail_coords:
+            self._send_message(
+                "hooks",
+                "error",
+                {
+                    "action": "hook_failed",
+                    "reason": "simulated_hook_failure",
+                    "tc": int(tc_no),
+                    "tg": int(tg_no),
+                    "track": int(track_no),
+                },
+            )
+            return
         self._hooked_tracks.add(coord)
         self._send_message(
             "subtrack",
@@ -2977,6 +3034,15 @@ class SimulatedMA3Bridge:
 
     def get_plugin_health(self) -> dict[str, object]:
         return self._require_bridge().get_plugin_health()
+
+    def get_connection_report(self) -> dict[str, object]:
+        return self._require_bridge().get_connection_report()
+
+    def hook_track(self, track_coord: str) -> bool:
+        return self._require_bridge().hook_track(track_coord)
+
+    def set_hook_failure(self, track_coord: str, *, should_fail: bool = True) -> None:
+        self._require_server().set_hook_failure(track_coord, should_fail=should_fail)
 
     def set_tracks(self, tracks) -> None:
         self._require_server().set_tracks(tracks)

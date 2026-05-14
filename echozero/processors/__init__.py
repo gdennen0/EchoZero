@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from echozero.processors.audio_filter import AudioFilterProcessor
 from echozero.processors.audio_negate import AudioNegateProcessor
 from echozero.processors.dataset_viewer import DatasetViewerProcessor
+from echozero.processors.detect_note_contour import DetectNoteContourProcessor
 from echozero.processors.detect_onsets import DetectOnsetsProcessor
 from echozero.processors.eq_bands import EQBandsProcessor
 from echozero.processors.export_audio import ExportAudioProcessor
@@ -32,6 +33,7 @@ __all__ = [
     "AudioNegateProcessor",
     "BinaryDrumClassifyProcessor",
     "DatasetViewerProcessor",
+    "DetectNoteContourProcessor",
     "DetectOnsetsProcessor",
     "EQBandsProcessor",
     "ExportAudioProcessor",

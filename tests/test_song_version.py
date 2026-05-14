@@ -18,6 +18,7 @@ import pytest
 from echozero.domain.types import AudioData
 from echozero.errors import PersistenceError
 from echozero.persistence.audio import AudioImportOptions, AudioMetadata
+from echozero.persistence.audio_tempo import AudioTempoMetadata
 from echozero.persistence.entities import (
     LayerRecord,
     PipelineConfigRecord,
@@ -207,6 +208,33 @@ class TestAudioMetadata:
 
         assert v2.duration_seconds == 240.0
         assert v2.original_sample_rate == 48000
+        session.close()
+
+    def test_import_song_detects_and_persists_tempo_metadata(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        session = _create_session(tmp_path)
+        audio = _create_audio_file(tmp_path)
+
+        monkeypatch.setattr(
+            "echozero.persistence.audio_tempo.detect_audio_tempo",
+            lambda _path: AudioTempoMetadata(
+                bpm=126.4,
+                bpm_confidence=0.82,
+                beat_anchor_seconds=0.37,
+            ),
+        )
+
+        _song, version = session.import_song("Test", audio, scan_fn=_mock_scan)
+        persisted = session.song_versions.get(version.id)
+
+        assert version.bpm == pytest.approx(126.4)
+        assert version.bpm_confidence == pytest.approx(0.82)
+        assert version.beat_anchor_seconds == pytest.approx(0.37)
+        assert persisted is not None
+        assert persisted.bpm == pytest.approx(126.4)
+        assert persisted.bpm_confidence == pytest.approx(0.82)
+        assert persisted.beat_anchor_seconds == pytest.approx(0.37)
         session.close()
 
     def test_shared_version_factory_scans_each_import_source_once(self, tmp_path: Path) -> None:
@@ -562,6 +590,48 @@ class TestAddSongVersion:
         v2 = session.add_song_version(song.id, audio2, scan_fn=_mock_scan)
         v2_configs = session.pipeline_configs.list_by_version(v2.id)
         assert len(v2_configs) == 2
+        session.close()
+
+    def test_import_song_can_seed_defaults_from_another_song(self, tmp_path: Path) -> None:
+        session = _create_session(tmp_path)
+        audio1 = _create_audio_file(tmp_path, "v1.wav")
+        audio2 = _create_audio_file(tmp_path, "v2.wav")
+
+        source_song, source_version = session.import_song(
+            "Source SongRecord",
+            audio1,
+            scan_fn=_mock_scan,
+            default_templates=[],
+        )
+        source_default = SongDefaultPipelineConfigRecord.from_version_config(
+            _make_pipeline_config(
+                source_version.id,
+                knob_values={"threshold": 0.7, "min_gap": 0.02},
+                block_overrides={"detect1": ["threshold"]},
+            ),
+            song_id=source_song.id,
+        )
+        session.song_default_pipeline_configs.create(source_default)
+        session.commit()
+
+        seeded_song, seeded_version = session.import_song(
+            "Seeded SongRecord",
+            audio2,
+            scan_fn=_mock_scan,
+            default_templates=[],
+            seed_default_song_id=source_song.id,
+        )
+
+        seeded_defaults = session.song_default_pipeline_configs.list_by_song(seeded_song.id)
+        assert len(seeded_defaults) == 1
+        assert seeded_defaults[0].id != source_default.id
+        assert seeded_defaults[0].knob_values == {"threshold": 0.7, "min_gap": 0.02}
+        assert seeded_defaults[0].block_overrides == {"detect1": ["threshold"]}
+
+        version_configs = session.pipeline_configs.list_by_version(seeded_version.id)
+        assert len(version_configs) == 1
+        assert version_configs[0].knob_values == {"threshold": 0.7, "min_gap": 0.02}
+        assert version_configs[0].block_overrides == {"detect1": ["threshold"]}
         session.close()
 
     def test_copied_configs_have_new_ids(self, tmp_path: Path) -> None:

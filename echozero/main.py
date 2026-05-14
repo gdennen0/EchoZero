@@ -47,6 +47,7 @@ def get_default_executors() -> dict[str, BlockExecutor]:
             "ExportAudioDatasetProcessor",
         ),
         ("GenerateWaveform", "echozero.processors.generate_waveform", "GenerateWaveformProcessor"),
+        ("DetectNoteContour", "echozero.processors.detect_note_contour", "DetectNoteContourProcessor"),
         ("TranscribeNotes", "echozero.processors.transcribe_notes", "TranscribeNotesProcessor"),
         (
             "PyTorchAudioClassify",

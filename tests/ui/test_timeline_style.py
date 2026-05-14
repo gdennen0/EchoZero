@@ -1,14 +1,18 @@
+from dataclasses import replace
+
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFontMetrics
+from PyQt6.QtGui import QFontMetrics, QImage, QPainter
 from PyQt6.QtWidgets import (
     QApplication,
     QDialogButtonBox,
     QDoubleSpinBox,
+    QGridLayout,
     QLabel,
     QSpinBox,
     QWidget,
 )
 
+from echozero.application.settings import SettingsFieldSurface
 from echozero.application.presentation.inspector_contract import (
     InspectorAction,
     InspectorContextSection,
@@ -40,7 +44,7 @@ from echozero.ui.qt.settings_dialog import ActionSettingsDialog
 from echozero.ui.qt.settings_form import ActionSettingsForm
 from echozero.ui.qt.timeline.blocks.event_lane import EventLaneBlock
 from echozero.ui.qt.timeline.blocks.layer_header import LayerHeaderBlock
-from echozero.ui.qt.timeline.blocks.ruler import RulerBlock
+from echozero.ui.qt.timeline.blocks.ruler import RulerBlock, visible_ruler_marks
 from echozero.ui.qt.timeline.blocks.take_row import TakeRowBlock
 from echozero.ui.qt.timeline.blocks.transport_bar import TransportLayout
 from echozero.ui.qt.timeline.blocks.transport_bar_block import TransportBarBlock
@@ -229,7 +233,52 @@ def test_object_info_panel_renders_pipeline_action_settings_rows():
         assert panel._settings_buttons["timeline.extract_stems"].text() == "..."
         assert panel._settings_buttons["timeline.extract_stems"].toolTip() == "Open Settings"
         assert panel._action_buttons["timeline.extract_stems"].property("appearance") == "primary"
-        assert panel._action_buttons["timeline.extract_stems"].text() == "Run"
+        assert panel._action_buttons["timeline.extract_stems"].text() == "Extract Stems"
+    finally:
+        panel.close()
+        app.processEvents()
+
+
+def test_object_info_panel_labels_confirmation_pipeline_runs_as_review():
+    app = QApplication.instance() or QApplication([])
+    demo = build_demo_app()
+    panel = ObjectInfoPanel()
+    try:
+        presentation = demo.presentation()
+        contract = InspectorContract(
+            title="Layer Drums",
+            context_sections=(
+                InspectorContextSection(
+                    section_id="pipelines",
+                    label="Pipelines",
+                    actions=(
+                        InspectorAction(
+                            action_id="timeline.extract_classified_drums",
+                            label="Extract Classified Drums",
+                            requires_settings_confirmation=True,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        panel.set_contract(presentation, contract)
+        panel.set_action_settings_plans(
+            (
+                ObjectActionSettingsPlan(
+                    action_id="timeline.extract_classified_drums",
+                    title="Extract Classified Drums",
+                    object_id="drums",
+                    object_type="layer",
+                    pipeline_template_id="extract_classified_drums",
+                    run_label="Review & Run",
+                    requires_settings_confirmation=True,
+                ),
+            )
+        )
+
+        button = panel._action_buttons["timeline.extract_classified_drums"]
+        assert button.text() == "Review"
+        assert button.toolTip() == "Review & Run"
     finally:
         panel.close()
         app.processEvents()
@@ -523,6 +572,154 @@ def test_action_settings_dialog_uses_bounded_section_surfaces():
         assert dialog._save_defaults.property("appearance") == "subtle"
         assert dialog._copy_preview.objectName() == "actionSettingsCopyPreview"
         assert dialog._reset_defaults.isEnabled() is False
+    finally:
+        dialog.close()
+        app.processEvents()
+
+
+def test_action_settings_dialog_song_parts_shows_preview_panel():
+    app = QApplication.instance() or QApplication([])
+    session = ObjectActionSettingsSession(
+        session_id="session_song_parts",
+        action_id="timeline.extract_song_sections",
+        object_id="source_audio",
+        object_type="layer",
+        scope="version",
+        plan=ObjectActionSettingsPlan(
+            action_id="timeline.extract_song_sections",
+            title="Detect Song Parts",
+            object_id="source_audio",
+            object_type="layer",
+            pipeline_template_id="extract_song_sections",
+            summary="Source Audio · This Version",
+            locked_bindings=(("audio_file", "/tmp/source.wav"),),
+        ),
+        scope_states=(
+            ObjectActionSettingsScopeState(
+                scope="version",
+                label="This Version",
+                field_values=(
+                    ObjectActionSessionFieldValue(
+                        key="detect_method",
+                        persisted_value="mir_self_similarity",
+                        draft_value="mir_self_similarity",
+                    ),
+                ),
+                can_run=True,
+            ),
+        ),
+    )
+    dialog = ActionSettingsDialog(
+        session,
+        dispatch_command=lambda _session_id, _command: session,
+    )
+    try:
+        assert dialog.windowTitle() == "Confirm Song Parts Detection"
+        assert dialog._song_parts_preview.isHidden() is False
+        assert (
+            dialog._buttons.button(QDialogButtonBox.StandardButton.Apply).text()
+            == "Confirm Method And Run"
+        )
+    finally:
+        dialog.close()
+        app.processEvents()
+
+
+def test_action_settings_dialog_drum_confirmation_summary_stays_visible():
+    app = QApplication.instance() or QApplication([])
+    session = ObjectActionSettingsSession(
+        session_id="session_drum_confirm",
+        action_id="timeline.extract_song_drum_events",
+        object_id="source_audio",
+        object_type="layer",
+        scope="version",
+        plan=ObjectActionSettingsPlan(
+            action_id="timeline.extract_song_drum_events",
+            title="Extract Drum Events",
+            object_id="source_audio",
+            object_type="layer",
+            pipeline_template_id="extract_song_drum_events",
+            summary="Source Audio · This Version",
+            requires_settings_confirmation=True,
+            editable_fields=(
+                ObjectActionSettingField(
+                    key="target_drum_labels",
+                    label="Drum Outputs",
+                    value=("kick", "snare"),
+                    default_value=("kick", "snare"),
+                    widget="checkbox_group",
+                    options=(
+                        ObjectActionSettingOption(value="kick", label="Kick"),
+                        ObjectActionSettingOption(value="snare", label="Snare"),
+                    ),
+                ),
+                ObjectActionSettingField(
+                    key="sensitivity_preset",
+                    label="Sensitivity",
+                    value="balanced",
+                    default_value="balanced",
+                    widget="dropdown",
+                    options=(
+                        ObjectActionSettingOption(value="balanced", label="Balanced"),
+                    ),
+                ),
+                ObjectActionSettingField(
+                    key="kick_model_path",
+                    label="Kick Model",
+                    value="/models/kick.manifest.json",
+                    default_value="",
+                    widget="dropdown",
+                    options=(
+                        ObjectActionSettingOption(
+                            value="/models/kick.manifest.json",
+                            label="Kick Bundle",
+                            metadata={"status": "ready"},
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        scope_states=(
+            ObjectActionSettingsScopeState(
+                scope="version",
+                label="This Version",
+                field_values=(
+                    ObjectActionSessionFieldValue(
+                        key="target_drum_labels",
+                        persisted_value=("kick", "snare"),
+                        draft_value=("kick", "snare"),
+                    ),
+                    ObjectActionSessionFieldValue(
+                        key="sensitivity_preset",
+                        persisted_value="balanced",
+                        draft_value="balanced",
+                    ),
+                    ObjectActionSessionFieldValue(
+                        key="kick_model_path",
+                        persisted_value="/models/kick.manifest.json",
+                        draft_value="/models/kick.manifest.json",
+                    ),
+                ),
+                can_run=True,
+            ),
+        ),
+        can_save_and_run=True,
+    )
+    dialog = ActionSettingsDialog(
+        session,
+        dispatch_command=lambda _session_id, _command: session,
+    )
+    try:
+        confirmation = dialog._confirmation.text()
+        assert dialog._confirmation.isHidden() is False
+        assert "Confirm before run" in confirmation
+        assert "Event types: Kick, Snare" in confirmation
+        assert "Sensitivity: Balanced" in confirmation
+        assert "Models: 1 ready" in confirmation
+        assert (
+            dialog._buttons.button(QDialogButtonBox.StandardButton.Apply).text()
+            == "Confirm And Extract Drums"
+        )
     finally:
         dialog.close()
         app.processEvents()
@@ -833,6 +1030,57 @@ def test_pipeline_settings_browser_dialog_honors_initial_action_selection():
         app.processEvents()
 
 
+def test_pipeline_settings_browser_dialog_song_parts_shows_preview_panel():
+    app = QApplication.instance() or QApplication([])
+    field_values = (
+        ObjectActionSessionFieldValue(
+            key="detect_method",
+            persisted_value="mir_self_similarity",
+            draft_value="mir_self_similarity",
+        ),
+    )
+    session = ObjectActionSettingsSession(
+        session_id="pipeline_song_parts",
+        action_id="timeline.extract_song_sections",
+        object_id="source_audio",
+        object_type="layer",
+        scope="version",
+        plan=ObjectActionSettingsPlan(
+            action_id="timeline.extract_song_sections",
+            title="Detect Song Parts",
+            object_id="source_audio",
+            object_type="layer",
+            pipeline_template_id="extract_song_sections",
+            summary="Source Audio · This Version",
+            locked_bindings=(("audio_file", "/tmp/source.wav"),),
+            requires_settings_confirmation=True,
+        ),
+        scope_states=(
+            ObjectActionSettingsScopeState(
+                scope="version",
+                label="This Version",
+                field_values=field_values,
+                can_run=True,
+            ),
+        ),
+        can_save=True,
+        can_save_and_run=True,
+    )
+    dialog = PipelineSettingsBrowserDialog(
+        (session,),
+        dispatch_command=lambda _session_id, _command: session,
+    )
+    try:
+        assert dialog._song_parts_preview.isHidden() is False
+        assert dialog._title.text() == "Confirm Song Parts Detection"
+        assert dialog._require_button(QDialogButtonBox.StandardButton.Apply).text() == (
+            "Confirm Method And Run"
+        )
+    finally:
+        dialog.close()
+        app.processEvents()
+
+
 def test_pipeline_settings_browser_dialog_field_edit_does_not_rebuild_form():
     app = QApplication.instance() or QApplication([])
     dispatched: list[object] = []
@@ -933,7 +1181,7 @@ def test_timeline_editor_mode_bar_groups_tools_and_syncs_state():
         assert bar._fix_action_buttons["select"].objectName() == "timelineEditorFixSelectButton"
         assert bar._mode_buttons["draw"].isChecked()
         assert bar._snap_button.isChecked()
-        assert bar._grid_button.text() == "▦ Grid: Beat"
+        assert bar._grid_button.text() == "▦ Grid: Beats"
 
         bar.set_state(
             edit_mode="erase",
@@ -1000,9 +1248,9 @@ def test_timeline_editor_mode_bar_switches_to_compact_density_when_narrow():
         assert bar._mode_buttons["move"].isHidden() is True
         assert bar._mode_buttons["erase"].isHidden() is True
         assert bar._settings_button.text() == ""
-        assert bar._osc_settings_button.text() == "O"
-        assert bar._pipeline_settings_button.text() == "P"
-        assert bar._grid_button.text().startswith("▦")
+        assert bar._osc_settings_button.text() == "OSC"
+        assert bar._pipeline_settings_button.text() == "Pipe"
+        assert bar._grid_button.text() == "▦T"
         assert bar._fix_action_buttons["select"].isVisible() is False
     finally:
         bar.close()
@@ -1028,15 +1276,15 @@ def test_timeline_editor_pipeline_button_routes_to_pipeline_settings_browser(mon
         app.processEvents()
 
 
-def test_open_object_action_settings_routes_to_pipeline_settings_browser(monkeypatch):
+def test_open_object_action_settings_routes_to_focused_settings_dialog(monkeypatch):
     app = QApplication.instance() or QApplication([])
     widget = TimelineWidget(_song_switching_presentation())
     captured: list[InspectorAction | None] = []
     try:
         monkeypatch.setattr(
             widget._action_router,
-            "_open_pipeline_settings_browser",
-            lambda *, preferred_action: captured.append(preferred_action),
+            "_open_single_action_settings_dialog",
+            lambda *, action: captured.append(action),
         )
 
         action = InspectorAction(
@@ -1096,6 +1344,60 @@ def test_transport_bar_meta_text_keeps_stopped_state_visible_when_width_is_small
     )
 
     assert expected_status in text
+
+
+def test_transport_bar_meta_text_promotes_bpm_when_available():
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(
+        build_demo_app().presentation(),
+        bpm=128.0,
+        bpm_confidence=0.9,
+    )
+    block = TransportBarBlock()
+
+    text = block._status_meta_text(
+        presentation=presentation,
+        available_width=240.0,
+        font_metrics=QFontMetrics(app.font()),
+    )
+
+    assert "128 BPM" in text
+
+
+def test_transport_bar_block_paint_returns_control_rects_without_error():
+    presentation = build_demo_app().presentation()
+    block = TransportBarBlock()
+    layout = TransportLayout.create(width=1280, height=TIMELINE_TRANSPORT_HEIGHT_PX)
+    image = QImage(1280, TIMELINE_TRANSPORT_HEIGHT_PX, QImage.Format.Format_ARGB32_Premultiplied)
+    painter = QPainter(image)
+    try:
+        control_rects = block.paint(painter, layout, presentation)
+    finally:
+        painter.end()
+
+    assert set(control_rects) == {"play", "stop", "follow"}
+    assert control_rects["play"].width() > 0.0
+    assert control_rects["stop"].width() > 0.0
+    assert control_rects["follow"].width() > 0.0
+
+
+def test_visible_ruler_marks_use_bars_when_bpm_and_anchor_are_available():
+    presentation = replace(
+        _song_switching_presentation(),
+        bpm=120.0,
+        beat_anchor_seconds=0.5,
+        pixels_per_second=120.0,
+        scroll_x=0.0,
+    )
+
+    marks = visible_ruler_marks(
+        presentation=presentation,
+        content_width=720.0,
+        content_start_x=160.0,
+    )
+
+    assert marks
+    assert marks[0][0] == "1|1"
 
 
 def test_timeline_widget_top_chrome_is_compact_and_centered():
@@ -1170,6 +1472,312 @@ def test_action_settings_form_returns_current_values():
         form._inputs["shifts"].setValue(3)
 
         assert form.values() == {"mode": "overwrite", "shifts": 3}
+    finally:
+        form.close()
+        app.processEvents()
+
+
+def test_action_settings_form_groups_extract_classified_drums_intentionally():
+    app = QApplication.instance() or QApplication([])
+    form = ActionSettingsForm()
+    try:
+        form.set_plan(
+            ObjectActionSettingsPlan(
+                action_id="timeline.extract_classified_drums",
+                title="Extract Classified Drums",
+                object_id="drums",
+                object_type="layer",
+                pipeline_template_id="extract_classified_drums",
+                editable_fields=(
+                    ObjectActionSettingField(
+                        key="target_drum_labels",
+                        label="Drum Outputs",
+                        value=("kick", "snare", "clap"),
+                        default_value=("kick", "snare"),
+                        widget="checkbox_group",
+                        options=(
+                            ObjectActionSettingOption(value="kick", label="Kick"),
+                            ObjectActionSettingOption(value="snare", label="Snare"),
+                            ObjectActionSettingOption(value="clap", label="Clap"),
+                        ),
+                    ),
+                    ObjectActionSettingField(
+                        key="sensitivity_preset",
+                        label="Sensitivity",
+                        value="balanced",
+                        default_value="balanced",
+                        widget="dropdown",
+                        options=(
+                            ObjectActionSettingOption(value="more_events", label="More Events"),
+                            ObjectActionSettingOption(value="balanced", label="Balanced"),
+                            ObjectActionSettingOption(value="fewer_events", label="Fewer Events"),
+                            ObjectActionSettingOption(value="custom", label="Custom / Advanced"),
+                        ),
+                    ),
+                    ObjectActionSettingField(
+                        key="kick_model_path",
+                        label="Kick Model",
+                        value="/models/kick.manifest.json",
+                        default_value="",
+                        widget="dropdown",
+                        options=(
+                            ObjectActionSettingOption(
+                                value="/models/kick.manifest.json",
+                                label="Kick Bundle",
+                                metadata={"status": "ready"},
+                            ),
+                        ),
+                    ),
+                    ObjectActionSettingField(
+                        key="snare_model_path",
+                        label="Snare Model",
+                        value="/models/snare.manifest.json",
+                        default_value="",
+                        widget="dropdown",
+                        options=(
+                            ObjectActionSettingOption(
+                                value="/models/snare.manifest.json",
+                                label="Snare Bundle",
+                            ),
+                        ),
+                    ),
+                    ObjectActionSettingField(
+                        key="clap_model_path",
+                        label="Clap Model",
+                        value="/models/clap.manifest.json",
+                        default_value="",
+                        widget="dropdown",
+                        options=(
+                            ObjectActionSettingOption(
+                                value="/models/clap.manifest.json",
+                                label="Clap Bundle",
+                            ),
+                        ),
+                    ),
+                    ObjectActionSettingField(
+                        key="cymbal_model_path",
+                        label="Cymbal Model",
+                        value="/models/cymbal.manifest.json",
+                        default_value="",
+                        widget="dropdown",
+                        options=(
+                            ObjectActionSettingOption(
+                                value="/models/cymbal.manifest.json",
+                                label="Cymbal Bundle",
+                            ),
+                        ),
+                    ),
+                    ObjectActionSettingField(
+                        key="kick_positive_threshold",
+                        label="Kick Classification Threshold",
+                        value=0.5,
+                        default_value=0.5,
+                        widget="number",
+                    ),
+                    ObjectActionSettingField(
+                        key="snare_positive_threshold",
+                        label="Snare Classification Threshold",
+                        value=0.5,
+                        default_value=0.5,
+                        widget="number",
+                    ),
+                    ObjectActionSettingField(
+                        key="clap_positive_threshold",
+                        label="Clap Classification Threshold",
+                        value=0.5,
+                        default_value=0.5,
+                        widget="number",
+                    ),
+                    ObjectActionSettingField(
+                        key="cymbal_positive_threshold",
+                        label="Cymbal Classification Threshold",
+                        value=0.5,
+                        default_value=0.5,
+                        widget="number",
+                    ),
+                    ObjectActionSettingField(
+                        key="kick_min_separation_ms",
+                        label="Kick Dedup Window (ms)",
+                        value=80.0,
+                        default_value=80.0,
+                        widget="number",
+                    ),
+                    ObjectActionSettingField(
+                        key="kick_filter_enabled",
+                        label="Kick Filter Enabled",
+                        value=True,
+                        default_value=True,
+                        widget="toggle",
+                    ),
+                    ObjectActionSettingField(
+                        key="snare_filter_enabled",
+                        label="Snare Filter Enabled",
+                        value=True,
+                        default_value=True,
+                        widget="toggle",
+                    ),
+                    ObjectActionSettingField(
+                        key="clap_filter_enabled",
+                        label="Clap Filter Enabled",
+                        value=True,
+                        default_value=True,
+                        widget="toggle",
+                    ),
+                    ObjectActionSettingField(
+                        key="cymbal_filter_enabled",
+                        label="Cymbal Filter Enabled",
+                        value=True,
+                        default_value=True,
+                        widget="toggle",
+                    ),
+                ),
+                advanced_fields=(
+                    ObjectActionSettingField(
+                        key="assignment_mode",
+                        label="Assignment Mode",
+                        value="independent",
+                        default_value="independent",
+                        widget="dropdown",
+                        options=(
+                            ObjectActionSettingOption(
+                                value="independent",
+                                label="Independent (Allow Overlaps)",
+                            ),
+                            ObjectActionSettingOption(
+                                value="exclusive_max",
+                                label="Winner Takes Similar Hits",
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        labels = {label.text() for label in form.findChildren(QLabel)}
+        assert "Events to find" in labels
+        assert "Quality" in labels
+        assert "Model status" in labels
+        assert "Advanced / Custom recovery" in labels
+        assert form._page.title == "Extract Drum Events"
+        assert set(form._inputs) >= {
+            "target_drum_labels",
+            "sensitivity_preset",
+            "kick_model_path",
+            "snare_model_path",
+            "clap_model_path",
+            "cymbal_model_path",
+            "kick_positive_threshold",
+            "snare_positive_threshold",
+            "clap_positive_threshold",
+            "cymbal_positive_threshold",
+            "kick_min_separation_ms",
+            "kick_filter_enabled",
+            "snare_filter_enabled",
+            "clap_filter_enabled",
+            "cymbal_filter_enabled",
+            "assignment_mode",
+        }
+
+        sections_by_title = {
+            section.title: section for section in form._page.sections if section.fields
+        }
+        assert [field.key for field in sections_by_title["Events to find"].fields] == [
+            "target_drum_labels"
+        ]
+        assert [field.key for field in sections_by_title["Quality"].fields] == [
+            "sensitivity_preset"
+        ]
+        assert [field.key for field in sections_by_title["Model status"].fields] == [
+            "kick_model_path",
+            "snare_model_path",
+            "clap_model_path",
+            "cymbal_model_path",
+        ]
+        assert {
+            field.surface for field in sections_by_title["Model status"].fields
+        } == {SettingsFieldSurface.ADVANCED}
+        assert {
+            field.surface for field in sections_by_title["Advanced / Custom recovery"].fields
+        } == {SettingsFieldSurface.ADVANCED}
+        advanced_keys = {
+            field.key for field in sections_by_title["Advanced / Custom recovery"].fields
+        }
+        assert {
+            "kick_positive_threshold",
+            "snare_positive_threshold",
+            "clap_positive_threshold",
+            "cymbal_positive_threshold",
+            "kick_filter_enabled",
+            "assignment_mode",
+        } <= advanced_keys
+        worksheet_grids = [
+            layout
+            for layout in form.findChildren(QGridLayout)
+            if layout.property("worksheet") == "classifier_models"
+        ]
+        assert worksheet_grids == []
+    finally:
+        form.close()
+        app.processEvents()
+
+
+def test_action_settings_form_compacts_song_drum_events_primary_controls():
+    app = QApplication.instance() or QApplication([])
+    form = ActionSettingsForm()
+    try:
+        form.set_plan(
+            ObjectActionSettingsPlan(
+                action_id="timeline.extract_song_drum_events",
+                title="Extract Drum Events",
+                object_id="song",
+                object_type="layer",
+                pipeline_template_id="extract_song_drum_events",
+                editable_fields=(
+                    ObjectActionSettingField(
+                        key="target_drum_labels",
+                        label="Drum Outputs",
+                        value=("kick", "snare"),
+                        default_value=("kick", "snare"),
+                        widget="checkbox_group",
+                        options=(
+                            ObjectActionSettingOption(value="kick", label="Kick"),
+                            ObjectActionSettingOption(value="snare", label="Snare"),
+                        ),
+                    ),
+                    ObjectActionSettingField(
+                        key="sensitivity_preset",
+                        label="Sensitivity",
+                        value="balanced",
+                        default_value="balanced",
+                        widget="dropdown",
+                        options=(ObjectActionSettingOption(value="balanced", label="Balanced"),),
+                    ),
+                    ObjectActionSettingField(
+                        key="kick_onset_threshold",
+                        label="Kick Detection Threshold",
+                        value=0.25,
+                        default_value=0.25,
+                        widget="number",
+                    ),
+                ),
+            )
+        )
+
+        sections_by_title = {
+            section.title: section for section in form._page.sections if section.fields
+        }
+        assert [field.key for field in sections_by_title["Events to find"].fields] == [
+            "target_drum_labels"
+        ]
+        assert [field.key for field in sections_by_title["Quality"].fields] == [
+            "sensitivity_preset"
+        ]
+        assert [
+            field.key for field in sections_by_title["Advanced / Custom recovery"].fields
+        ] == ["kick_onset_threshold"]
+        assert {
+            field.surface for field in sections_by_title["Advanced / Custom recovery"].fields
+        } == {SettingsFieldSurface.ADVANCED}
     finally:
         form.close()
         app.processEvents()

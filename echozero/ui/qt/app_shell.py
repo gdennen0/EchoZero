@@ -49,6 +49,7 @@ from echozero.persistence.session import ProjectStorage
 from echozero.pipelines.registry import get_registry
 from echozero.processors import (
     AudioFilterProcessor,
+    DetectNoteContourProcessor,
     DetectOnsetsProcessor,
     SongSectionsProcessor,
     LoadAudioProcessor,
@@ -102,6 +103,9 @@ from echozero.ui.qt.app_shell_project_lifecycle import (
     set_project_ma3_push_offset_seconds as _set_project_ma3_push_offset_seconds,
 )
 from echozero.ui.qt.app_shell_project_lifecycle import (
+    set_song_version_beat_anchor_seconds as _set_song_version_beat_anchor_seconds,
+)
+from echozero.ui.qt.app_shell_project_lifecycle import (
     set_song_version_ma3_timecode_pool as _set_song_version_ma3_timecode_pool,
 )
 from echozero.ui.qt.app_shell_project_lifecycle import switch_song_version as _switch_song_version
@@ -144,6 +148,9 @@ from echozero.ui.qt.app_shell_runtime_support import (
 from echozero.ui.qt.app_shell_runtime_support import (
     sync_runtime_audio_from_presentation as _sync_runtime_audio_from_presentation,
 )
+from echozero.ui.qt.app_shell_selection_model_improvement import (
+    AppShellSelectionModelImprovementMixin,
+)
 from echozero.ui.qt.app_shell_storage_sync import (
     materialize_draft_layers as _materialize_draft_layers,
 )
@@ -171,6 +178,7 @@ _T = TypeVar("_T")
 class StageZeroRuntimeController(
     AppShellEditingMixin,
     AppShellObjectActionMixin,
+    AppShellSelectionModelImprovementMixin,
     AppShellSpecializedModelMixin,
 ):
     """Concrete Stage Zero runtime owner for shell lifecycle, session state, and collaborators."""
@@ -197,6 +205,7 @@ class StageZeroRuntimeController(
         self._history = UndoHistory(limit=_DEFAULT_HISTORY_LIMIT)
         self._is_dirty = False
         self._draft_layers: list[Layer] = []
+        self._event_clipboard = []
         self._staged_project_runtime_presentation: TimelinePresentation | None = None
         self._staged_layer_header_width_px: int | None = None
         self._app: TimelineApplication = build_runtime_timeline_application(
@@ -497,6 +506,17 @@ class StageZeroRuntimeController(
     ) -> TimelinePresentation:
         return _set_song_version_ma3_timecode_pool(self, song_version_id, timecode_pool_no)
 
+    def set_song_version_beat_anchor_seconds(
+        self,
+        song_version_id: str | SongVersionId,
+        beat_anchor_seconds: float,
+    ) -> TimelinePresentation:
+        return _set_song_version_beat_anchor_seconds(
+            self,
+            song_version_id,
+            beat_anchor_seconds,
+        )
+
     def get_project_ma3_push_offset_seconds(self) -> float:
         return _get_project_ma3_push_offset_seconds(self)
 
@@ -668,6 +688,7 @@ def _build_runtime_orchestrator() -> Orchestrator:
             "LoadAudio": LoadAudioProcessor(),
             "AudioFilter": AudioFilterProcessor(),
             "SeparateAudio": SeparateAudioProcessor(),
+            "DetectNoteContour": DetectNoteContourProcessor(),
             "DetectOnsets": DetectOnsetsProcessor(),
             "DetectSongSections": SongSectionsProcessor(),
             "PyTorchAudioClassify": PyTorchAudioClassifyProcessor(),

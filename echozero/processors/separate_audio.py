@@ -6,7 +6,10 @@ Connects execution-engine block runs to model-backed stem separation results.
 from __future__ import annotations
 
 import os
+import inspect
 import tempfile
+import threading
+import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -66,6 +69,7 @@ VALID_DEVICES = {"auto", "cpu", "cuda"}
 VALID_TWO_STEMS = {"vocals", "drums", "bass", "other"}
 VALID_OUTPUT_FORMATS = {"wav", "mp3"}
 VALID_MP3_BITRATES = {128, 192, 320}
+_SEPARATION_HEARTBEAT_SECONDS = 5.0
 
 
 def resolve_demucs_model_name(model_name: str) -> str:
@@ -123,6 +127,7 @@ SeparateFn = Callable[
     ],
     list[StemResult],
 ]
+SeparationProgressCallback = Callable[[float, str], None]
 
 
 def _detect_device(requested: str) -> str:
@@ -148,8 +153,14 @@ def _default_separate(
     output_dir: str,
     output_format: str,
     mp3_bitrate: int,
+    progress_callback: SeparationProgressCallback | None = None,
 ) -> list[StemResult]:
     """Run Demucs separation (API when available, CLI fallback for Demucs v4)."""
+    _report_separation_progress(
+        progress_callback,
+        percent=0.2,
+        message=f"Loading Demucs model '{model_name}'",
+    )
     try:
         import demucs.api  # type: ignore[attr-defined]
     except ModuleNotFoundError:
@@ -162,6 +173,7 @@ def _default_separate(
             output_dir=output_dir,
             output_format=output_format,
             mp3_bitrate=mp3_bitrate,
+            progress_callback=progress_callback,
         )
     except ImportError:
         raise ExecutionError("Demucs is not installed. Install with: pip install demucs")
@@ -173,13 +185,28 @@ def _default_separate(
         shifts=shifts,
         segment=None,
     )
-    _, separated = separator.separate_audio_file(Path(input_file))
+    _report_separation_progress(
+        progress_callback,
+        percent=0.45,
+        message=f"Running Demucs separation on {Path(input_file).name}",
+    )
+    with _separation_heartbeat(
+        progress_callback,
+        percent=0.45,
+        base_message="Demucs separation still running",
+    ):
+        _, separated = separator.separate_audio_file(Path(input_file))
 
     model_info = DEMUCS_MODELS.get(model_name, DEMUCS_MODELS["htdemucs"])
     output_stems = [two_stems] if two_stems else list(model_info["stems"])
 
     out_path = Path(output_dir)
     out_path.mkdir(parents=True, exist_ok=True)
+    _report_separation_progress(
+        progress_callback,
+        percent=0.75,
+        message="Writing separated stem files",
+    )
 
     if output_format == "mp3":
         import logging
@@ -206,6 +233,7 @@ def _default_separate(
                     channel_count=stem_tensor.shape[0],
                 )
             )
+            _report_stem_write_progress(progress_callback, current=1, total=2)
 
         import torch
 
@@ -225,8 +253,10 @@ def _default_separate(
                 channel_count=other_tensor.shape[0],
             )
         )
+        _report_stem_write_progress(progress_callback, current=2, total=2)
     else:
-        for stem_name in output_stems:
+        total_outputs = max(1, len(output_stems))
+        for index, stem_name in enumerate(output_stems, start=1):
             if stem_name not in separated:
                 continue
             stem_tensor = separated[stem_name]
@@ -242,6 +272,7 @@ def _default_separate(
                     channel_count=stem_tensor.shape[0],
                 )
             )
+            _report_stem_write_progress(progress_callback, current=index, total=total_outputs)
 
     return results
 
@@ -255,6 +286,7 @@ def _separate_via_native_demucs(
     output_dir: str,
     output_format: str,
     mp3_bitrate: int,
+    progress_callback: SeparationProgressCallback | None = None,
 ) -> list[StemResult]:
     """Demucs v4 fallback path without relying on torchaudio save/TorchCodec."""
     try:
@@ -266,30 +298,55 @@ def _separate_via_native_demucs(
     except ImportError as exc:
         raise ExecutionError(f"Demucs native fallback unavailable: {exc}")
 
+    _report_separation_progress(
+        progress_callback,
+        percent=0.2,
+        message=f"Loading Demucs model '{model_name}'",
+    )
     model = get_model(model_name)
     model.cpu()
     model.eval()
 
+    _report_separation_progress(
+        progress_callback,
+        percent=0.35,
+        message=f"Reading source audio {Path(input_file).name}",
+    )
     wav = load_track(Path(input_file), model.audio_channels, model.samplerate)
     ref = wav.mean(0)
     wav = wav - ref.mean()
     wav = wav / ref.std()
 
-    sources = apply_model(
-        model,
-        wav[None],
-        device=device,
-        shifts=shifts,
-        split=True,
-        overlap=0.25,
-        progress=False,
-        num_workers=0,
-        segment=None,
-    )[0]
+    _report_separation_progress(
+        progress_callback,
+        percent=0.45,
+        message=f"Running Demucs separation on {Path(input_file).name}",
+    )
+    with _separation_heartbeat(
+        progress_callback,
+        percent=0.45,
+        base_message="Demucs separation still running",
+    ):
+        sources = apply_model(
+            model,
+            wav[None],
+            device=device,
+            shifts=shifts,
+            split=True,
+            overlap=0.25,
+            progress=False,
+            num_workers=0,
+            segment=None,
+        )[0]
     sources = (sources * ref.std()) + ref.mean()
 
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
+    _report_separation_progress(
+        progress_callback,
+        percent=0.75,
+        message="Writing separated stem files",
+    )
 
     if output_format == "mp3":
         import logging
@@ -315,7 +372,8 @@ def _separate_via_native_demucs(
         tensors = [selected, remainder]
 
     results: list[StemResult] = []
-    for stem_name, tensor in zip(names, tensors):
+    total_outputs = max(1, len(names))
+    for index, (stem_name, tensor) in enumerate(zip(names, tensors), start=1):
         stem_file = out / f"{stem_name}.wav"
         audio_np = tensor.cpu().numpy().T
         sf.write(str(stem_file), audio_np, model.samplerate)
@@ -330,8 +388,86 @@ def _separate_via_native_demucs(
                 channel_count=channels,
             )
         )
+        _report_stem_write_progress(progress_callback, current=index, total=total_outputs)
 
     return results
+
+
+def _report_separation_progress(
+    progress_callback: SeparationProgressCallback | None,
+    *,
+    percent: float,
+    message: str,
+) -> None:
+    if progress_callback is None:
+        return
+    progress_callback(percent, message)
+
+
+def _report_stem_write_progress(
+    progress_callback: SeparationProgressCallback | None,
+    *,
+    current: int,
+    total: int,
+) -> None:
+    if progress_callback is None or total <= 0:
+        return
+    fraction = max(0.0, min(1.0, float(current) / float(total)))
+    percent = 0.75 + (fraction * 0.2)
+    progress_callback(percent, f"Writing stem files ({current}/{total})")
+
+
+class _SeparationHeartbeat:
+    def __init__(
+        self,
+        progress_callback: SeparationProgressCallback | None,
+        *,
+        percent: float,
+        base_message: str,
+    ) -> None:
+        self._progress_callback = progress_callback
+        self._percent = percent
+        self._base_message = base_message
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def __enter__(self) -> "_SeparationHeartbeat":
+        if self._progress_callback is None:
+            return self
+        self._thread = threading.Thread(
+            target=self._run,
+            name="ez-stem-heartbeat",
+            daemon=True,
+        )
+        self._thread.start()
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=0.2)
+
+    def _run(self) -> None:
+        started_at = time.monotonic()
+        while not self._stop.wait(_SEPARATION_HEARTBEAT_SECONDS):
+            elapsed_seconds = int(max(1, round(time.monotonic() - started_at)))
+            self._progress_callback(
+                self._percent,
+                f"{self._base_message} ({elapsed_seconds}s elapsed)",
+            )
+
+
+def _separation_heartbeat(
+    progress_callback: SeparationProgressCallback | None,
+    *,
+    percent: float,
+    base_message: str,
+) -> _SeparationHeartbeat:
+    return _SeparationHeartbeat(
+        progress_callback,
+        percent=percent,
+        base_message=base_message,
+    )
 
 
 def _audio_file_info(path: Path) -> tuple[int, float, int]:
@@ -381,6 +517,37 @@ class SeparateAudioProcessor:
     def __init__(self, separate_fn: SeparateFn | None = None) -> None:
         self._separate_fn = separate_fn or _default_separate
 
+    def _run_separation(
+        self,
+        *,
+        input_file: str,
+        model_name: str,
+        device: str,
+        shifts: int,
+        two_stems: str | None,
+        output_dir: str,
+        output_format: str,
+        mp3_bitrate: int,
+        progress_callback: SeparationProgressCallback,
+    ) -> list[StemResult]:
+        kwargs: dict[str, object] = {
+            "input_file": input_file,
+            "model_name": model_name,
+            "device": device,
+            "shifts": shifts,
+            "two_stems": two_stems,
+            "output_dir": output_dir,
+            "output_format": output_format,
+            "mp3_bitrate": mp3_bitrate,
+        }
+        try:
+            signature = inspect.signature(self._separate_fn)
+        except (TypeError, ValueError):
+            signature = None
+        if signature is not None and "progress_callback" in signature.parameters:
+            kwargs["progress_callback"] = progress_callback
+        return self._separate_fn(**kwargs)
+
     def execute(self, block_id: str, context: ExecutionContext) -> Result[dict[str, AudioData]]:
         """Read upstream audio, separate into stems, return dict of AudioData per stem.
 
@@ -389,14 +556,17 @@ class SeparateAudioProcessor:
         files are consumed (e.g. imported into content-addressed storage).
         """
         # Report start
-        context.progress_bus.publish(
-            ProgressReport(
-                block_id=block_id,
-                phase="separate_audio",
-                percent=0.0,
-                message="Starting audio separation",
+        def publish_progress(percent: float, message: str) -> None:
+            context.progress_bus.publish(
+                ProgressReport(
+                    block_id=block_id,
+                    phase="separate_audio",
+                    percent=percent,
+                    message=message,
+                )
             )
-        )
+
+        publish_progress(0.0, "Starting audio separation")
 
         # Read audio input
         audio = context.get_input(block_id, "audio_in", AudioData)
@@ -474,18 +644,11 @@ class SeparateAudioProcessor:
             output_dir = tempfile.mkdtemp(prefix=f"ez_stems_{block_id}_")
 
         # Report progress
-        context.progress_bus.publish(
-            ProgressReport(
-                block_id=block_id,
-                phase="separate_audio",
-                percent=0.1,
-                message=f"Separating with {resolved_model} on {device}",
-            )
-        )
+        publish_progress(0.1, f"Preparing separation with {resolved_model} on {device}")
 
         # Run separation
         try:
-            stem_results = self._separate_fn(
+            stem_results = self._run_separation(
                 input_file=audio.file_path,
                 model_name=resolved_model,
                 device=device,
@@ -494,6 +657,7 @@ class SeparateAudioProcessor:
                 output_dir=output_dir,
                 output_format=output_format,
                 mp3_bitrate=mp3_bitrate,
+                progress_callback=publish_progress,
             )
         except Exception as exc:
             return err(
@@ -506,14 +670,7 @@ class SeparateAudioProcessor:
             return err(ExecutionError(f"Separation produced no stems for block '{block_id}'"))
 
         # Report near-complete
-        context.progress_bus.publish(
-            ProgressReport(
-                block_id=block_id,
-                phase="separate_audio",
-                percent=0.9,
-                message="Building output data",
-            )
-        )
+        publish_progress(0.9, "Building output data")
 
         # Build output dict: one AudioData per stem, keyed by port name
         outputs: dict[str, AudioData] = {}
@@ -527,13 +684,6 @@ class SeparateAudioProcessor:
             )
 
         # Report complete
-        context.progress_bus.publish(
-            ProgressReport(
-                block_id=block_id,
-                phase="separate_audio",
-                percent=1.0,
-                message=f"Separation complete — {len(outputs)} stems",
-            )
-        )
+        publish_progress(1.0, f"Separation complete — {len(outputs)} stems")
 
         return ok(outputs)

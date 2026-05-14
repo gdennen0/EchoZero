@@ -43,6 +43,7 @@ from echozero.application.timeline.object_actions import (
     resolve_action_id,
 )
 from echozero.models.paths import ensure_installed_models_dir
+from echozero.ui.qt.settings_dialog import ActionSettingsDialog
 from echozero.ui.qt.pipeline_settings_browser_dialog import PipelineSettingsBrowserDialog
 from echozero.ui.qt.timeline.widget_action_ma3_push_mixin import (
     TimelineWidgetMA3PushActionMixin,
@@ -113,6 +114,9 @@ class TimelineWidgetActionRouter(
     TimelineWidgetMA3PushActionMixin,
 ):
     """Routes inspector and transfer actions for the timeline widget."""
+
+    _action_settings_dialog_class = ActionSettingsDialog
+    _pipeline_settings_browser_dialog_class = PipelineSettingsBrowserDialog
 
     def __init__(
         self,
@@ -1475,9 +1479,51 @@ class TimelineWidgetActionRouter(
         self._open_pipeline_settings_browser(preferred_action=None)
 
     def open_object_action_settings(self, action: InspectorAction) -> None:
-        """Open reusable settings in the canonical pipeline browser window."""
+        """Open one action's reusable settings as a focused popup."""
 
-        self._open_pipeline_settings_browser(preferred_action=action)
+        self._open_single_action_settings_dialog(action=action)
+
+    def _open_single_action_settings_dialog(self, *, action: InspectorAction) -> None:
+        runtime = cast(_ObjectActionSettingsRuntimeShell | None, self._resolve_runtime_shell())
+        if runtime is None or not callable(getattr(runtime, "open_object_action_session", None)):
+            self._message_box.warning(
+                self._widget,
+                "Pipeline Settings",
+                "This runtime does not support reusable pipeline settings.",
+            )
+            return
+        if not callable(getattr(runtime, "dispatch_object_action_command", None)):
+            self._message_box.warning(
+                self._widget,
+                "Pipeline Settings",
+                "This runtime does not support reusable pipeline settings.",
+            )
+            return
+
+        descriptor = descriptor_for_action(action.action_id)
+        action_id = descriptor.action_id if descriptor is not None else action.action_id
+        params = dict(action.params)
+        layer_id = _coerce_layer_id(params.get("layer_id"))
+        object_id = layer_id if layer_id is not None else None
+        object_type = "layer" if layer_id is not None else None
+        try:
+            session = runtime.open_object_action_session(
+                action_id,
+                params,
+                object_id=object_id,
+                object_type=object_type,
+            )
+        except Exception as exc:
+            self._message_box.warning(self._widget, "Pipeline Settings", str(exc))
+            return
+
+        dialog = self._action_settings_dialog_class(
+            session,
+            dispatch_command=runtime.dispatch_object_action_command,
+            parent=self._widget,
+        )
+        dialog.exec()
+        self._set_presentation(runtime.presentation())
 
     def _open_pipeline_settings_browser(
         self,
@@ -1512,7 +1558,7 @@ class TimelineWidgetActionRouter(
             )
             return
 
-        dialog = PipelineSettingsBrowserDialog(
+        dialog = self._pipeline_settings_browser_dialog_class(
             tuple(sessions),
             dispatch_command=runtime.dispatch_object_action_command,
             initial_action_id=initial_action_id,
@@ -1604,13 +1650,6 @@ class TimelineWidgetActionRouter(
             and callable(getattr(run_runtime, "run_object_action", None))
             else None
         )
-        if not callable(request_object_action_run) and not callable(run_object_action):
-            self._message_box.warning(
-                self._widget,
-                "Pipeline Action",
-                f"This runtime does not support '{action_id}'.",
-            )
-            return True
         layer_id = _coerce_layer_id(params.get("layer_id"))
         if layer_id is None:
             self._message_box.warning(
@@ -1626,6 +1665,19 @@ class TimelineWidgetActionRouter(
                 self._widget,
                 "Pipeline Action",
                 f"This runtime does not recognize '{action_id}'.",
+            )
+            return True
+        if descriptor.requires_settings_confirmation:
+            return self._open_runtime_pipeline_confirmation(
+                action_id=action_id,
+                params=resolved_params,
+                layer_id=layer_id,
+            )
+        if not callable(request_object_action_run) and not callable(run_object_action):
+            self._message_box.warning(
+                self._widget,
+                "Pipeline Action",
+                f"This runtime does not support '{action_id}'.",
             )
             return True
         if (
@@ -1668,6 +1720,48 @@ class TimelineWidgetActionRouter(
             self._message_box.warning(self._widget, "Pipeline Action", str(exc))
             return True
         self._set_presentation(updated)
+        return True
+
+    def _open_runtime_pipeline_confirmation(
+        self,
+        *,
+        action_id: str,
+        params: dict[str, object],
+        layer_id: LayerId,
+    ) -> bool:
+        runtime = cast(_ObjectActionSettingsRuntimeShell | None, self._resolve_runtime_shell())
+        if runtime is None or not callable(getattr(runtime, "open_object_action_session", None)):
+            self._message_box.warning(
+                self._widget,
+                "Pipeline Action",
+                f"'{action_id}' requires settings confirmation before running.",
+            )
+            return True
+        if not callable(getattr(runtime, "dispatch_object_action_command", None)):
+            self._message_box.warning(
+                self._widget,
+                "Pipeline Action",
+                f"'{action_id}' requires settings confirmation before running.",
+            )
+            return True
+        try:
+            session = runtime.open_object_action_session(
+                action_id,
+                params,
+                object_id=layer_id,
+                object_type="layer",
+            )
+        except Exception as exc:
+            self._message_box.warning(self._widget, "Pipeline Action", str(exc))
+            return True
+
+        dialog = self._action_settings_dialog_class(
+            session,
+            dispatch_command=runtime.dispatch_object_action_command,
+            parent=self._widget,
+        )
+        dialog.exec()
+        self._set_presentation(runtime.presentation())
         return True
 
 

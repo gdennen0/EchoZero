@@ -779,6 +779,7 @@ end
 function EZ.Ping() EZ.log("Ping!"); EZ.sendMessage("connection", "ping", {status = "ok"}); return true end
 function EZ.SetTarget(ip, port)
     EZ.config.ip = ip or EZ.config.ip; EZ.config.port = port or EZ.config.port
+    EZ._last_target_set_at = os.time()
     -- Sync to OSC module so outbound messages use the new target
     if OSC and OSC.setConfig then OSC.setConfig(EZ.config) end
     EZ.log(string.format("Target: %s:%d", EZ.config.ip, EZ.config.port)); return true
@@ -950,14 +951,67 @@ function EZ.RunCommand(cmdStr, mode)
     end
 end
 
-function EZ.Status()
+local function _connectionHookCount()
     local hookCount = 0
-    for _ in pairs(EZ._hooks) do hookCount = hookCount + 1 end
-    
+    for _ in pairs(EZ._hooks or {}) do hookCount = hookCount + 1 end
+    return hookCount
+end
+
+local function _connectionHookKeys()
+    local hookKeys = {}
+    for key, _ in pairs(EZ._hooks or {}) do
+        table.insert(hookKeys, tostring(key))
+    end
+    return hookKeys
+end
+
+local function _connectionReportPayload(requestId)
+    local hitMaker = rawget(_G, "HitMaker")
+    local hitMakerLoaded = type(hitMaker) == "table"
+    local oscFields = {}
+    if OSC and type(OSC.connectionReportFields) == "function" then
+        oscFields = OSC.connectionReportFields() or {}
+    end
     local socketOk = OSC and OSC._socketOk or false
-    
     local cmdMode = EZ.config.defaultCmdMode or "feedback"
-    
+    local payload = {
+        schema_version = 1,
+        status = socketOk and "ok" or "osc_socket_unavailable",
+        ez_version = tostring(EZ._version or ""),
+        ez_build = tostring(EZ._build or ""),
+        hitmaker_loaded = hitMakerLoaded,
+        hitmaker_version = hitMakerLoaded and tostring(hitMaker._version or "") or "",
+        hitmaker_build = hitMakerLoaded and tostring(hitMaker._build or "") or "",
+        target_ip = tostring(EZ.config.ip or ""),
+        target_port = tonumber(EZ.config.port or 0) or 0,
+        socket_ok = socketOk,
+        osc_module_loaded = OSC ~= nil,
+        debug = EZ.config.debug,
+        cmd_mode = cmdMode,
+        hooks = _connectionHookCount(),
+        hook_keys = _connectionHookKeys(),
+        last_target_set_at = EZ._last_target_set_at,
+        capabilities = {
+            ping = type(EZ.Ping) == "function",
+            status = type(EZ.Status) == "function",
+            version = type(EZ.Version) == "function",
+            plugin_health = type(EZ.GetPluginHealth) == "function",
+            connection_report = type(EZ.ConnectionReport) == "function",
+            hook_track = type(EZ.HookTrack) == "function",
+        },
+        send = oscFields,
+    }
+    if requestId ~= nil then
+        payload.request_id = requestId
+    end
+    return payload
+end
+
+function EZ.Status()
+    local hookCount = _connectionHookCount()
+    local socketOk = OSC and OSC._socketOk or false
+    local cmdMode = EZ.config.defaultCmdMode or "feedback"
+
     EZ.log("=== EchoZero Status ===")
     EZ.log(string.format("  Target: %s:%d", EZ.config.ip, EZ.config.port))
     EZ.log(string.format("  Socket: %s", socketOk and "OK" or "NOT AVAILABLE"))
@@ -974,6 +1028,13 @@ function EZ.Status()
         version = EZ._version,
         cmd_mode = cmdMode
     })
+end
+
+function EZ.ConnectionReport(requestId)
+    local payload = _connectionReportPayload(requestId)
+    EZ.log("ConnectionReport() called")
+    EZ.sendMessage("connection", "report", payload)
+    return payload
 end
 
 function EZ.Version()
@@ -1124,10 +1185,10 @@ end
 -- NOTE: Unified hook path: HookTrack delegates to HookCmdSubTrack
 -- NOTE: trackNo is user-visible track number (1-based, excluding Marker).
 function EZ.HookTrack(tcNo, tgNo, trackNo)
-    return EZ.HookCmdSubTrack(tcNo, tgNo, trackNo)
+    return EZ.HookCmdSubTrack(tcNo, tgNo, trackNo, 1)
 end
 function EZ.UnhookTrack(tcNo, tgNo, trackNo)
-    return EZ.UnhookCmdSubTrack(tcNo, tgNo, trackNo)
+    return EZ.UnhookCmdSubTrack(tcNo, tgNo, trackNo, 1)
 end
 function EZ.UnhookAll()
     local count = 0

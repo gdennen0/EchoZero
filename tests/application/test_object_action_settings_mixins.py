@@ -5,15 +5,30 @@ Connects cleanup-oriented mixin splits to small application-level regression tes
 
 from __future__ import annotations
 
+import json
 from contextlib import nullcontext
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
+from echozero.application.timeline.object_action_scoped_config import (
+    _normalize_target_label_values,
+    _should_refresh_target_label_default,
+)
+from echozero.application.timeline.object_action_model_picker_options import (
+    _binary_drum_label_for_model_key,
+)
 from echozero.application.timeline.object_action_settings_context_mixin import (
     ObjectActionSettingsContextMixin,
 )
 from echozero.application.timeline.object_action_settings_persistence_mixin import (
     ObjectActionSettingsPersistenceMixin,
+)
+from echozero.application.timeline.object_action_settings_runtime_mixin import (
+    _normalize_drum_label_values as _normalize_runtime_drum_label_values,
+    extract_classified_drums_model_defaults,
 )
 from echozero.application.timeline.object_actions.descriptors import ActionDescriptor
 from echozero.persistence.entities import LayerRecord
@@ -124,6 +139,82 @@ def _layer_record(
         created_at=datetime.now(timezone.utc),
         provenance=provenance,
     )
+
+
+def _write_runtime_manifest(manifest_path: Path, label: str, macro_f1: float) -> Path:
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    weights_path = manifest_path.with_name("model.pth")
+    weights_path.write_bytes(b"weights")
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "weightsPath": weights_path.name,
+                "classes": [label, "other"],
+                "evalSummary": {"macroF1": macro_f1},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return manifest_path
+
+
+def test_scoped_config_refreshes_legacy_classified_drum_targets_when_new_models_exist() -> None:
+    assert _should_refresh_target_label_default(
+        current_value=("kick", "snare"),
+        default_value=("kick", "snare", "clap", "cymbal"),
+    )
+    assert _should_refresh_target_label_default(
+        current_value=("kick", "snare", "clap"),
+        default_value=("kick", "snare", "clap", "cymbal"),
+    )
+    assert not _should_refresh_target_label_default(
+        current_value=("kick",),
+        default_value=("kick", "snare", "clap", "cymbal"),
+    )
+
+
+def test_scoped_config_normalizes_cymbol_alias_to_cymbal() -> None:
+    assert _normalize_target_label_values(("clap", "cymbol", "symbol")) == (
+        "clap",
+        "cymbal",
+    )
+
+
+def test_runtime_settings_normalize_cymbol_alias_to_cymbal() -> None:
+    assert _normalize_runtime_drum_label_values(("kick", "cymbol", "symbol")) == (
+        "kick",
+        "cymbal",
+    )
+    assert _binary_drum_label_for_model_key("cymbol_model_path") == "cymbal"
+
+
+def test_classified_drums_defaults_choose_best_ready_compatible_model(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    weak_manifest = _write_runtime_manifest(tmp_path / "weak" / "clap.manifest.json", "clap", 0.60)
+    strong_manifest = _write_runtime_manifest(
+        tmp_path / "strong" / "clap.manifest.json",
+        "clap",
+        0.92,
+    )
+    monkeypatch.setattr(
+        "echozero.application.timeline.object_action_settings_service.ensure_installed_models_dir",
+        lambda: tmp_path,
+    )
+    monkeypatch.setattr(
+        (
+            "echozero.application.timeline.object_action_settings_service."
+            "upgrade_installed_runtime_bundles"
+        ),
+        lambda _models_dir: None,
+    )
+
+    defaults = extract_classified_drums_model_defaults()
+
+    assert defaults["clap_model_path"] == str(strong_manifest.resolve())
+    assert defaults["target_drum_labels"] == ("clap",)
+    assert weak_manifest.exists()
 
 
 def test_object_action_context_resolve_params_normalizes_blank_layer_id() -> None:

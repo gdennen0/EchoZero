@@ -59,6 +59,9 @@ class ProcessPlaybackClient:
             "enqueue_seek",
             "enqueue_preview",
             "reconfigure_device",
+            "start_audio_diagnostics_capture",
+            "stop_audio_diagnostics_capture",
+            "audio_diagnostics_capture_status",
             "drain_events",
             "shutdown",
         }
@@ -99,6 +102,7 @@ class ProcessPlaybackClient:
         self._last_local_projection_build_ms = 0.0
         self._last_local_sync_classify_ms = 0.0
         self._last_ipc_command = ""
+        self._audio_diagnostics_capture_status: dict[str, object] = {"active": False}
 
         self.start()
 
@@ -243,6 +247,32 @@ class ProcessPlaybackClient:
             if isinstance(item, dict):
                 output.append(item)
         return output
+
+    def start_audio_diagnostics_capture(
+        self,
+        *,
+        output_dir: str | Path | None = None,
+        include_audio_buffers: bool = True,
+        max_audio_blocks: int = 64,
+    ) -> dict[str, object]:
+        response = self._command(
+            "start_audio_diagnostics_capture",
+            {
+                "output_dir": str(output_dir) if output_dir is not None else None,
+                "include_audio_buffers": bool(include_audio_buffers),
+                "max_audio_blocks": int(max_audio_blocks),
+            },
+        )
+        self._audio_diagnostics_capture_status = dict(response)
+        return dict(response)
+
+    def stop_audio_diagnostics_capture(self) -> dict[str, object]:
+        response = self._command("stop_audio_diagnostics_capture", {})
+        self._audio_diagnostics_capture_status = dict(response)
+        return dict(response)
+
+    def audio_diagnostics_capture_status(self) -> dict[str, object]:
+        return dict(self._audio_diagnostics_capture_status)
 
     def apply_mix_state(self, presentation: TimelinePresentation) -> None:
         self.sync_mix_state(presentation)
@@ -446,6 +476,7 @@ class ProcessPlaybackClient:
                     "output_device": self._audio_output_config.output_device,
                     "sample_rate": self._audio_output_config.sample_rate,
                     "channels": self._audio_output_config.channels,
+                    "master_output_bus": self._audio_output_config.master_output_bus,
                     "stream_latency": self._audio_output_config.stream_latency,
                     "stream_blocksize": self._audio_output_config.stream_blocksize,
                     "prime_output_buffers_using_stream_callback": (

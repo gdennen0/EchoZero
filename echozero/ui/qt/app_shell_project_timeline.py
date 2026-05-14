@@ -194,7 +194,9 @@ def build_project_native_baseline_timeline(
         TimelinePresentationOverlay(
             project_title=project.name,
             end_time_label=format_time(version.duration_seconds),
-            bpm=project.settings.bpm,
+            bpm=version.bpm if version.bpm is not None else project.settings.bpm,
+            bpm_confidence=version.bpm_confidence,
+            beat_anchor_seconds=version.beat_anchor_seconds,
             active_song_id=active_song.id,
             active_song_title=active_song.title,
             active_song_version_id=version.id,

@@ -3,6 +3,7 @@ from tests.ui.runtime_audio_support import (
     test_widget_dispatch_preserves_local_scroll_when_seek_updates_arrive_with_stale_scroll_state,
     test_widget_dispatch_preserves_runtime_playhead_on_audio_route_update,
     test_widget_dispatch_uses_exact_runtime_clock_time_when_pausing,
+    test_widget_runtime_tick_preserves_paused_playhead_when_backend_visually_regresses_to_zero,
     test_widget_runtime_tick_extrapolates_from_backend_timing_snapshot,
     test_widget_runtime_tick_tracks_provider_smoothly_without_seek_dispatch,
     test_widget_runtime_ticks_do_not_snap_backward_during_audio_route_churn,

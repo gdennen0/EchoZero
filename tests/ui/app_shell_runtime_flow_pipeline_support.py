@@ -36,6 +36,31 @@ def _assert_presentation_object_refs_resolve(runtime, presentation) -> None:
                 assert source_content is not None
 
 
+def _install_fake_binary_drum_bundles(monkeypatch, temp_root):
+    fake_models_root = temp_root / "models"
+    fake_models_root.mkdir(parents=True, exist_ok=True)
+    kick_manifest = fake_models_root / "kick.manifest.json"
+    snare_manifest = fake_models_root / "snare.manifest.json"
+    kick_manifest.write_text("{}", encoding="utf-8")
+    snare_manifest.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "echozero.application.timeline.object_action_settings_service.ensure_installed_models_dir",
+        lambda: fake_models_root,
+    )
+    monkeypatch.setattr(
+        "echozero.application.timeline.object_action_settings_service.upgrade_installed_runtime_bundles",
+        lambda _models_dir: None,
+    )
+    monkeypatch.setattr(
+        "echozero.application.timeline.object_action_settings_service.resolve_installed_binary_drum_bundles",
+        lambda: {
+            "kick": type("Bundle", (), {"manifest_path": kick_manifest})(),
+            "snare": type("Bundle", (), {"manifest_path": snare_manifest})(),
+        },
+    )
+
+
 def test_app_shell_runtime_extract_stems_persists_audio_layers_and_takes():
     from echozero.ui.qt.timeline.layer_rows import build_timeline_layer_rows
 
@@ -529,6 +554,230 @@ def test_app_shell_runtime_extract_song_drum_events_from_source_audio(monkeypatc
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
+def test_app_shell_runtime_extract_song_drum_events_reuses_existing_drums_stem(monkeypatch):
+    temp_root = _repo_local_temp_root()
+    analysis_service = build_mock_analysis_service()
+    detect_executor = _CaptureDetectOnsetsAudioExecutor()
+    binary_executor = _CaptureBinaryDrumClassifyAudioExecutor()
+
+    class _CountingSeparateAudioExecutor:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+            self.fail_after_first_call = False
+
+        def execute(self, block_id: str, context):
+            audio = context.get_input(block_id, "audio_in", AudioData)
+            assert audio is not None
+            if self.fail_after_first_call and self.calls:
+                raise AssertionError("SeparateAudio should have reused the persisted drums stem")
+            self.calls.append((block_id, str(audio.file_path)))
+            base = Path(str(audio.file_path)).parent
+            return ok(
+                {
+                    name + "_out": AudioData(
+                        sample_rate=44100,
+                        duration=0.1,
+                        file_path=str(write_test_wav(base / f"{name}.wav")),
+                        channel_count=1,
+                    )
+                    for name in ("drums", "bass", "vocals", "other")
+                }
+            )
+
+    separator = _CountingSeparateAudioExecutor()
+    analysis_service._executors["SeparateAudio"] = separator
+    analysis_service._executors["DetectOnsets"] = detect_executor
+    analysis_service._executors["BinaryDrumClassify"] = binary_executor
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=analysis_service,
+    )
+    _install_fake_binary_drum_bundles(monkeypatch, temp_root)
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        audio_path = write_test_wav(temp_root / "fixtures" / "reuse-song.wav")
+        runtime.add_song_from_path("Reuse Song", audio_path)
+        stem_presentation = runtime.extract_stems("source_audio")
+        assert [block_id for block_id, _audio_path in separator.calls] == ["separate"]
+
+        drums_layer = next(layer for layer in stem_presentation.layers if layer.title == "Drums")
+        assert drums_layer.main_content_id is not None
+        runtime.save_object_action_settings(
+            "timeline.extract_song_drum_events",
+            {"layer_id": "source_audio", "model": "latest_model"},
+            object_id="source_audio",
+        )
+
+        separator.fail_after_first_call = True
+        presentation = runtime.extract_song_drum_events("source_audio")
+
+        assert [block_id for block_id, _audio_path in separator.calls] == ["separate"]
+        assert [
+            (block_id, target_class, Path(audio_path).name)
+            for block_id, target_class, audio_path in binary_executor.calls
+        ] == [("classify_drums", "", "drums.wav")]
+        event_layers = [layer for layer in presentation.layers if layer.kind.name == "EVENT"]
+        assert {layer.title for layer in event_layers} == {"Kick", "Snare"}
+        assert all(
+            layer.source_content_ref is not None
+            and str(layer.source_content_ref.content_id) == str(drums_layer.main_content_id)
+            for layer in event_layers
+        )
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_extract_song_drum_events_ignores_stale_stem_after_source_change(
+    monkeypatch,
+):
+    temp_root = _repo_local_temp_root()
+    analysis_service = build_mock_analysis_service()
+    detect_executor = _CaptureDetectOnsetsAudioExecutor()
+    binary_executor = _CaptureBinaryDrumClassifyAudioExecutor()
+
+    class _CountingSeparateAudioExecutor:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+
+        def execute(self, block_id: str, context):
+            audio = context.get_input(block_id, "audio_in", AudioData)
+            assert audio is not None
+            self.calls.append((block_id, str(audio.file_path)))
+            base = Path(str(audio.file_path)).parent
+            return ok(
+                {
+                    name + "_out": AudioData(
+                        sample_rate=44100,
+                        duration=0.1,
+                        file_path=str(write_test_wav(base / f"{name}.wav")),
+                        channel_count=1,
+                    )
+                    for name in ("drums", "bass", "vocals", "other")
+                }
+            )
+
+    separator = _CountingSeparateAudioExecutor()
+    analysis_service._executors["SeparateAudio"] = separator
+    analysis_service._executors["DetectOnsets"] = detect_executor
+    analysis_service._executors["BinaryDrumClassify"] = binary_executor
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=analysis_service,
+    )
+    _install_fake_binary_drum_bundles(monkeypatch, temp_root)
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        runtime.add_song_from_path(
+            "Changed Source Song",
+            write_test_wav(temp_root / "fixtures" / "source-v1.wav", frames=4410),
+        )
+        stem_presentation = runtime.extract_stems("source_audio")
+        assert [block_id for block_id, _audio_path in separator.calls] == ["separate"]
+        stale_drums_layer = next(
+            layer for layer in stem_presentation.layers if layer.title == "Drums"
+        )
+        assert runtime.session.active_song_id is not None
+        song_id = str(runtime.session.active_song_id)
+
+        runtime.add_song_version(
+            song_id,
+            write_test_wav(temp_root / "fixtures" / "source-v2.wav", frames=8820),
+            label="Source Edit",
+            transfer_layers=True,
+            transfer_layer_ids=[str(stale_drums_layer.layer_id)],
+        )
+        runtime.save_object_action_settings(
+            "timeline.extract_song_drum_events",
+            {"layer_id": "source_audio", "model": "latest_model"},
+            object_id="source_audio",
+        )
+
+        presentation = runtime.extract_song_drum_events("source_audio")
+
+        assert [block_id for block_id, _audio_path in separator.calls] == [
+            "separate",
+            "separate_drums",
+        ]
+        event_layers = [layer for layer in presentation.layers if layer.kind.name == "EVENT"]
+        assert {layer.title for layer in event_layers} == {"Kick", "Snare"}
+        assert all(layer.source_content_ref is not None for layer in event_layers)
+        assert all(
+            str(layer.source_content_ref.content_id) != str(stale_drums_layer.main_content_id)
+            for layer in event_layers
+            if layer.source_content_ref is not None
+        )
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_extract_song_drum_events_reuses_existing_unchanged_stem(monkeypatch):
+    temp_root = _repo_local_temp_root()
+    analysis_service = build_mock_analysis_service()
+
+    class _CountingSeparateAudioExecutor:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def execute(self, block_id: str, context):
+            audio = context.get_input(block_id, "audio_in", AudioData)
+            assert audio is not None
+            self.calls.append(str(audio.file_path))
+            base = Path(str(audio.file_path)).parent
+            return ok(
+                {
+                    stem_name + "_out": AudioData(
+                        sample_rate=44100,
+                        duration=0.1,
+                        file_path=str(write_test_wav(base / f"{stem_name}.wav")),
+                        channel_count=1,
+                    )
+                    for stem_name in ("drums", "bass", "vocals", "other")
+                }
+            )
+
+    separator = _CountingSeparateAudioExecutor()
+    binary_executor = _CaptureBinaryDrumClassifyAudioExecutor()
+    analysis_service._executors["SeparateAudio"] = separator
+    analysis_service._executors["BinaryDrumClassify"] = binary_executor
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=analysis_service,
+    )
+    _install_fake_binary_drum_bundles(monkeypatch, temp_root)
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        audio_path = write_test_wav(temp_root / "fixtures" / "song-with-cached-stems.wav")
+        runtime.add_song_from_path("Song With Cached Stems", audio_path)
+
+        stem_presentation = runtime.extract_stems("source_audio")
+        drums_layer = next(layer for layer in stem_presentation.layers if layer.title == "Drums")
+        cached_drums_path = Path(str(drums_layer.source_audio_path)).resolve()
+        assert len(separator.calls) == 1
+
+        runtime.extract_song_drum_events("source_audio")
+
+        assert len(separator.calls) == 1
+        assert binary_executor.calls
+        assert Path(binary_executor.calls[-1][2]).resolve() == cached_drums_path
+
+        changed_audio_path = write_test_wav(temp_root / "fixtures" / "changed-song-source.wav")
+        runtime.add_song_from_path("Changed Song Source", changed_audio_path)
+        runtime.extract_song_drum_events("source_audio")
+
+        assert len(separator.calls) == 2
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
 def test_app_shell_runtime_extract_song_drum_events_adds_selected_stem_layers(monkeypatch):
     temp_root = _repo_local_temp_root()
     analysis_service = build_mock_analysis_service()
@@ -810,6 +1059,15 @@ def test_app_shell_runtime_generated_event_layer_preview_resolves_source_audio()
 
         assert preview_action.params["source_ref"] == drums_layer.source_audio_path
         assert preview_action.params["source_audio_path"] == drums_layer.source_audio_path
+        assert preview_action.params["preview"] == {
+            "kind": "audio_event_clip",
+            "source_ref": drums_layer.source_audio_path,
+            "source_audio_path": drums_layer.source_audio_path,
+            "waveform_key": drums_layer.waveform_key,
+            "start_seconds": float(onsets_layer.events[0].start),
+            "end_seconds": float(onsets_layer.events[0].end),
+            "duration_seconds": float(onsets_layer.events[0].duration),
+        }
 
         runtime.preview_event_clip(
             layer_id=onsets_layer.layer_id,
@@ -1099,6 +1357,108 @@ def test_app_shell_runtime_extract_classified_drums_persists_kick_and_snare_laye
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
+class _SelectedLabelBinaryDrumClassifyExecutor:
+    def __init__(self) -> None:
+        self.target_labels: list[tuple[str, ...]] = []
+
+    def execute(self, block_id: str, context):
+        block = context.graph.blocks[block_id]
+        raw_labels = block.settings.get("target_labels", ("kick", "snare"))
+        if isinstance(raw_labels, str):
+            target_labels = tuple(label.strip() for label in raw_labels.split(",") if label.strip())
+        else:
+            target_labels = tuple(str(label).strip() for label in raw_labels if str(label).strip())
+        self.target_labels.append(target_labels)
+        input_events = _merged_binary_drum_input_events(block_id, context)
+        source_event = input_events[0]
+        layers = []
+        for index, label in enumerate(target_labels):
+            title = label.title()
+            layers.append(
+                DomainLayer(
+                    id=label,
+                    name=label,
+                    events=(
+                        DomainEvent(
+                            id=f"{source_event.id}_{label}",
+                            time=source_event.time + index * 0.1,
+                            duration=source_event.duration,
+                            classifications={"class": label, "confidence": "0.99"},
+                            metadata={**source_event.metadata, "classified": True},
+                            origin=f"binary_classify:{label}",
+                        ),
+                    ),
+                )
+            )
+        return ok(EventData(layers=tuple(layers)))
+
+
+def _write_ready_binary_drum_manifest(root: Path, label: str) -> Path:
+    bundle_dir = root / label
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    weights_path = bundle_dir / f"{label}.pth"
+    weights_path.write_bytes(b"fixture-model")
+    manifest_path = bundle_dir / f"{label}.manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "classes": [label, "other"],
+                "weightsPath": weights_path.name,
+                "classificationMode": "binary",
+                "displayName": f"{label.title()} Fixture",
+                "evalSummary": {"macroF1": 0.9},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return manifest_path
+
+
+def test_app_shell_runtime_extract_classified_drums_persists_all_ready_event_layers(monkeypatch):
+    temp_root = _repo_local_temp_root()
+    analysis_service = build_mock_analysis_service()
+    analysis_service._executors["DetectOnsets"] = _CaptureDetectOnsetsAudioExecutor()
+    binary_executor = _SelectedLabelBinaryDrumClassifyExecutor()
+    analysis_service._executors["BinaryDrumClassify"] = binary_executor
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=analysis_service,
+    )
+
+    fake_models_root = temp_root / "models"
+    for label in ("kick", "snare", "clap", "cymbal"):
+        _write_ready_binary_drum_manifest(fake_models_root, label)
+
+    monkeypatch.setattr(
+        "echozero.application.timeline.object_action_settings_service.ensure_installed_models_dir",
+        lambda: fake_models_root,
+    )
+    monkeypatch.setattr(
+        "echozero.application.timeline.object_action_settings_service.upgrade_installed_runtime_bundles",
+        lambda _models_dir: None,
+    )
+
+    try:
+        audio_path = write_test_wav(temp_root / "fixtures" / "import-all-drums.wav")
+        runtime.add_song_from_path("Imported Song", audio_path)
+        after_stems = runtime.extract_stems("source_audio")
+        drums_layer = next(layer for layer in after_stems.layers if layer.title == "Drums")
+
+        presentation = runtime.extract_classified_drums(drums_layer.layer_id)
+
+        assert binary_executor.target_labels == [("kick", "snare", "clap", "cymbal")]
+        event_layers = [layer for layer in presentation.layers if layer.kind.name == "EVENT"]
+        titles = {layer.title for layer in event_layers}
+        assert {"Kick", "Snare", "Clap", "Cymbal"} <= titles
+        for expected_title in ("Kick", "Snare", "Clap", "Cymbal"):
+            layer = next(layer for layer in event_layers if layer.title == expected_title)
+            assert layer.events
+            assert layer.events[0].label == expected_title
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
 def test_app_shell_runtime_binary_drum_selection_stays_on_selected_class_layer(monkeypatch):
     temp_root = _repo_local_temp_root()
     analysis_service = build_mock_analysis_service()
@@ -1226,6 +1586,56 @@ def test_app_shell_runtime_extract_song_sections_persists_section_layer():
         assert len(captured_audio_paths) == 2
         assert all(Path(path).exists() for path in captured_audio_paths)
         assert captured_audio_paths[0] == captured_audio_paths[1]
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_extract_note_contour_persists_child_event_layer():
+    from echozero.pipelines.registry import get_registry
+    from echozero.processors.detect_note_contour import DetectNoteContourProcessor, PitchFrame
+    from echozero.processors.load_audio import LoadAudioProcessor
+    from echozero.services.orchestrator import Orchestrator
+    from echozero.ui.qt.app_shell import AppShellRuntime, build_app_shell
+
+    temp_root = _repo_local_temp_root()
+    analysis_service = Orchestrator(
+        get_registry(),
+        {
+            "LoadAudio": LoadAudioProcessor(),
+            "DetectNoteContour": DetectNoteContourProcessor(
+                pitch_track_fn=lambda *args: [
+                    PitchFrame(0.00, 65.406),
+                    PitchFrame(0.05, 65.406),
+                    PitchFrame(0.12, 82.407),
+                    PitchFrame(0.18, 82.407),
+                ]
+            ),
+        },
+    )
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=analysis_service,
+    )
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        audio_path = write_test_wav(temp_root / "fixtures" / "note-contour-source.wav")
+        runtime.add_song_from_path("Note Contour Source", audio_path)
+        presentation = runtime.extract_note_contour("source_audio")
+
+        source_layer = next(
+            layer
+            for layer in presentation.layers
+            if layer.object_id and str(layer.object_id).startswith("object_song_")
+        )
+        contour_layer = next(layer for layer in presentation.layers if layer.title == "Notes")
+        assert contour_layer.status.source_layer_id == str(source_layer.layer_id)
+        assert contour_layer.status.pipeline_id == "extract_note_contour"
+        assert [event.label for event in contour_layer.events] == ["C2", "E2"]
+        assert contour_layer.events[0].detection_metadata["midi_note"] == 36
+        assert contour_layer.source_content_ref is not None
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)

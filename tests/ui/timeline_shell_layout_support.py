@@ -343,11 +343,13 @@ def test_pipeline_context_actions_include_phase1_ids():
     assert "song.add" not in song_action_ids
     assert "song.add" not in drums_action_ids
     assert "timeline.extract_stems" in song_action_ids
+    assert "timeline.extract_note_contour" in song_action_ids
     assert "timeline.extract_song_drum_events" in song_action_ids
     assert "timeline.extract_song_sections" in song_action_ids
     assert "timeline.extract_drum_events" not in song_action_ids
     assert "timeline.classify_drum_events" not in song_action_ids
     assert "timeline.extract_stems" in drums_action_ids
+    assert "timeline.extract_note_contour" in drums_action_ids
     assert "timeline.extract_classified_drums" in drums_action_ids
     assert "timeline.extract_drum_events" in drums_action_ids
     assert "timeline.classify_drum_events" not in drums_action_ids
@@ -385,6 +387,7 @@ def test_pipeline_context_actions_expose_onset_extraction_for_non_drum_stems():
     }
 
     assert "timeline.extract_drum_events" in bass_action_ids
+    assert "timeline.extract_note_contour" in bass_action_ids
     assert "timeline.extract_classified_drums" not in bass_action_ids
     assert "timeline.classify_drum_events" not in bass_action_ids
 

@@ -24,7 +24,14 @@ class TestRoundTrip:
         song = _make_song(project.id, title="Opening Act", artist="The Band")
         sr.create(song)
 
-        version = _make_version(song.id, label="Final Mix", duration_seconds=312.5)
+        version = _make_version(
+            song.id,
+            label="Final Mix",
+            duration_seconds=312.5,
+            bpm=127.8,
+            bpm_confidence=0.88,
+            beat_anchor_seconds=0.25,
+        )
         vr.create(version)
 
         layer = _make_layer(
@@ -63,6 +70,9 @@ class TestRoundTrip:
         got_v = vr.list_by_song(song.id)
         assert len(got_v) == 1
         assert got_v[0].duration_seconds == 312.5
+        assert got_v[0].bpm == 127.8
+        assert got_v[0].bpm_confidence == 0.88
+        assert got_v[0].beat_anchor_seconds == 0.25
 
         got_l = lr.list_by_version(version.id)
         assert len(got_l) == 1
