@@ -585,6 +585,7 @@ class SectionManagerDialog(QDialog):
             elif select_row is None:
                 self._table.clearSelection()
             else:
+                self._table.clearSelection()
                 self._table.selectRow(max(0, min(select_row, len(self._rows) - 1)))
         finally:
             self._loading_editors = False

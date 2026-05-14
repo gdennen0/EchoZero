@@ -527,7 +527,8 @@ class SongBrowserPanel(QWidget):
                 | Qt.KeyboardModifier.ShiftModifier
             )
         )
-        if not multi_select_modifier:
+        multi_select_active = len(self._selected_song_ids_in_display_order()) > 1
+        if not multi_select_modifier or not multi_select_active:
             self.song_selected.emit(song_id)
 
     def _handle_song_selection_changed(self) -> None:
