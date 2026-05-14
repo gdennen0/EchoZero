@@ -103,6 +103,7 @@ class _TimelineCanvasPaintMixin:
             self._event_rects.clear()
             self._section_label_rects.clear()
             self._section_boundary_rects.clear()
+            self._section_marker_rects.clear()
             self._fix_event_rects.clear()
             self._event_lane_rects.clear()
             self._header_select_rects.clear()
@@ -242,11 +243,23 @@ class _TimelineCanvasPaintMixin:
                 if str(region.name or "").casefold() == str(region.cue_ref or "").casefold()
                 else f"{region.cue_ref} {region.name}"
             )
+            boundary_rect = QRectF(
+                left - 6.0,
+                float(top),
+                12.0,
+                float(max(1, row_height)),
+            )
+            marker_rect = boundary_rect
             if label_text:
+                metrics = painter.fontMetrics()
+                label_width = min(
+                    max(36.0, float(metrics.horizontalAdvance(label_text)) + 16.0),
+                    max(36.0, width - 10.0),
+                )
                 label_rect = QRectF(
                     left + 6.0,
                     float(top),
-                    max(24.0, width - 12.0),
+                    label_width,
                     float(max(1, row_height) - 1),
                 )
                 painter.setPen(QColor(self._style.canvas.section_boundary_hex))
@@ -256,26 +269,16 @@ class _TimelineCanvasPaintMixin:
                     label_text,
                 )
                 self._section_label_rects.append((label_rect, region.cue_id))
-            boundary_hit_half_width = 4.0
+                marker_rect = marker_rect.united(label_rect)
             self._section_boundary_rects.append(
                 (
-                    QRectF(
-                        left - boundary_hit_half_width,
-                        float(top),
-                        boundary_hit_half_width * 2.0,
-                        float(max(1, row_height)),
-                    ),
+                    boundary_rect,
                     region.cue_id,
                 )
             )
-            self._section_boundary_rects.append(
+            self._section_marker_rects.append(
                 (
-                    QRectF(
-                        right - boundary_hit_half_width,
-                        float(top),
-                        boundary_hit_half_width * 2.0,
-                        float(max(1, row_height)),
-                    ),
+                    marker_rect,
                     region.cue_id,
                 )
             )
@@ -476,7 +479,7 @@ class _TimelineCanvasPaintMixin:
                     ),
                 )
             else:
-                if self._edit_mode in {"move", "select"} or layer.kind is not LayerKind.SECTION:
+                if layer.kind is not LayerKind.SECTION:
                     visible_events = self._visible_lane_events(layer.events)
                     event_lane_top = float(top + max(0.0, (row_height - self._event_height) * 0.5))
                     self._draw_fix_overlay_events(
@@ -579,7 +582,7 @@ class _TimelineCanvasPaintMixin:
                     ),
                 )
             else:
-                if self._edit_mode in {"move", "select"} or take.kind is not LayerKind.SECTION:
+                if take.kind is not LayerKind.SECTION:
                     visible_events = self._visible_lane_events(take.events)
                     event_lane_top = float(
                         top

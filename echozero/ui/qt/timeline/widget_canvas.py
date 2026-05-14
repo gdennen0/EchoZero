@@ -48,6 +48,7 @@ from echozero.ui.qt.timeline.widget_canvas_types import (
     SectionLabelRect as _SectionLabelRect,
     LayerDragCandidate as _LayerDragCandidate,
     LayerResizeCandidate as _LayerResizeCandidate,
+    SectionMarkerDragCandidate as _SectionMarkerDragCandidate,
     SelectionDragCandidate as _SelectionDragCandidate,
     TakeActionRect as _TakeActionRect,
     TakeRect as _TakeRect,
@@ -149,6 +150,7 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
     preview_selected_event_clip_requested = pyqtSignal()
     section_label_double_clicked = pyqtSignal(object)
     section_boundary_double_clicked = pyqtSignal(object)
+    section_marker_move_requested = pyqtSignal(object, object, float)
     header_width_changed = pyqtSignal(int)
 
     def __init__(
@@ -192,6 +194,7 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
         self._event_rects: list[_EventRect] = []
         self._section_label_rects: list[_SectionLabelRect] = []
         self._section_boundary_rects: list[_SectionBoundaryRect] = []
+        self._section_marker_rects: list[_SectionBoundaryRect] = []
         self._fix_event_rects: list[_FixEventRect] = []
         self._focused_fix_overlay_key: tuple[LayerId, TakeId | None, str, float, float] | None = (
             None
@@ -207,6 +210,8 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
         self._hovered_layer_id: LayerId | None = None
         self._dragging_playhead = False
         self._drag_candidate: _EventDragCandidate | None = None
+        self._section_marker_drag_candidate: _SectionMarkerDragCandidate | None = None
+        self._dragging_section_marker = False
         self._dragging_events = False
         self._layer_row_resize_candidate: _LayerResizeCandidate | None = None
         self._header_resize_candidate: tuple[float, int] | None = None

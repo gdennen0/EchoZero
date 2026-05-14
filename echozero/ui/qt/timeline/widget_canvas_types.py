@@ -37,6 +37,15 @@ class EventDragCandidate(TypedDict):
     copy_on_drag: bool
 
 
+class SectionMarkerDragCandidate(TypedDict):
+    anchor_x: float
+    anchor_y: float
+    layer_id: LayerId
+    take_id: TakeId
+    cue_id: SectionCueId
+    anchor_event_start: float
+
+
 class SelectionDragCandidate(TypedDict):
     anchor_pos: QPointF
     origin_layer_id: LayerId

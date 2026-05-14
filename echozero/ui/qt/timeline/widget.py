@@ -233,6 +233,7 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._canvas.create_event_requested.connect(self._create_event)
         self._canvas.section_label_double_clicked.connect(self._rename_section_cue_from_canvas)
         self._canvas.section_boundary_double_clicked.connect(self._edit_section_cue_from_canvas)
+        self._canvas.section_marker_move_requested.connect(self._move_section_cue_from_canvas)
         self._canvas.delete_events_requested.connect(self._delete_events)
         self._canvas.nudge_requested.connect(self._nudge_selected_events)
         self._canvas.duplicate_requested.connect(self._duplicate_selected_events)
@@ -541,6 +542,46 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         if not str(section_cue_id).strip():
             return
         self._open_section_manager_dialog(selected_cue_id=section_cue_id)
+
+    def _move_section_cue_from_canvas(
+        self,
+        layer_id: object,
+        cue_id: object,
+        start_seconds: float,
+    ) -> None:
+        target_layer_id = LayerId(str(layer_id or "").strip())
+        section_cue_id = SectionCueId(str(cue_id or "").strip())
+        if not str(target_layer_id).strip() or not str(section_cue_id).strip():
+            return
+        target_layer = self._section_manager_target_layer(preferred_layer_id=target_layer_id)
+        if target_layer is None:
+            return
+        next_start = max(0.0, float(start_seconds))
+        found_match = False
+        drafts: list[SectionCueDraft] = []
+        for cue in self._section_layer_drafts(target_layer):
+            if cue.cue_id == section_cue_id:
+                found_match = True
+                drafts.append(
+                    SectionCueDraft(
+                        cue_id=cue.cue_id,
+                        start=next_start,
+                        cue_ref=cue.cue_ref,
+                        name=cue.name,
+                        cue_number=cue.cue_number,
+                        color=cue.color,
+                        notes=cue.notes,
+                        payload_ref=cue.payload_ref,
+                    )
+                )
+                continue
+            drafts.append(cue)
+        if not found_match:
+            return
+        self._apply_section_manager_changes(
+            drafts,
+            target_layer_id=target_layer.layer_id,
+        )
 
     def _promote_fix_onset_event(
         self,
