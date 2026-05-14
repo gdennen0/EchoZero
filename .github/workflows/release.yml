@@ -97,7 +97,8 @@ jobs:
           [System.IO.File]::Copy((Resolve-Path -LiteralPath $versionedPath), (Join-Path (Resolve-Path -LiteralPath 'dist') 'EchoZero-Windows.zip'), $true)
           $versionedHash = (Get-FileHash -LiteralPath $versionedPath -Algorithm SHA256).Hash.ToLowerInvariant()
           $convenienceHash = (Get-FileHash -LiteralPath $conveniencePath -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$versionedHash  $versioned" | Set-Content -LiteralPath $shaPath
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText((Resolve-Path -LiteralPath $shaPath), "$versionedHash  $versioned`n", $utf8NoBom)
           if ($versionedHash -ne $convenienceHash) {
             throw "Windows convenience and versioned zip SHA256 values differ: $versionedHash vs $convenienceHash"
           }
@@ -182,6 +183,14 @@ jobs:
           target=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" --jq '.target_commitish')
           test "$target" = "$GITHUB_SHA"
           tmp=$(mktemp -d)
-          gh release download "$tag" --dir "$tmp" --pattern 'EchoZero-macOS.zip' --pattern "EchoZero-${tag}-macos-arm64.zip" --pattern "EchoZero-${tag}-macos-arm64.sha256"
+          gh release download "$tag" --dir "$tmp" \
+            --pattern 'EchoZero-macOS.zip' \
+            --pattern "EchoZero-${tag}-macos-arm64.zip" \
+            --pattern "EchoZero-${tag}-macos-arm64.sha256" \
+            --pattern 'EchoZero-Windows.zip' \
+            --pattern "EchoZero-${tag}-windows-x64.zip" \
+            --pattern "EchoZero-${tag}-windows-x64.sha256"
           test "$(shasum -a 256 "$tmp/EchoZero-macOS.zip" | awk '{print $1}')" = "$(shasum -a 256 "$tmp/EchoZero-${tag}-macos-arm64.zip" | awk '{print $1}')"
+          test "$(shasum -a 256 "$tmp/EchoZero-Windows.zip" | awk '{print $1}')" = "$(shasum -a 256 "$tmp/EchoZero-${tag}-windows-x64.zip" | awk '{print $1}')"
           (cd "$tmp" && shasum -a 256 -c "EchoZero-${tag}-macos-arm64.sha256")
+          (cd "$tmp" && shasum -a 256 -c "EchoZero-${tag}-windows-x64.sha256")
