@@ -645,6 +645,41 @@ def test_inspector_contract_resolves_selected_event_from_ids_without_selected_ev
     assert rows["take"] == "Take 2 (take_alt)"
 
 
+def test_inspector_contract_prefers_selected_event_ids_over_stale_selected_event_refs():
+    presentation = _contract_test_presentation()
+    presentation.selected_layer_id = LayerId("layer_kick")
+    presentation.selected_take_id = TakeId("take_alt")
+    presentation.selected_event_ids = [EventId("take_evt")]
+    presentation.selected_event_refs = [
+        EventRef(
+            layer_id=LayerId("layer_kick"),
+            take_id=TakeId("take_main"),
+            event_id=EventId("main_evt"),
+        )
+    ]
+
+    contract = build_timeline_inspector_contract(presentation)
+    rows = _section_rows(contract)
+
+    assert contract.title == "Event Take"
+    assert rows["id"] == "take_evt"
+    assert rows["take"] == "Take 2 (take_alt)"
+
+
+def test_inspector_contract_resolves_selected_event_from_ids_without_selected_event_refs():
+    presentation = _contract_test_presentation()
+    presentation.selected_layer_id = LayerId("layer_kick")
+    presentation.selected_take_id = TakeId("take_alt")
+    presentation.selected_event_ids = [EventId("take_evt")]
+
+    contract = build_timeline_inspector_contract(presentation)
+    rows = _section_rows(contract)
+
+    assert contract.title == "Event Take"
+    assert rows["id"] == "take_evt"
+    assert rows["take"] == "Take 2 (take_alt)"
+
+
 def test_inspector_contract_take_event_state():
     presentation = _contract_test_presentation()
     presentation.selected_layer_id = None
