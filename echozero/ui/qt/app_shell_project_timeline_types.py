@@ -16,7 +16,7 @@ from echozero.application.shared.ids import LayerId, TakeId
 
 @dataclass(slots=True)
 class AudioPresentationFields:
-    """Audio-specific presentation fields layered onto timeline rows and takes."""
+    """Source-audio presentation fields layered onto timeline rows and takes."""
 
     waveform_key: str | None = None
     source_audio_path: str | None = None

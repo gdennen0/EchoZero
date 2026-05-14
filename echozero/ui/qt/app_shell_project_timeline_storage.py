@@ -93,11 +93,14 @@ def audio_presentation_fields(project_storage: ProjectStorage, take) -> AudioPre
             playback_source_ref=source_audio_path,
         )
 
-    playback_source_path = _take_playback_source_audio_file_path(take)
-    if playback_source_path is None:
+    source_audio_path = _take_source_audio_file_path(take)
+    if source_audio_path is None:
         return AudioPresentationFields()
-    playback_source_ref = str(resolve_project_audio_path(project_storage, playback_source_path))
-    return AudioPresentationFields(playback_source_ref=playback_source_ref)
+    source_audio_ref = str(resolve_project_audio_path(project_storage, source_audio_path))
+    return AudioPresentationFields(
+        source_audio_path=source_audio_ref,
+        playback_source_ref=source_audio_ref,
+    )
 
 
 def _take_audio_file_path(take) -> str | None:
@@ -106,10 +109,18 @@ def _take_audio_file_path(take) -> str | None:
     return None
 
 
-def _take_playback_source_audio_file_path(take) -> str | None:
+def _take_source_audio_file_path(take) -> str | None:
     source = getattr(take, "source", None)
     if source is None:
         return None
+    for artifact in getattr(source, "artifacts", ()) or ():
+        if (
+            getattr(artifact, "role", "") == "source_audio"
+            and getattr(artifact, "kind", "") == "audio_file"
+        ):
+            candidate = str(getattr(artifact, "locator", "")).strip()
+            if candidate:
+                return candidate
     settings_snapshot = getattr(source, "settings_snapshot", {}) or {}
     source_audio_path = settings_snapshot.get("source_audio_path")
     if source_audio_path is None:
@@ -230,6 +241,8 @@ def build_storage_layer(
             source_run_id=provenance.get("source_run_id"),
             pipeline_id=source_pipeline.get("pipeline_id") or provenance.get("pipeline_id"),
             output_name=source_pipeline.get("output_name") or provenance.get("output_name"),
+            analysis_build=provenance.get("analysis_build"),
+            artifacts=tuple(provenance.get("artifacts") or ()),
         ),
         presentation_hints=LayerPresentationHints(
             visible=bool(layer_record.visible),

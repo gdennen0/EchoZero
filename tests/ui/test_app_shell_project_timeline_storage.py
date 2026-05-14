@@ -212,11 +212,13 @@ def test_build_storage_layer_resolves_event_take_playback_source_ref_from_snapsh
     )
 
     assert layer is not None
-    assert layer_audio.source_audio_path is None
+    assert layer_audio.source_audio_path is not None
+    assert Path(layer_audio.source_audio_path).as_posix().endswith("stems/drums.wav")
     assert layer_audio.playback_source_ref is not None
     assert Path(layer_audio.playback_source_ref).as_posix().endswith("stems/drums.wav")
     take_audio_fields = next(iter(take_audio.values()))
-    assert take_audio_fields.source_audio_path is None
+    assert take_audio_fields.source_audio_path is not None
+    assert Path(take_audio_fields.source_audio_path).as_posix().endswith("stems/drums.wav")
     assert take_audio_fields.playback_source_ref is not None
     assert Path(take_audio_fields.playback_source_ref).as_posix().endswith("stems/drums.wav")
 
