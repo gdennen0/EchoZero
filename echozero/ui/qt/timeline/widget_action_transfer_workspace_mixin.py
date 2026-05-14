@@ -36,6 +36,7 @@ from echozero.application.timeline.intents import (
     SelectPushTargetTrack,
 )
 from echozero.ui.qt.timeline.manual_pull import (
+    ManualPullTimelineSelectionResult,
     ManualPullWorkspaceDialog,
 )
 from echozero.ui.qt.timeline.widget_action_contract_mixin import _coerce_layer_id
@@ -260,11 +261,16 @@ class TimelineWidgetTransferWorkspaceMixin:
             labels = [self._manual_push_track_label(track) for track in flow.available_tracks]
         return True
 
+    def _default_open_manual_pull_timeline_popup(
+        self, flow: ManualPullFlowPresentation
+    ) -> ManualPullTimelineSelectionResult | None:
+        return self._open_manual_pull_workspace_dialog(flow, exit_on_cancel=False)
+
     def _run_manual_pull_workspace(self) -> bool:
         host = cast(_TransferActionHost, self)
         flow = host._get_presentation().manual_pull_flow
-        accepted = self._open_manual_pull_workspace_dialog(flow, exit_on_cancel=True)
-        if not accepted:
+        selection = self._open_manual_pull_workspace_dialog(flow, exit_on_cancel=True)
+        if selection is None:
             return True
         host._dispatch(ApplyPullFromMA3())
         return True
@@ -274,7 +280,7 @@ class TimelineWidgetTransferWorkspaceMixin:
         flow: ManualPullFlowPresentation,
         *,
         exit_on_cancel: bool,
-    ) -> bool:
+    ) -> ManualPullTimelineSelectionResult | None:
         host = cast(_TransferActionHost, self)
         if not flow.workspace_active:
             host._dispatch(OpenPullFromMA3Dialog())
@@ -321,8 +327,12 @@ class TimelineWidgetTransferWorkspaceMixin:
         if dialog.exec() != ManualPullWorkspaceDialog.DialogCode.Accepted:
             if exit_on_cancel:
                 host._dispatch(ExitPullFromMA3Workspace())
-            return False
-        return True
+            return None
+        return ManualPullTimelineSelectionResult(
+            selected_event_ids=dialog.selected_event_ids(),
+            target_layer_id=dialog.selected_target_layer_id(),
+            import_mode=dialog.selected_import_mode(),
+        )
 
     @staticmethod
     def _manual_push_track_label(track: ManualPushTrackOptionPresentation) -> str:
