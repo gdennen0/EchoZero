@@ -90,11 +90,17 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $versioned = "EchoZero-$env:GITHUB_REF_NAME-windows-x64.zip"
-          Compress-Archive -Path dist\EchoZero -DestinationPath "dist\$versioned" -Force
-          Copy-Item "dist\$versioned" "dist\EchoZero-Windows.zip" -Force
-          (Get-FileHash "dist\$versioned" -Algorithm SHA256).Hash.ToLower() + "  $versioned" | Set-Content "dist\$($versioned -replace '\\.zip$', '.sha256')"
-          if ((Get-FileHash "dist\$versioned" -Algorithm SHA256).Hash -ne (Get-FileHash "dist\EchoZero-Windows.zip" -Algorithm SHA256).Hash) {
-            throw 'Windows convenience and versioned zip SHA256 values differ.'
+          $versionedPath = Join-Path 'dist' $versioned
+          $conveniencePath = Join-Path 'dist' 'EchoZero-Windows.zip'
+          $shaPath = Join-Path 'dist' ($versioned -replace '\\.zip$', '.sha256')
+          Remove-Item -LiteralPath $versionedPath, $conveniencePath, $shaPath -Force -ErrorAction SilentlyContinue
+          Compress-Archive -Path 'dist\EchoZero' -DestinationPath $versionedPath -Force
+          [System.IO.File]::Copy((Resolve-Path -LiteralPath $versionedPath), (Join-Path (Resolve-Path -LiteralPath 'dist') 'EchoZero-Windows.zip'), $true)
+          $versionedHash = (Get-FileHash -LiteralPath $versionedPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $convenienceHash = (Get-FileHash -LiteralPath $conveniencePath -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$versionedHash  $versioned" | Set-Content -LiteralPath $shaPath
+          if ($versionedHash -ne $convenienceHash) {
+            throw "Windows convenience and versioned zip SHA256 values differ: $versionedHash vs $convenienceHash"
           }
 
       - name: Upload Windows artifacts
