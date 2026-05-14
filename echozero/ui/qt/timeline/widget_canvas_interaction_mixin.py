@@ -41,6 +41,7 @@ from echozero.ui.qt.timeline.widget_canvas_types import (
     EventDragCandidate,
     EventLaneRect,
     LayerResizeCandidate,
+    SectionMarkerDragCandidate,
     SelectionDragCandidate,
 )
 
@@ -90,6 +91,26 @@ class _TimelineCanvasInteractionMixin:
             event.accept()
             return
 
+        if (
+            self._section_marker_drag_candidate is not None
+            and event.buttons() & Qt.MouseButton.LeftButton
+        ):
+            dx = abs(
+                event.position().x() - float(self._section_marker_drag_candidate["anchor_x"])
+            )
+            dy = abs(
+                event.position().y() - float(self._section_marker_drag_candidate["anchor_y"])
+            )
+            if max(dx, dy) >= DRAG_THRESHOLD_PX:
+                self._dragging_section_marker = True
+                self._update_section_marker_drag_preview(
+                    event.position(),
+                    modifiers=event.modifiers(),
+                )
+                self.update()
+            event.accept()
+            return
+
         if self._drag_candidate is not None and event.buttons() & Qt.MouseButton.LeftButton:
             dx = abs(event.position().x() - float(self._drag_candidate["anchor_x"]))
             dy = abs(event.position().y() - float(self._drag_candidate["anchor_y"]))
@@ -136,6 +157,8 @@ class _TimelineCanvasInteractionMixin:
         self._layer_row_resize_candidate = None
         self._dragging_playhead = False
         self._drag_candidate = None
+        self._section_marker_drag_candidate = None
+        self._dragging_section_marker = False
         self._dragging_events = False
         self._selection_drag_candidate = None
         self._drawing_candidate = None
@@ -168,6 +191,26 @@ class _TimelineCanvasInteractionMixin:
             self.playhead_drag_requested.emit(self._seek_time_at_x(pos.x()))
             event.accept()
             return
+        if event.button() == Qt.MouseButton.LeftButton and self._edit_mode in {"move", "select"}:
+            section_marker_hit = self._section_marker_hit(pos)
+            if section_marker_hit is not None:
+                marker_event = self._section_marker_event(section_marker_hit)
+                if marker_event is not None:
+                    layer_id, take_id, cue_id, start_seconds = marker_event
+                    self._section_marker_drag_candidate = SectionMarkerDragCandidate(
+                        anchor_x=pos.x(),
+                        anchor_y=pos.y(),
+                        layer_id=layer_id,
+                        take_id=take_id,
+                        cue_id=cue_id,
+                        anchor_event_start=float(start_seconds),
+                    )
+                    self._dragging_section_marker = False
+                    self._move_drag_preview_time = None
+                    self._move_drag_snap_time = None
+                    self._snap_indicator_time = None
+                    event.accept()
+                    return
         if event.button() == Qt.MouseButton.LeftButton and self._edit_mode == "select":
             if self._header_resize_handle_contains(pos):
                 self._header_resize_candidate = (float(pos.x()), int(self._header_width))
@@ -584,6 +627,36 @@ class _TimelineCanvasInteractionMixin:
                 return
             if self._selection_drag_candidate is not None:
                 self._commit_selection_drag()
+                event.accept()
+                return
+            if self._section_marker_drag_candidate is not None:
+                candidate = self._section_marker_drag_candidate
+                if self._dragging_section_marker:
+                    preview_time = self._move_drag_preview_time
+                    if preview_time is None:
+                        delta_seconds = (
+                            event.position().x()
+                            - float(self._section_marker_drag_candidate["anchor_x"])
+                        ) / max(1.0, self.presentation.pixels_per_second)
+                        preview_time = float(candidate["anchor_event_start"]) + delta_seconds
+                    self.section_marker_move_requested.emit(
+                        candidate["layer_id"],
+                        candidate["cue_id"],
+                        max(0.0, float(preview_time)),
+                    )
+                else:
+                    self.event_selected.emit(
+                        candidate["layer_id"],
+                        candidate["take_id"],
+                        candidate["cue_id"],
+                        self._selection_mode_for_modifiers(event.modifiers()),
+                    )
+                self._section_marker_drag_candidate = None
+                self._dragging_section_marker = False
+                self._snap_indicator_time = None
+                self._move_drag_preview_time = None
+                self._move_drag_snap_time = None
+                self.update()
                 event.accept()
                 return
             if self._drag_candidate is not None:
@@ -1309,6 +1382,9 @@ class _TimelineCanvasInteractionMixin:
         if self._edit_mode == "select" and self._resize_target_layer_id(pos) is not None:
             self.setCursor(Qt.CursorShape.SizeVerCursor)
             return
+        if self._edit_mode == "select" and self._section_marker_hit(pos) is not None:
+            self.setCursor(Qt.CursorShape.SizeAllCursor)
+            return
         if self._edit_mode == "select" and self._draggable_event_hit(pos) is not None:
             self.setCursor(Qt.CursorShape.SizeAllCursor)
             return
@@ -1362,6 +1438,43 @@ class _TimelineCanvasInteractionMixin:
         for rect, cue_id in reversed(self._section_boundary_rects):
             if rect.contains(pos):
                 return cue_id
+        return None
+
+    def _section_marker_hit(self: Any, pos: QPointF):
+        for rect, cue_id in reversed(self._section_marker_rects):
+            if rect.contains(pos):
+                return cue_id
+        return None
+
+    def _section_marker_event(
+        self: Any,
+        cue_id: object,
+    ) -> tuple[LayerId, TakeId, EventId, float] | None:
+        resolved_cue_id = str(cue_id or "").strip()
+        if not resolved_cue_id:
+            return None
+        for layer in self.presentation.layers:
+            if layer.kind.name != "SECTION" or layer.main_take_id is None:
+                continue
+            for event in layer.events:
+                if str(event.event_id) != resolved_cue_id:
+                    continue
+                return (
+                    layer.layer_id,
+                    layer.main_take_id,
+                    event.event_id,
+                    float(event.start),
+                )
+            for take in layer.takes:
+                for event in take.events:
+                    if str(event.event_id) != resolved_cue_id:
+                        continue
+                    return (
+                        layer.layer_id,
+                        take.take_id,
+                        event.event_id,
+                        float(event.start),
+                    )
         return None
 
     def _resolve_draw_time(self: Any, x: float, *, modifiers: Qt.KeyboardModifier) -> float:
@@ -1430,6 +1543,28 @@ class _TimelineCanvasInteractionMixin:
         preview_time = snapped_time if snapped_time is not None else raw_time
         self._move_drag_preview_time = float(preview_time)
         self._snap_indicator_time = float(preview_time)
+
+    def _update_section_marker_drag_preview(
+        self: Any,
+        pos: QPointF,
+        *,
+        modifiers: Qt.KeyboardModifier,
+    ) -> None:
+        if self._section_marker_drag_candidate is None:
+            return
+        raw_delta = (
+            float(pos.x()) - float(self._section_marker_drag_candidate["anchor_x"])
+        ) / max(1.0, self.presentation.pixels_per_second)
+        anchor_time = float(self._section_marker_drag_candidate["anchor_event_start"])
+        raw_time = anchor_time + raw_delta
+        snapped_time = self._resolve_drag_snap_target_time(
+            raw_time,
+            modifiers=modifiers,
+            exclude_event_ids=(self._section_marker_drag_candidate["cue_id"],),
+        )
+        preview_time = snapped_time if snapped_time is not None else raw_time
+        self._move_drag_preview_time = max(0.0, float(preview_time))
+        self._snap_indicator_time = self._move_drag_preview_time
 
     def _resolve_drag_snap_target_time(
         self: Any,

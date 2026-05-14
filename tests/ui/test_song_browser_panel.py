@@ -66,6 +66,12 @@ def test_song_browser_panel_renders_song_and_version_lists():
         )
         assert panel._songs_tree.topLevelItem(0).text(1) == "Alpha Song"
         assert panel._songs_tree.topLevelItem(1).text(1) == "Beta Song"
+        assert (
+            panel._songs_tree.topLevelItem(0).flags() & Qt.ItemFlag.ItemIsDropEnabled
+        ) == Qt.ItemFlag.NoItemFlags
+        assert (
+            panel._songs_tree.topLevelItem(1).flags() & Qt.ItemFlag.ItemIsDropEnabled
+        ) == Qt.ItemFlag.NoItemFlags
 
         assert panel._version_list.count() == 2
         assert panel._version_list.item(0).text() == "V1: Original"
@@ -233,7 +239,7 @@ def test_song_browser_panel_drag_reorder_updates_numbers_and_emits_song_order():
         assert moved_item is not None
         panel._songs_tree.insertTopLevelItem(0, moved_item)
 
-        panel._handle_song_rows_moved()
+        panel._songs_tree.song_reorder_drop_completed.emit(("song_beta", "song_alpha"))
         app.processEvents()
 
         assert panel._songs_tree.topLevelItem(0).text(0) == "1"
@@ -256,8 +262,23 @@ def test_song_browser_panel_drag_reorder_coalesces_reorder_emits():
         assert moved_item is not None
         panel._songs_tree.insertTopLevelItem(0, moved_item)
 
-        panel._handle_song_rows_moved()
-        panel._handle_song_rows_moved()
+        panel._songs_tree.song_reorder_drop_completed.emit(("song_beta", "song_alpha"))
+        panel._songs_tree.song_reorder_drop_completed.emit(("song_beta", "song_alpha"))
+        app.processEvents()
+
+        assert captured == [("song_beta", "song_alpha")]
+    finally:
+        panel.close()
+        app.processEvents()
+
+
+def test_song_browser_panel_tree_drop_completion_emits_reordered_song_order():
+    app = QApplication.instance() or QApplication([])
+    panel = SongBrowserPanel(_song_switching_presentation())
+    captured: list[tuple[str, ...]] = []
+    panel.songs_reordered_requested.connect(captured.append)
+    try:
+        panel._songs_tree.song_reorder_drop_completed.emit(("song_beta", "song_alpha"))
         app.processEvents()
 
         assert captured == [("song_beta", "song_alpha")]

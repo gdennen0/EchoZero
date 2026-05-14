@@ -256,6 +256,29 @@ def test_double_click_section_boundary_opens_section_editor_and_dispatches_chang
         app.processEvents()
 
 
+def test_dragging_section_marker_dispatches_replace_section_cues_with_new_start():
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    presentation = _section_overlay_scope_presentation()
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+        marker_rect, _cue_id = widget._canvas._section_marker_rects[0]
+        start = marker_rect.center().toPoint()
+
+        _mouse_drag(widget._canvas, [start, QPoint(start.x() + 100, start.y())])
+
+        replace_intents = [intent for intent in intents if isinstance(intent, ReplaceSectionCues)]
+        assert len(replace_intents) == 1
+        assert replace_intents[0].target_layer_id == LayerId("layer_sections")
+        assert abs(float(replace_intents[0].cues[0].start) - 1.0) < 0.02
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_shift_click_event_dispatches_additive_selection_mode():
     app = QApplication.instance() or QApplication([])
     intents: list[SelectEvent] = []

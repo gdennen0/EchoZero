@@ -50,8 +50,8 @@ _PANEL_COLLAPSED_WIDTH = 28
 _PANEL_DEFAULT_EXPANDED_WIDTH = 280
 _PANEL_MIN_EXPANDED_WIDTH = 240
 _PANEL_MAX_EXPANDED_WIDTH = 460
-_PANEL_COLLAPSED_GLYPH = "▶"
-_PANEL_EXPANDED_GLYPH = "◀"
+_PANEL_COLLAPSED_GLYPH = ">"
+_PANEL_EXPANDED_GLYPH = "<"
 
 
 class SongBrowserPanel(QWidget):
@@ -164,7 +164,11 @@ class SongBrowserPanel(QWidget):
         songs_header_layout.addWidget(self._songs_meta, 1)
         browser_layout.addWidget(songs_header)
 
-        self._songs_tree = SongBrowserTree(self._resolve_tree_drop_target, self._browser_page)
+        self._songs_tree = SongBrowserTree(
+            self._resolve_tree_drop_target,
+            self._song_ids_in_display_order,
+            self._browser_page,
+        )
         self._songs_tree.setObjectName("songBrowserSongList")
         self._songs_tree.setColumnCount(2)
         self._songs_tree.setHeaderHidden(True)
@@ -192,8 +196,8 @@ class SongBrowserPanel(QWidget):
         self._songs_tree.itemSelectionChanged.connect(self._handle_song_selection_changed)
         self._songs_tree.customContextMenuRequested.connect(self._open_song_context_menu)
         self._songs_tree.audio_drop_requested.connect(self.audio_paths_dropped.emit)
-        self._songs_tree.model().rowsMoved.connect(self._handle_song_rows_moved)
-        browser_layout.addWidget(self._songs_tree, 3)
+        self._songs_tree.song_reorder_drop_completed.connect(self._handle_song_drop_reordered)
+        browser_layout.addWidget(self._songs_tree, 2)
 
         version_header = QWidget(self._browser_page)
         version_header.setObjectName("songBrowserVersionsHeader")
@@ -355,6 +359,7 @@ class SongBrowserPanel(QWidget):
             selected_song_items: list[QTreeWidgetItem] = []
             for index, song in enumerate(presentation.available_songs, start=1):
                 song_item = QTreeWidgetItem([str(index), song.title])
+                song_item.setFlags(song_item.flags() & ~Qt.ItemFlag.ItemIsDropEnabled)
                 song_item.setTextAlignment(
                     _ROW_NUMBER_COLUMN,
                     int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter),
@@ -607,11 +612,15 @@ class SongBrowserPanel(QWidget):
                 int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter),
             )
 
-    def _handle_song_rows_moved(self, *_args: object) -> None:
-        self._refresh_song_row_numbers()
+    def _handle_song_drop_reordered(self, ordered_song_ids: object) -> None:
+        if not isinstance(ordered_song_ids, tuple):
+            return
         if self._is_populating_song_list:
             return
-        ordered_song_ids = self._song_ids_in_display_order()
+        self._refresh_song_row_numbers()
+        self._queue_song_reorder(ordered_song_ids)
+
+    def _queue_song_reorder(self, ordered_song_ids: tuple[str, ...]) -> None:
         if not ordered_song_ids:
             return
         current_song_ids = tuple(song.song_id for song in self._presentation.available_songs)
