@@ -5,6 +5,8 @@ Connects manual pull event picking to the timeline transfer action router.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from PyQt6.QtCore import QPointF, QRectF, Qt, QSignalBlocker, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPen, QPolygonF, QWheelEvent
 from PyQt6.QtWidgets import (
@@ -29,6 +31,13 @@ from echozero.ui.qt.timeline.manual_pull_source_browser import (
 )
 from echozero.ui.qt.timeline.blocks.ruler import visible_ruler_seconds
 from echozero.ui.qt.timeline.style import TIMELINE_STYLE
+
+
+@dataclass(frozen=True, slots=True)
+class ManualPullTimelineSelectionResult:
+    selected_event_ids: list[str]
+    target_layer_id: LayerId | None
+    import_mode: str
 
 
 def format_manual_pull_seconds(value: float) -> str:
