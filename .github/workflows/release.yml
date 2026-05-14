@@ -1,14 +1,9 @@
-# Build EchoZero for Mac and Windows, create GitHub release with artifacts.
-# Trigger: push a version tag (e.g. v0.1.0)
+# Build EchoZero release artifacts, verify them from first principles, then publish.
+# Trigger: push a version tag (e.g. v1.0.0-alpha.0).
 #
-# How to create a release:
-#   1. Bump version in packaging_config.json
-#   2. git tag v0.1.0   # match the version
-#   3. git push origin v0.1.0
-#
-# Optional: Add MEMBERSTACK_APP_SECRET as a GitHub repo secret for zero-config
-# builds (embed auth at build time). If not set, builds work but users must
-# configure auth per PACKAGING.md.
+# Release invariant: public GitHub assets are the product. A release is not valid
+# until the uploaded/downloaded assets match the generated manifest and pass the
+# artifact verifier.
 
 name: Release
 
@@ -38,16 +33,37 @@ jobs:
           MEMBERSTACK_APP_SECRET: ${{ secrets.MEMBERSTACK_APP_SECRET }}
         run: python scripts/build_app.py --clean
 
-      - name: Create macOS archive
+      - name: Create and verify macOS archives
+        shell: bash
         run: |
-          cd dist
-          zip -r EchoZero-macOS.zip EchoZero.app
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          versioned="EchoZero-${GITHUB_REF_NAME}-macos-arm64.zip"
+          convenience="EchoZero-macOS.zip"
 
-      - name: Upload macOS artifact
+          cd dist
+          rm -f "$versioned" "$convenience" "${versioned%.zip}.sha256" macos-release-verification.json
+          ditto -c -k --sequesterRsrc --keepParent EchoZero.app "$versioned"
+          cp "$versioned" "$convenience"
+          shasum -a 256 "$versioned" > "${versioned%.zip}.sha256"
+          test "$(shasum -a 256 "$versioned" | awk '{print $1}')" = "$(shasum -a 256 "$convenience" | awk '{print $1}')"
+          cd ..
+
+          python scripts/verify_macos_release_artifact.py "dist/$versioned" \
+            --compare-zip "dist/$convenience" \
+            --report-path dist/macos-release-verification.json
+
+      - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
           name: EchoZero-macOS
-          path: dist/EchoZero-macOS.zip
+          path: |
+            dist/EchoZero-v*-macos-arm64.zip
+            dist/EchoZero-v*-macos-arm64.sha256
+            dist/EchoZero-macOS.zip
+            dist/build-metadata.json
+            dist/packaged-smoke-report.json
+            dist/macos-release-verification.json
 
   build-windows:
     runs-on: windows-latest
@@ -70,14 +86,26 @@ jobs:
         run: python scripts/build_app.py --clean
 
       - name: Create Windows archive
+        shell: pwsh
         run: |
-          Compress-Archive -Path dist\EchoZero -DestinationPath dist\EchoZero-Windows.zip
+          $ErrorActionPreference = 'Stop'
+          $versioned = "EchoZero-$env:GITHUB_REF_NAME-windows-x64.zip"
+          Compress-Archive -Path dist\EchoZero -DestinationPath "dist\$versioned" -Force
+          Copy-Item "dist\$versioned" "dist\EchoZero-Windows.zip" -Force
+          (Get-FileHash "dist\$versioned" -Algorithm SHA256).Hash.ToLower() + "  $versioned" | Set-Content "dist\$($versioned -replace '\\.zip$', '.sha256')"
+          if ((Get-FileHash "dist\$versioned" -Algorithm SHA256).Hash -ne (Get-FileHash "dist\EchoZero-Windows.zip" -Algorithm SHA256).Hash) {
+            throw 'Windows convenience and versioned zip SHA256 values differ.'
+          }
 
-      - name: Upload Windows artifact
+      - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: EchoZero-Windows
-          path: dist/EchoZero-Windows.zip
+          path: |
+            dist/EchoZero-v*-windows-x64.zip
+            dist/EchoZero-v*-windows-x64.sha256
+            dist/EchoZero-Windows.zip
+            dist/build-metadata.json
 
   release:
     runs-on: ubuntu-latest
@@ -85,17 +113,72 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-artifacts
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            release-artifacts/EchoZero-macOS/EchoZero-macOS.zip
-            release-artifacts/EchoZero-Windows/EchoZero-Windows.zip
-          generate_release_notes: true
+      - name: Publish exact release asset set
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          shopt -s nullglob
+          assets=(
+            release-artifacts/EchoZero-macOS/EchoZero-${tag}-macos-arm64.zip
+            release-artifacts/EchoZero-macOS/EchoZero-${tag}-macos-arm64.sha256
+            release-artifacts/EchoZero-macOS/EchoZero-macOS.zip
+            release-artifacts/EchoZero-macOS/build-metadata.json
+            release-artifacts/EchoZero-macOS/packaged-smoke-report.json
+            release-artifacts/EchoZero-macOS/macos-release-verification.json
+            release-artifacts/EchoZero-Windows/EchoZero-${tag}-windows-x64.zip
+            release-artifacts/EchoZero-Windows/EchoZero-${tag}-windows-x64.sha256
+            release-artifacts/EchoZero-Windows/EchoZero-Windows.zip
+          )
+          for asset in "${assets[@]}"; do
+            test -f "$asset"
+          done
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --target "$GITHUB_SHA" --prerelease --title "EchoZero $tag"
+          else
+            gh release create "$tag" --target "$GITHUB_SHA" --prerelease --title "EchoZero $tag" --generate-notes
+          fi
+
+          expected_names=(
+            "EchoZero-${tag}-macos-arm64.zip"
+            "EchoZero-${tag}-macos-arm64.sha256"
+            "EchoZero-macOS.zip"
+            "build-metadata.json"
+            "packaged-smoke-report.json"
+            "macos-release-verification.json"
+            "EchoZero-${tag}-windows-x64.zip"
+            "EchoZero-${tag}-windows-x64.sha256"
+            "EchoZero-Windows.zip"
+          )
+          for name in "${expected_names[@]}"; do
+            id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" --jq ".assets[] | select(.name==\"$name\") | .id" || true)
+            if [ -n "$id" ]; then
+              gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/$id" >/dev/null
+            fi
+          done
+
+          gh release upload "$tag" "${assets[@]}"
+
+      - name: Verify uploaded release asset metadata
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          target=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" --jq '.target_commitish')
+          test "$target" = "$GITHUB_SHA"
+          tmp=$(mktemp -d)
+          gh release download "$tag" --dir "$tmp" --pattern 'EchoZero-macOS.zip' --pattern "EchoZero-${tag}-macos-arm64.zip" --pattern "EchoZero-${tag}-macos-arm64.sha256"
+          test "$(shasum -a 256 "$tmp/EchoZero-macOS.zip" | awk '{print $1}')" = "$(shasum -a 256 "$tmp/EchoZero-${tag}-macos-arm64.zip" | awk '{print $1}')"
+          (cd "$tmp" && shasum -a 256 -c "EchoZero-${tag}-macos-arm64.sha256")

@@ -56,6 +56,7 @@ def test_canonical_launcher_check_rejects_legacy_launcher_file(tmp_path: Path):
     (scripts_dir / "build-test-release.ps1").write_text("run_echozero.py\n", encoding="utf-8")
     (scripts_dir / "smoke-test-release.ps1").write_text("Write-Host 'ok'\n", encoding="utf-8")
     (scripts_dir / "smoke_packaged_app.py").write_text("print('ok')\n", encoding="utf-8")
+    (scripts_dir / "verify_macos_release_artifact.py").write_text("print('ok')\n", encoding="utf-8")
 
     result = module.main([str(tmp_path)])
 

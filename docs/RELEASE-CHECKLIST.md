@@ -27,6 +27,8 @@ This complements `docs/APP-DELIVERY-PLAN.md`; it does not replace it.
 - build path succeeds
 - packaged smoke path succeeds
 - release artifact output is deterministic enough for inspection
+- macOS releases are verified from the post-upload GitHub-downloaded zip with
+  `python scripts/verify_macos_release_artifact.py` before any tester handoff
 
 ## Evidence Bundle
 
@@ -35,6 +37,7 @@ Capture:
 - commands run
 - pass/fail outputs
 - packaged smoke result
+- macOS zip verification report when shipping macOS
 - manual QA notes when required
 
 ## Special Attention Areas

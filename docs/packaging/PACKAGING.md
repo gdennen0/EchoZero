@@ -16,6 +16,10 @@ For v1-alpha the production app name is **EchoZero** and the recommended version
 - **scripts/build_app.py** – Wrapper to run `pyinstaller echozero.spec` with optional `--clean`.
 - **scripts/smoke_packaged_app.py** – Cross-platform packaged launch smoke for
   `EchoZero.app`, one-folder builds, and extracted release folders.
+- **scripts/verify_macos_release_artifact.py** – canonical macOS release gate
+  for downloaded zip artifacts. It extracts the zip, verifies SHA-256, Mach-O
+  UUID, strict codesign, bundle-local runtime config absence, packaged smoke,
+  and optional app-payload equivalence between differently named macOS zips.
 
 ## Build (from project root)
 
@@ -136,6 +140,22 @@ python scripts/smoke_packaged_app.py dist/EchoZero.app
 The command launches the real packaged binary with `--smoke-exit-seconds`,
 waits for clean exit, and writes `dist/packaged-smoke-report.json`.
 
+**Downloaded macOS zip gate**
+
+Before telling anyone to test a macOS alpha, verify the actual GitHub release
+asset you will send them, not the local `dist/EchoZero.app`:
+
+```bash
+python scripts/verify_macos_release_artifact.py ~/Downloads/EchoZero-macOS.zip \
+  --expected-sha256 b761a78ae276762402e62d85632727cd4245641622abea719936ce71a7e7c7ce \
+  --expected-binary-uuid AC4A6A20-9E69-F717-9BBE-F9025FA69EB7 \
+  --compare-zip ~/Downloads/EchoZero-v1.0.0-alpha.0-macos-arm64.zip
+```
+
+This gate must pass after the GitHub upload/download cycle because mutating a
+signed `.app` after signing can make Gatekeeper report the app as damaged even
+when local smoke passed earlier.
+
 **App icon shows a white circle with a cross**  
 That icon usually means either (1) the app crashed on launch (fix the crash first), or (2) no custom icon is set. To set an icon, add `packaging/EchoZero.icns` and rebuild (see `packaging/README.md`).
 
@@ -172,4 +192,9 @@ When cutting a release:
 2. Run `python scripts/build_app.py --clean`.
 3. Confirm `echozero.__version__` and `tests/test_smoke.py` match the release version.
 4. Sign and notarize the macOS .app if distributing outside the team (see Apple docs).
-5. Distribute `dist/EchoZero.app` (macOS) or `dist/EchoZero/` (Windows/Linux) plus build metadata and smoke report.
+5. Zip the final signed `.app` without mutating bundle contents afterward.
+6. Upload the zip to GitHub, download it back, then run
+   `python scripts/verify_macos_release_artifact.py ...` against the downloaded
+   zip before sending the release to testers.
+7. Distribute only the verified zip (macOS) or `dist/EchoZero/` (Windows/Linux)
+   plus build metadata, smoke report, and verification report.

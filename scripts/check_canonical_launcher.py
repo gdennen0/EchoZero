@@ -15,6 +15,7 @@ REQUIRED_FILES = (
     "scripts/build-test-release.ps1",
     "scripts/smoke-test-release.ps1",
     "scripts/smoke_packaged_app.py",
+    "scripts/verify_macos_release_artifact.py",
 )
 FORBIDDEN_FILES = (
     "main.py",
