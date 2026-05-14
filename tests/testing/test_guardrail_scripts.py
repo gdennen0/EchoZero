@@ -55,10 +55,60 @@ def test_canonical_launcher_check_rejects_legacy_launcher_file(tmp_path: Path):
     (tmp_path / "main.py").write_text("print('legacy')\n", encoding="utf-8")
     (scripts_dir / "build-test-release.ps1").write_text("run_echozero.py\n", encoding="utf-8")
     (scripts_dir / "smoke-test-release.ps1").write_text("Write-Host 'ok'\n", encoding="utf-8")
+    (scripts_dir / "smoke_packaged_app.py").write_text("print('ok')\n", encoding="utf-8")
 
     result = module.main([str(tmp_path)])
 
     assert result == 1
+
+
+def test_packaged_smoke_resolves_macos_app_bundle(tmp_path: Path):
+    module = _load_script_module("smoke_packaged_app")
+    executable = tmp_path / "EchoZero.app" / "Contents" / "MacOS" / "EchoZero"
+    executable.parent.mkdir(parents=True)
+    executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+
+    resolved = module.resolve_packaged_executable(tmp_path / "EchoZero.app")
+
+    assert resolved == executable.resolve()
+
+
+def test_packaged_smoke_runs_executable_and_writes_pass_report(tmp_path: Path):
+    module = _load_script_module("smoke_packaged_app")
+    executable = tmp_path / "EchoZero"
+    executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    executable.chmod(0o755)
+    report_path = tmp_path / "report.json"
+
+    result = module.main(
+        [
+            str(executable),
+            "--timeout-seconds",
+            "5",
+            "--smoke-exit-seconds",
+            "0.1",
+            "--working-dir-root",
+            str(tmp_path / "work"),
+            "--report-path",
+            str(report_path),
+        ]
+    )
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert result == 0
+    assert report["status"] == "passed"
+    assert report["exit_code"] == 0
+
+
+def test_pyinstaller_spec_excludes_optional_ml_hooks_by_default():
+    spec_text = (REPO_ROOT / "echozero.spec").read_text(encoding="utf-8")
+
+    assert "collect_submodules('echozero')" not in spec_text
+    assert "optional_ml_excludes" in spec_text
+    assert "'torch'" in spec_text
+    assert "'torchaudio'" in spec_text
+    assert "'sklearn'" in spec_text
+    assert "'demucs'" in spec_text
 
 
 def test_pr_requirements_require_decision_and_contract_mapping(tmp_path: Path, monkeypatch):

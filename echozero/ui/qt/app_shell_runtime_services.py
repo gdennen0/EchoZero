@@ -5,11 +5,14 @@ Connects ProjectStorage baseline timelines to TimelineApplication for local app 
 
 from __future__ import annotations
 
+import os
+
 from echozero.application.mixer.models import AudibilityState, LayerMixerState, MixerState
 from echozero.application.mixer.service import MixerService
 from echozero.application.playback.models import PlaybackState
 from echozero.application.playback.process_client import ProcessPlaybackClient
 from echozero.application.playback.service import PlaybackService
+from echozero.application.playback.unavailable_client import UnavailablePlaybackClient
 from echozero.application.session.models import Session
 from echozero.application.session.service import SessionService
 from echozero.application.settings import AudioOutputRuntimeConfig
@@ -155,12 +158,27 @@ class RuntimePlaybackService(PlaybackService):
 
 def build_playback_controller(
     audio_output_config: AudioOutputRuntimeConfig | None = None,
-) -> ProcessPlaybackClient:
+) -> ProcessPlaybackClient | UnavailablePlaybackClient:
     """Build the canonical playback controller for one optional audio output config."""
 
-    return ProcessPlaybackClient(
-        audio_output_config=audio_output_config,
-    )
+    start_timeout_seconds = _resolve_playback_start_timeout_seconds()
+    try:
+        return ProcessPlaybackClient(
+            audio_output_config=audio_output_config,
+            service_start_timeout_seconds=start_timeout_seconds,
+        )
+    except Exception as exc:
+        return UnavailablePlaybackClient(reason=f"{type(exc).__name__}: {exc}")
+
+
+def _resolve_playback_start_timeout_seconds() -> float:
+    raw = os.environ.get("ECHOZERO_PLAYBACK_START_TIMEOUT_SECONDS", "").strip()
+    if not raw:
+        return 6.0
+    try:
+        return max(1.0, float(raw))
+    except ValueError:
+        return 6.0
 
 
 def _coerce_project_ma3_push_offset_seconds(value: object) -> float:

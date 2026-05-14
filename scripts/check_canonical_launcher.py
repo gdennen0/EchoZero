@@ -14,6 +14,7 @@ REQUIRED_FILES = (
     "run_echozero.py",
     "scripts/build-test-release.ps1",
     "scripts/smoke-test-release.ps1",
+    "scripts/smoke_packaged_app.py",
 )
 FORBIDDEN_FILES = (
     "main.py",

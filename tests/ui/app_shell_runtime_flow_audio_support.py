@@ -11,6 +11,7 @@ from echozero.application.shared.enums import LayerKind
 from echozero.application.timeline.intents import Play, SelectEvent, SelectLayer, SetLayerMute
 from echozero.audio.engine import AudioEngine
 from echozero.application.playback.process_client import ProcessPlaybackClient
+from echozero.application.playback.unavailable_client import UnavailablePlaybackClient
 from echozero.testing.analysis_mocks import build_mock_analysis_service, write_test_wav
 from echozero.ui.qt.app_shell import AppShellRuntime, build_app_shell
 from echozero.ui.qt.app_shell_runtime_services import build_playback_controller
@@ -91,6 +92,21 @@ def test_build_playback_controller_defaults_to_engine_continuous_audio():
         assert controller is not None
     finally:
         controller.shutdown()
+
+
+def test_build_playback_controller_degrades_when_process_start_fails(monkeypatch):
+    import echozero.ui.qt.app_shell_runtime_services as runtime_services
+
+    def failing_process_client(**_kwargs):
+        raise RuntimeError("native audio unavailable")
+
+    monkeypatch.setattr(runtime_services, "ProcessPlaybackClient", failing_process_client)
+
+    controller = runtime_services.build_playback_controller()
+
+    assert isinstance(controller, UnavailablePlaybackClient)
+    assert controller.health()["ok"] is False
+    assert "native audio unavailable" in str(controller.health()["reason"])
 
 
 def test_app_shell_runtime_add_layer_after_song_defers_runtime_audio_build_while_stopped():

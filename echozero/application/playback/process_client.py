@@ -429,18 +429,12 @@ class ProcessPlaybackClient:
         return decoded
 
     def _spawn_service_process(self):
-        command = [
-            sys.executable,
-            "-m",
-            "echozero.application.playback.process_service_entry",
-            "--host",
-            self._host,
-            "--port",
-            str(self._port),
-            "--ws-port",
-            str(self._ws_port),
-            f"--token={self._token}",
-        ]
+        command = _build_service_process_command(
+            host=self._host,
+            port=self._port,
+            ws_port=self._ws_port,
+            token=self._token,
+        )
         if self._audio_output_config is not None:
             with tempfile.NamedTemporaryFile(
                 mode="w",
@@ -480,7 +474,24 @@ class ProcessPlaybackClient:
             except Exception:
                 time.sleep(0.05)
                 continue
-        raise PlaybackIpcError("Timed out waiting for playback service health")
+        startup_error = self._terminate_failed_start()
+        detail = f": {startup_error}" if startup_error else ""
+        raise PlaybackIpcError(f"Timed out waiting for playback service health{detail}")
+
+    def _terminate_failed_start(self) -> str | None:
+        process = self._process
+        if process is None:
+            return None
+        if process.poll() is None:
+            try:
+                process.terminate()
+                process.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=1.0)
+            except Exception:
+                pass
+        return self._collect_startup_stderr()
 
     def _collect_startup_stderr(self) -> str | None:
         if self._startup_stderr is not None:
@@ -573,6 +584,33 @@ class ProcessPlaybackClient:
             error_text = body.get("error")
             if error_text is not None:
                 self._last_ipc_error = str(error_text)
+
+
+def _build_service_process_command(
+    *,
+    host: str,
+    port: int,
+    ws_port: int,
+    token: str,
+) -> list[str]:
+    """Build the playback service command for source and frozen runtimes."""
+    command = [sys.executable]
+    if getattr(sys, "frozen", False):
+        command.append("--playback-service")
+    else:
+        command.extend(["-m", "echozero.application.playback.process_service_entry"])
+    command.extend(
+        [
+            "--host",
+            host,
+            "--port",
+            str(port),
+            "--ws-port",
+            str(ws_port),
+            f"--token={token}",
+        ]
+    )
+    return command
 
 
 def _reserve_local_port() -> int:

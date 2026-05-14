@@ -32,6 +32,13 @@ from echozero.ui.style.qt import ensure_qt_theme_installed
 _REPO_UI_AUTOMATION_SRC = Path(__file__).resolve().parent / "packages" / "ui_automation" / "src"
 
 
+def _run_playback_service(argv: list[str]) -> int:
+    """Run the playback service entrypoint inside a frozen app subprocess."""
+    from echozero.application.playback.process_service_entry import main as service_main
+
+    return service_main(argv)
+
+
 def _ensure_repo_ui_automation_source_root(
     *,
     repo_ui_automation_src: Path = _REPO_UI_AUTOMATION_SRC,
@@ -75,6 +82,11 @@ def _build_automation_bridge_server(*, runtime, widget, launcher, app, port: int
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the EchoZero Stage Zero shell.")
+    parser.add_argument(
+        "--playback-service",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
     parser.add_argument(
         "--smoke-exit-seconds",
         type=float,
@@ -130,6 +142,9 @@ def main(argv: list[str] | None = None) -> int:
         help="If set, send MA3 commands to this OSC port using the production bridge.",
     )
     parsed, qt_args = parser.parse_known_args(list(argv) if argv is not None else sys.argv[1:])
+
+    if parsed.playback_service:
+        return _run_playback_service(qt_args)
 
     install_runtime_logging(parsed.log_dir)
     app_settings_service = build_default_app_settings_service()

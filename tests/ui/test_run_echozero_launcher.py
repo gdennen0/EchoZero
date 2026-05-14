@@ -11,6 +11,42 @@ from echozero.application.settings import AppSettingsLaunchOverrides
 from PyQt6.QtWidgets import QMessageBox
 
 
+def test_run_echozero_routes_packaged_playback_service_mode(monkeypatch):
+    calls: list[list[str]] = []
+
+    def fake_run_playback_service(argv: list[str]) -> int:
+        calls.append(list(argv))
+        return 42
+
+    monkeypatch.setattr(run_echozero, "_run_playback_service", fake_run_playback_service)
+
+    result = run_echozero.main(
+        [
+            "--playback-service",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "18080",
+            "--ws-port",
+            "18081",
+            "--token=abc",
+        ]
+    )
+
+    assert result == 42
+    assert calls == [
+        [
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "18080",
+            "--ws-port",
+            "18081",
+            "--token=abc",
+        ]
+    ]
+
+
 class FakeRuntimeAudio:
     def __init__(self) -> None:
         self.shutdown_calls = 0

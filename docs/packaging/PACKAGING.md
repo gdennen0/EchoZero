@@ -14,6 +14,8 @@ For v1-alpha the production app name is **EchoZero** and the recommended version
 - **packaging_config.json** – App name, version, bundle identifier, company, and PyInstaller options. Single source for release metadata.
 - **Model weights** – not bundled by default for v1-alpha. Install mutable model assets under `~/.echozero/models`.
 - **scripts/build_app.py** – Wrapper to run `pyinstaller echozero.spec` with optional `--clean`.
+- **scripts/smoke_packaged_app.py** – Cross-platform packaged launch smoke for
+  `EchoZero.app`, one-folder builds, and extracted release folders.
 
 ## Build (from project root)
 
@@ -116,12 +118,23 @@ The app is crashing on launch.
 **SIGSEGV in CFBundleCopyBundleURL / QLibraryInfoPrivate (crash report)**  
 Some macOS PyInstaller and Qt combinations can crash during Qt initialization. If you hit this, rebuild from a clean Python 3.11+ venv first, then try a dedicated packaging venv with a narrower local PyQt6 pin only as a fallback workaround. Common causes:
 
-1. **Missing dependencies in the bundle** – Build with a full environment: `pip install -r requirements.txt` then run `python scripts/build_app.py`. The build script warns if `python-dotenv` or `httpx` are missing; the spec bundles them when present.
+1. **Missing dependencies in the bundle** – Build with the packaging environment: `pip install -e ".[packaging]"` plus the app runtime dependencies, then run `python scripts/build_app.py`. The build script warns if `python-dotenv` or `httpx` are missing; the spec bundles them when present.
 2. **A local Qt/PyInstaller compatibility mismatch** – Try a clean packaging env with `pip install -e ".[packaging]"`, and if the crash persists on macOS, test a dedicated local pin such as `pip install "PyQt6>=6.4,<6.5"` before rerunning `python scripts/build_app.py --clean`.
 3. **Run from Terminal to see the error:**  
    `./dist/EchoZero.app/Contents/MacOS/EchoZero`  
    or  
    `open -a dist/EchoZero.app` then check Console.app for "EchoZero" crash logs.
+
+**Packaged smoke gate**
+
+Run this after every local release build:
+
+```bash
+python scripts/smoke_packaged_app.py dist/EchoZero.app
+```
+
+The command launches the real packaged binary with `--smoke-exit-seconds`,
+waits for clean exit, and writes `dist/packaged-smoke-report.json`.
 
 **App icon shows a white circle with a cross**  
 That icon usually means either (1) the app crashed on launch (fix the crash first), or (2) no custom icon is set. To set an icon, add `packaging/EchoZero.icns` and rebuild (see `packaging/README.md`).

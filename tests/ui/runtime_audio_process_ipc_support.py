@@ -5,6 +5,7 @@ Connects process lifecycle, IPC envelope behavior, and diagnostics metadata to r
 
 from __future__ import annotations
 
+import sys
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -329,5 +330,40 @@ def test_process_runtime_audio_spawn_passes_token_as_equals_assignment(monkeypat
 
     command = captured.get("command")
     assert isinstance(command, list)
+    assert command[:3] == [
+        sys.executable,
+        "-m",
+        "echozero.application.playback.process_service_entry",
+    ]
     assert "--token" not in command
     assert "--token=-leading-dash-token" in command
+
+
+def test_process_runtime_audio_spawn_uses_packaged_service_mode_when_frozen(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_popen(command, stdout=None, stderr=None):
+        captured["command"] = list(command)
+        return SimpleNamespace()
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(
+        "echozero.application.playback.process_client.subprocess.Popen", _fake_popen
+    )
+
+    client = ProcessPlaybackClient.__new__(ProcessPlaybackClient)
+    client._host = "127.0.0.1"
+    client._port = 18080
+    client._ws_port = 18081
+    client._token = "token"
+    client._audio_output_config = None
+    client._audio_config_file = None
+
+    _ = ProcessPlaybackClient._spawn_service_process(client)
+
+    command = captured.get("command")
+    assert isinstance(command, list)
+    assert command[:2] == [sys.executable, "--playback-service"]
+    assert "-m" not in command

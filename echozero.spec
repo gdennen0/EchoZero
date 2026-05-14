@@ -6,7 +6,6 @@
 import json
 import os
 import sys
-from PyInstaller.utils.hooks import collect_submodules
 
 # Project root (directory containing this spec file)
 SPEC_DIR = os.path.dirname(os.path.abspath(SPEC))
@@ -64,16 +63,27 @@ for _pkg_name, _bundle_name in [('dotenv', 'dotenv'), ('httpx', 'httpx')]:
         pass
 
 # Hidden imports
-hiddenimports = (
-    collect_submodules('echozero')
-    + [
-        'dotenv',
-        'httpx',
-        'PyQt6.QtCore',
-        'PyQt6.QtGui',
-        'PyQt6.QtWidgets',
-    ]
-)
+hiddenimports = [
+    'dotenv',
+    'httpx',
+    'PyQt6.QtCore',
+    'PyQt6.QtGui',
+    'PyQt6.QtWidgets',
+]
+
+# Optional ML/foundry runtime stacks are intentionally excluded from the v1-alpha
+# app shell. User-installed models remain external; pulling these hooks into the
+# bundle can add fragile native libraries and make macOS launch crash before Qt
+# shows a window.
+optional_ml_excludes = [
+    'demucs',
+    'pytest',
+    'sklearn',
+    'torch',
+    'torchaudio',
+    'torchvision',
+    '_pytest',
+]
 
 a = Analysis(
     [os.path.join(SPEC_DIR, 'run_echozero.py')],
@@ -88,6 +98,7 @@ a = Analysis(
         'tkinter',
         'numpy.distutils.tests',
         'tensorboard',  # Optional; avoids protobuf/tensorboard compat issues in frozen build
+        *optional_ml_excludes,
     ],
     noarchive=False,
     optimize=0,
