@@ -510,6 +510,7 @@ local function collectPresetReplacementFindings(targetSequences, filterGroupLook
 end
 
 local function sendRecipeCuePayload(change, payload)
+    if EZ and EZ.suppressRecipeCueOsc == true then return true end
     EZ.sendMessage("recipe_cue", change, payload)
 end
 
@@ -1089,6 +1090,7 @@ local function sendPresetReplacePayload(change, payload)
 end
 
 local function sendRecipeCuePayload(change, payload)
+    if EZ and EZ.suppressRecipeCueOsc == true then return true end
     EZ.sendMessage("recipe_cue", change, payload)
 end
 
