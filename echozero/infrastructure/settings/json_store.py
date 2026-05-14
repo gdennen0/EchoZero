@@ -22,6 +22,8 @@ def default_app_settings_path() -> Path:
     explicit_path = os.getenv("ECHOZERO_APP_SETTINGS_PATH")
     if explicit_path:
         return Path(explicit_path).expanduser()
+    if getattr(sys, "frozen", False) and not os.getenv("ECHOZERO_INSTALL_ROOT"):
+        return _legacy_user_app_settings_path()
     install_root = _default_install_root()
     return install_root / "config" / "app-settings.json"
 

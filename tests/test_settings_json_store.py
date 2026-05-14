@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 from echozero.application.settings.models import (
@@ -31,6 +32,24 @@ def test_default_app_settings_path_honors_explicit_path_env(monkeypatch, tmp_pat
     path = default_app_settings_path()
 
     assert path == explicit_path
+
+
+def test_default_app_settings_path_uses_user_profile_for_frozen_app(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.delenv("ECHOZERO_APP_SETTINGS_PATH", raising=False)
+    monkeypatch.delenv("ECHOZERO_INSTALL_ROOT", raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local-app-data"))
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(
+        sys,
+        "executable",
+        str(tmp_path / "EchoZero.app" / "Contents" / "MacOS" / "EchoZero"),
+    )
+
+    path = default_app_settings_path()
+
+    assert path == tmp_path / "local-app-data" / "EchoZero" / "app-settings.json"
 
 
 def test_json_store_loads_legacy_path_and_migrates_to_install_path(monkeypatch, tmp_path) -> None:

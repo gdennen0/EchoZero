@@ -69,8 +69,8 @@ If the target machine already has models or app settings you intend to replace:
 App settings are machine-local and come from the JSON settings store:
 
 - canonical repo/dev path: `<repo>/config/app-settings.json`
-- frozen app path: `<install dir>/config/app-settings.json`
-- legacy fallback path: `~/.echozero/app-settings.json` on macOS/Linux or `%LOCALAPPDATA%/EchoZero/app-settings.json` on Windows
+- explicit install-root override: `<install dir>/config/app-settings.json` when `ECHOZERO_INSTALL_ROOT` is set
+- frozen app path: user-profile settings (`~/.echozero/app-settings.json` on macOS/Linux or `%LOCALAPPDATA%/EchoZero/app-settings.json` on Windows), so the signed app bundle is never modified at runtime
 
 The export helper resolves the active settings store path before archiving so
 legacy fallback users are still captured.
