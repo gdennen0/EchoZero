@@ -42,7 +42,9 @@ def compare_shape_similarity(reference: tuple[float, ...], candidate: tuple[floa
     aligned = _normalize(np.asarray(align_shape_to_reference(reference, candidate), dtype=np.float32))
     if ref.size == 0 or aligned.size == 0:
         return 0.0
-    return max(0.0, min(1.0, float(np.dot(ref, aligned))))
+    cosine = float(np.dot(ref, aligned))
+    rmse_penalty = float(np.sqrt(np.mean(np.square(ref - aligned)))) * 3.5
+    return max(0.0, min(1.0, cosine - rmse_penalty))
 
 
 def read_mono_audio_slice(path: str | Path, *, start_seconds: float, end_seconds: float) -> tuple[np.ndarray, int] | None:
