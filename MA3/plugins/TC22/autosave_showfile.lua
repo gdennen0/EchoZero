@@ -8,8 +8,9 @@ Load:
   Lua "dofile('/path/to/MA3/plugins/TC22/autosave_showfile.lua')"
 
 Use:
+  EZ_AutosaveShow.SetBaseName("TourBackup") -- persists base name in MA3 GlobalVars
   EZ_AutosaveShow.Start(10)                 -- every 10 minutes
-  EZ_AutosaveShow.Start(5, "TourBackup")    -- every 5 minutes, custom prefix
+  EZ_AutosaveShow.Start(5, "TourBackup")    -- every 5 minutes, custom fallback prefix
   EZ_AutosaveShow.SaveNow()                 -- immediate timestamped save
   EZ_AutosaveShow.Stop()                    -- stop scheduling new saves
   EZ_AutosaveShow.Status()                  -- print current state
@@ -26,6 +27,7 @@ EZ_AutosaveShow = EZ_AutosaveShow or {}
 EZ_AutosaveShow.config = EZ_AutosaveShow.config or {
     intervalMinutes = 10,
     prefix = "Autosave",
+    globalBaseNameVar = "EZ_AUTOSAVE_BASENAME",
     timestampFormat = "%Y-%m-%d_%H-%M-%S",
     -- MA3 command template. One %s receives the escaped timestamped showfile name.
     commandTemplate = 'SaveShow "%s" /nc',
@@ -77,8 +79,49 @@ local function escape_cmd_string(value)
     return tostring(value or ""):gsub('"', '\\"')
 end
 
+local function global_vars_handle()
+    if not GlobalVars then return nil end
+    local ok, vars = pcall(function() return GlobalVars() end)
+    if ok then return vars end
+    return nil
+end
+
+function EZ_AutosaveShow.GetBaseName()
+    local varName = EZ_AutosaveShow.config.globalBaseNameVar or "EZ_AUTOSAVE_BASENAME"
+    local vars = global_vars_handle()
+    if vars and GetVar then
+        local ok, value = pcall(function() return GetVar(vars, varName) end)
+        if ok and value ~= nil and tostring(value) ~= "" then
+            return sanitize_filename(value), "global", varName
+        end
+    end
+    return sanitize_filename(EZ_AutosaveShow.config.prefix or "Autosave"), "config", varName
+end
+
+function EZ_AutosaveShow.SetBaseName(baseName)
+    local clean = sanitize_filename(baseName or "Autosave")
+    EZ_AutosaveShow.config.prefix = clean
+    local varName = EZ_AutosaveShow.config.globalBaseNameVar or "EZ_AUTOSAVE_BASENAME"
+    local vars = global_vars_handle()
+    if vars and SetVar then
+        local ok, err = pcall(function() SetVar(vars, varName, clean) end)
+        if ok then
+            log("Set global base name " .. varName .. " = " .. clean)
+            return true, clean
+        end
+        log("Could not set global base name: " .. tostring(err))
+        return false, clean, err
+    end
+    log("GlobalVars/SetVar unavailable; using session config prefix " .. clean)
+    return false, clean, "GlobalVars/SetVar unavailable"
+end
+
 function EZ_AutosaveShow.BuildFilename(prefix, timestamp)
-    local resolvedPrefix = sanitize_filename(prefix or EZ_AutosaveShow.config.prefix or "Autosave")
+    local baseName = prefix
+    if baseName == nil or tostring(baseName) == "" then
+        baseName = EZ_AutosaveShow.GetBaseName()
+    end
+    local resolvedPrefix = sanitize_filename(baseName or EZ_AutosaveShow.config.prefix or "Autosave")
     local resolvedTimestamp = sanitize_filename(timestamp or os.date(EZ_AutosaveShow.config.timestampFormat))
     return string.format("%s_%s", resolvedPrefix, resolvedTimestamp)
 end
@@ -101,7 +144,7 @@ local function run_command(command)
 end
 
 function EZ_AutosaveShow.SaveNow(prefix)
-    local filename = EZ_AutosaveShow.BuildFilename(prefix or EZ_AutosaveShow.config.prefix)
+    local filename = EZ_AutosaveShow.BuildFilename(prefix)
     local command = EZ_AutosaveShow.BuildCommand(filename)
     local ok, result = run_command(command)
     EZ_AutosaveShow._lastFilename = filename
@@ -139,14 +182,14 @@ end
 function EZ_AutosaveShow.Start(intervalMinutes, prefix)
     EZ_AutosaveShow.config.intervalMinutes = clamp_interval_minutes(intervalMinutes or EZ_AutosaveShow.config.intervalMinutes)
     if prefix ~= nil and tostring(prefix) ~= "" then
-        EZ_AutosaveShow.config.prefix = sanitize_filename(prefix)
+        EZ_AutosaveShow.SetBaseName(prefix)
     end
     EZ_AutosaveShow._generation = EZ_AutosaveShow._generation + 1
     EZ_AutosaveShow._enabled = true
     log(string.format(
-        "Starting autosave every %d minute(s), prefix '%s'",
+        "Starting autosave every %d minute(s), base '%s'",
         EZ_AutosaveShow.config.intervalMinutes,
-        EZ_AutosaveShow.config.prefix
+        EZ_AutosaveShow.GetBaseName()
     ))
     schedule_next(EZ_AutosaveShow._generation)
     return true
@@ -161,10 +204,11 @@ end
 
 function EZ_AutosaveShow.Status()
     log(string.format(
-        "enabled=%s interval=%s minute(s) prefix='%s' last='%s' result='%s'",
+        "enabled=%s interval=%s minute(s) base='%s' baseVar='%s' last='%s' result='%s'",
         tostring(EZ_AutosaveShow._enabled),
         tostring(EZ_AutosaveShow.config.intervalMinutes),
-        tostring(EZ_AutosaveShow.config.prefix),
+        tostring(EZ_AutosaveShow.GetBaseName()),
+        tostring(EZ_AutosaveShow.config.globalBaseNameVar or "EZ_AUTOSAVE_BASENAME"),
         tostring(EZ_AutosaveShow._lastFilename or "none"),
         tostring(EZ_AutosaveShow._lastResult or "none")
     ))
@@ -172,6 +216,8 @@ function EZ_AutosaveShow.Status()
         enabled = EZ_AutosaveShow._enabled,
         intervalMinutes = EZ_AutosaveShow.config.intervalMinutes,
         prefix = EZ_AutosaveShow.config.prefix,
+        baseName = EZ_AutosaveShow.GetBaseName(),
+        globalBaseNameVar = EZ_AutosaveShow.config.globalBaseNameVar,
         lastFilename = EZ_AutosaveShow._lastFilename,
         lastSavedAt = EZ_AutosaveShow._lastSavedAt,
         lastResult = EZ_AutosaveShow._lastResult,
