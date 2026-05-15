@@ -106,6 +106,7 @@ class AppSettingsService:
             audio_output=self._updated_audio_preferences(current.audio_output, updates),
             ma3_osc=self._updated_ma3_osc_preferences(current.ma3_osc, updates),
             song_import=self._updated_song_import_preferences(current.song_import, updates),
+            pipeline_defaults_by_template=current.pipeline_defaults_by_template,
             recent_project_paths=current.recent_project_paths,
         )
         return build_app_settings_page(
@@ -141,6 +142,7 @@ class AppSettingsService:
                 current.song_import,
                 updates,
             ),
+            pipeline_defaults_by_template=current.pipeline_defaults_by_template,
             recent_project_paths=current.recent_project_paths,
         )
         return self.replace_preferences(next_preferences)
@@ -161,6 +163,38 @@ class AppSettingsService:
             audio_changed=audio_changed,
             osc_changed=osc_changed,
             song_import_changed=song_import_changed,
+        )
+
+    def pipeline_defaults_for_template(self, template_id: str) -> dict[str, object]:
+        """Return saved machine-local pipeline defaults for one template."""
+
+        return dict(self._preferences.pipeline_defaults_by_template.get(template_id, {}))
+
+    def replace_pipeline_defaults(
+        self,
+        template_id: str,
+        values: Mapping[str, object],
+    ) -> AppSettingsUpdateResult:
+        """Persist machine-local pipeline defaults for one template."""
+
+        text = str(template_id).strip()
+        if not text:
+            raise AppSettingsValidationError("Pipeline defaults require a template id.")
+        updated_defaults = {
+            key: dict(value)
+            for key, value in self._preferences.pipeline_defaults_by_template.items()
+        }
+        updated_defaults[text] = {
+            str(key).strip(): value for key, value in values.items() if str(key).strip()
+        }
+        return self.replace_preferences(
+            AppPreferences(
+                audio_output=self._preferences.audio_output,
+                ma3_osc=self._preferences.ma3_osc,
+                song_import=self._preferences.song_import,
+                pipeline_defaults_by_template=updated_defaults,
+                recent_project_paths=self._preferences.recent_project_paths,
+            )
         )
 
     def resolve_audio_output_config(self) -> AudioOutputRuntimeConfig:
@@ -252,6 +286,7 @@ class AppSettingsService:
                 audio_output=self._preferences.audio_output,
                 ma3_osc=self._preferences.ma3_osc,
                 song_import=self._preferences.song_import,
+                pipeline_defaults_by_template=self._preferences.pipeline_defaults_by_template,
                 recent_project_paths=tuple(ordered),
             )
         )
@@ -275,6 +310,7 @@ class AppSettingsService:
                 audio_output=self._preferences.audio_output,
                 ma3_osc=self._preferences.ma3_osc,
                 song_import=self._preferences.song_import,
+                pipeline_defaults_by_template=self._preferences.pipeline_defaults_by_template,
                 recent_project_paths=filtered,
             )
         )

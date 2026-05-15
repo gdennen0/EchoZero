@@ -22,6 +22,7 @@ from echozero.application.timeline.operation_progress_service import (
     OperationProgressState,
 )
 from echozero.ui.qt.app_shell_object_actions import (
+    apply_app_pipeline_defaults_to_project,
     apply_object_action_settings_copy,
     consume_operation_presentation_update,
     describe_object_action,
@@ -250,6 +251,13 @@ class AppShellObjectActionMixin:
             target_version_id=target_version_id,
             keys=keys,
         )
+
+    def apply_app_pipeline_defaults_to_project(
+        self: AppShellObjectActionShell,
+        *,
+        template_ids: tuple[str, ...] | None = None,
+    ) -> dict[str, object]:
+        return apply_app_pipeline_defaults_to_project(self, template_ids=template_ids)
 
     def extract_stems(
         self: AppShellObjectActionShell,

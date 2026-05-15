@@ -219,29 +219,78 @@ def detect_ltc_channel(
     if frames_to_scan <= 0:
         return None
 
+    min_best_score, min_score_delta = _ltc_detection_thresholds(mode)
+    best_candidate: tuple[float, float, str] | None = None
+
     try:
-        samples, sample_rate = sf.read(
-            str(source_path),
-            frames=frames_to_scan,
-            dtype="float32",
-            always_2d=True,
-        )
+        with sf.SoundFile(str(source_path), mode="r") as source_file:
+            sample_offsets = _ltc_sample_offsets(
+                total_frames=int(source_file.frames),
+                sample_rate=int(source_file.samplerate),
+                frames_to_scan=frames_to_scan,
+            )
+            for offset in sample_offsets:
+                source_file.seek(offset)
+                samples = source_file.read(
+                    frames=frames_to_scan,
+                    dtype="float32",
+                    always_2d=True,
+                )
+                if getattr(samples, "ndim", 0) != 2 or samples.shape[1] < 2:
+                    continue
+                left_score = _ltc_score(
+                    np.asarray(samples[:, 0], dtype=np.float32),
+                    int(source_file.samplerate),
+                )
+                right_score = _ltc_score(
+                    np.asarray(samples[:, 1], dtype=np.float32),
+                    int(source_file.samplerate),
+                )
+                score_delta = abs(left_score - right_score)
+                best_score = max(left_score, right_score)
+                if best_score < min_best_score or score_delta < min_score_delta:
+                    continue
+                candidate_channel = "left" if left_score > right_score else "right"
+                candidate = (best_score, score_delta, candidate_channel)
+                if best_candidate is None or candidate[:2] > best_candidate[:2]:
+                    best_candidate = candidate
     except Exception:
         return None
 
-    if getattr(samples, "ndim", 0) != 2 or samples.shape[1] < 2:
+    if best_candidate is None:
         return None
+    return best_candidate[2]
 
-    left_score = _ltc_score(np.asarray(samples[:, 0], dtype=np.float32), int(sample_rate))
-    right_score = _ltc_score(np.asarray(samples[:, 1], dtype=np.float32), int(sample_rate))
-    score_delta = abs(left_score - right_score)
-    best_score = max(left_score, right_score)
 
-    # Require one clearly LTC-like channel and a meaningful left/right separation.
-    min_best_score, min_score_delta = _ltc_detection_thresholds(mode)
-    if best_score < min_best_score or score_delta < min_score_delta:
-        return None
-    return "left" if left_score > right_score else "right"
+def _ltc_sample_offsets(
+    *,
+    total_frames: int,
+    sample_rate: int,
+    frames_to_scan: int,
+) -> tuple[int, ...]:
+    """Choose bounded scan windows across the file for delayed-start LTC detection."""
+
+    if total_frames <= 0 or sample_rate <= 0 or frames_to_scan <= 0:
+        return (0,)
+
+    max_start = max(0, total_frames - frames_to_scan)
+    if max_start <= 0:
+        return (0,)
+
+    raw_offsets = [
+        0,
+        min(max_start, sample_rate * 20),
+        max_start // 4,
+        max_start // 2,
+        (max_start * 3) // 4,
+        max_start,
+    ]
+    unique_offsets: list[int] = []
+    for offset in raw_offsets:
+        normalized = max(0, min(max_start, int(offset)))
+        if normalized not in unique_offsets:
+            unique_offsets.append(normalized)
+    return tuple(unique_offsets)
 
 
 def _ltc_detection_thresholds(mode: Literal["strict", "aggressive"]) -> tuple[float, float]:

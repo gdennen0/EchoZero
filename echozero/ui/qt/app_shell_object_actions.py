@@ -295,3 +295,23 @@ def apply_object_action_settings_copy(
         shell._is_dirty = True
         shell._clear_history()
     return preview
+
+
+def apply_app_pipeline_defaults_to_project(
+    shell: _ObjectActionShell,
+    *,
+    template_ids: tuple[str, ...] | None = None,
+) -> dict[str, object]:
+    result = shell._object_action_settings.apply_app_defaults_to_project(
+        template_ids=template_ids
+    )
+    if result.updated_song_ids or result.updated_song_version_ids:
+        shell._is_dirty = True
+        shell._clear_history()
+    return {
+        "template_ids": result.template_ids,
+        "updated_song_ids": result.updated_song_ids,
+        "updated_song_version_ids": result.updated_song_version_ids,
+        "updated_song_default_configs": result.updated_song_default_configs,
+        "updated_version_configs": result.updated_version_configs,
+    }

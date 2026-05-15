@@ -65,6 +65,8 @@ class ObjectActionSettingsPersistenceMixin:
         scope: str,
         config: ObjectActionConfigRecord,
     ) -> None:
+        if scope == "app_default":
+            return
         if scope == "song_default":
             song_id = getattr(config, "song_id", None)
             if song_id:

@@ -6,6 +6,22 @@ Connects the compatibility wrapper to the bounded settings support slice.
 from tests.ui.app_shell_runtime_flow_shared_support import *  # noqa: F401,F403
 
 
+class _MemoryAppSettingsStore:
+    def __init__(self, preferences=None) -> None:
+        from pathlib import Path
+
+        from echozero.application.settings import AppPreferences
+
+        self.path = Path("/tmp/echozero-test-app-settings.json")
+        self._preferences = preferences or AppPreferences()
+
+    def load(self):
+        return self._preferences
+
+    def save(self, preferences) -> None:
+        self._preferences = preferences
+
+
 def _write_binary_drum_manifest(manifest_path, label: str, *, macro_f1: float | None = None):
     weights_path = manifest_path.with_name(f"{manifest_path.stem}.pth")
     weights_path.parent.mkdir(parents=True, exist_ok=True)
@@ -21,6 +37,42 @@ def _write_binary_drum_manifest(manifest_path, label: str, *, macro_f1: float | 
         payload["evalSummary"] = {"macroF1": macro_f1}
     manifest_path.write_text(json.dumps(payload), encoding="utf-8")
     return manifest_path
+
+
+class _SelectedLabelBinaryDrumClassifyExecutor:
+    def __init__(self) -> None:
+        self.target_labels: list[tuple[str, ...]] = []
+
+    def execute(self, block_id: str, context):
+        block = context.graph.blocks[block_id]
+        raw_labels = block.settings.get("target_labels", ("kick", "snare"))
+        if isinstance(raw_labels, str):
+            target_labels = tuple(label.strip() for label in raw_labels.split(",") if label.strip())
+        else:
+            target_labels = tuple(str(label).strip() for label in raw_labels if str(label).strip())
+        self.target_labels.append(target_labels)
+        input_events = _merged_binary_drum_input_events(block_id, context)
+        source_event = input_events[0]
+        layers = []
+        for index, label in enumerate(target_labels):
+            title = label.title()
+            layers.append(
+                DomainLayer(
+                    id=label,
+                    name=label,
+                    events=(
+                        DomainEvent(
+                            id=f"{source_event.id}_{label}",
+                            time=source_event.time + index * 0.1,
+                            duration=source_event.duration,
+                            classifications={"class": label, "confidence": "0.99"},
+                            metadata={**source_event.metadata, "classified": True},
+                            origin=f"binary_classify:{label}",
+                        ),
+                    ),
+                )
+            )
+        return ok(EventData(layers=tuple(layers)))
 
 
 def test_app_shell_runtime_describes_stem_action_settings():
@@ -195,6 +247,347 @@ def test_app_shell_runtime_song_default_scope_edits_song_defaults_only():
             field.key == "model" and field.value == "mdx_extra"
             for field in default_plan.editable_fields
         )
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_app_default_session_persists_global_pipeline_defaults():
+    from echozero.application.settings import AppSettingsService
+
+    temp_root = _repo_local_temp_root()
+    settings_service = AppSettingsService(_MemoryAppSettingsStore())
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=build_mock_analysis_service(),
+        app_settings_service=settings_service,
+    )
+
+    try:
+        session = runtime.open_object_action_session(
+            "timeline.extract_stems",
+            {},
+            object_type="layer",
+            scope="app_default",
+        )
+
+        assert session.scope == "app_default"
+        assert session.default_save_scope == "app_default"
+        assert session.can_save_and_run is False
+
+        session = runtime.dispatch_object_action_command(
+            session.session_id,
+            ReplaceSessionValues({"model": "mdx_extra_q", "device": "cpu"}),
+        )
+        runtime.dispatch_object_action_command(session.session_id, SaveSession())
+
+        saved_defaults = settings_service.pipeline_defaults_for_template("stem_separation")
+        assert saved_defaults["model"] == "mdx_extra_q"
+        assert saved_defaults["device"] == "cpu"
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_new_song_uses_saved_global_pipeline_defaults():
+    from echozero.application.settings import AppSettingsService
+
+    temp_root = _repo_local_temp_root()
+    settings_service = AppSettingsService(_MemoryAppSettingsStore())
+    settings_service.replace_pipeline_defaults(
+        "stem_separation",
+        {"model": "mdx_extra_q", "device": "cpu"},
+    )
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=build_mock_analysis_service(),
+        app_settings_service=settings_service,
+    )
+
+    try:
+        first_audio_path = write_test_wav(temp_root / "fixtures" / "global-default-song-1.wav")
+        second_audio_path = write_test_wav(temp_root / "fixtures" / "global-default-song-2.wav")
+        runtime.add_song_from_path("Global Defaults Song One", first_audio_path)
+        runtime.add_song_from_path("Global Defaults Song Two", second_audio_path)
+
+        version_plan = runtime.describe_object_action(
+            "timeline.extract_stems",
+            {"layer_id": "source_audio"},
+            object_id="source_audio",
+            object_type="layer",
+            scope="version",
+        )
+        song_default_plan = runtime.describe_object_action(
+            "timeline.extract_stems",
+            {"layer_id": "source_audio"},
+            object_id="source_audio",
+            object_type="layer",
+            scope="song_default",
+        )
+
+        assert any(
+            field.key == "model" and field.value == "mdx_extra_q"
+            for field in version_plan.editable_fields
+        )
+        assert any(
+            field.key == "device" and field.value == "cpu"
+            for field in version_plan.editable_fields
+        )
+        assert any(
+            field.key == "model" and field.value == "mdx_extra_q"
+            for field in song_default_plan.editable_fields
+        )
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_new_song_uses_app_defaults_not_active_song_defaults():
+    from echozero.application.settings import AppSettingsService
+
+    temp_root = _repo_local_temp_root()
+    settings_service = AppSettingsService(_MemoryAppSettingsStore())
+    settings_service.replace_pipeline_defaults(
+        "stem_separation",
+        {"model": "mdx_extra_q", "device": "cpu"},
+    )
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=build_mock_analysis_service(),
+        app_settings_service=settings_service,
+    )
+
+    try:
+        first_audio_path = write_test_wav(temp_root / "fixtures" / "global-seed-song-1.wav")
+        second_audio_path = write_test_wav(temp_root / "fixtures" / "global-seed-song-2.wav")
+        runtime.add_song_from_path("Global Seed Song One", first_audio_path)
+        runtime.save_object_action_settings(
+            "timeline.extract_stems",
+            {"layer_id": "source_audio", "model": "mdx_extra", "device": "cuda"},
+            object_id="source_audio",
+            object_type="layer",
+            scope="song_default",
+        )
+
+        runtime.add_song_from_path("Global Seed Song Two", second_audio_path)
+
+        version_plan = runtime.describe_object_action(
+            "timeline.extract_stems",
+            {"layer_id": "source_audio"},
+            object_id="source_audio",
+            object_type="layer",
+            scope="version",
+        )
+        song_default_plan = runtime.describe_object_action(
+            "timeline.extract_stems",
+            {"layer_id": "source_audio"},
+            object_id="source_audio",
+            object_type="layer",
+            scope="song_default",
+        )
+
+        assert any(
+            field.key == "model" and field.value == "mdx_extra_q"
+            for field in version_plan.editable_fields
+        )
+        assert any(
+            field.key == "device" and field.value == "cpu"
+            for field in version_plan.editable_fields
+        )
+        assert any(
+            field.key == "model" and field.value == "mdx_extra_q"
+            for field in song_default_plan.editable_fields
+        )
+        assert any(
+            field.key == "device" and field.value == "cpu"
+            for field in song_default_plan.editable_fields
+        )
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_apply_app_pipeline_defaults_to_project_updates_existing_songs():
+    from echozero.application.settings import AppSettingsService
+
+    temp_root = _repo_local_temp_root()
+    settings_service = AppSettingsService(_MemoryAppSettingsStore())
+    settings_service.replace_pipeline_defaults(
+        "stem_separation",
+        {"model": "mdx_extra_q", "device": "cpu"},
+    )
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=build_mock_analysis_service(),
+        app_settings_service=settings_service,
+    )
+
+    try:
+        first_audio_path = write_test_wav(temp_root / "fixtures" / "apply-all-song-1.wav")
+        second_audio_path = write_test_wav(temp_root / "fixtures" / "apply-all-song-2.wav")
+        runtime.add_song_from_path("Apply All Song One", first_audio_path)
+        song_1_id = str(runtime.session.active_song_id)
+        version_1_id = str(runtime.session.active_song_version_id)
+        runtime.add_song_from_path("Apply All Song Two", second_audio_path)
+        song_2_id = str(runtime.session.active_song_id)
+        version_2_id = str(runtime.session.active_song_version_id)
+
+        settings_service.replace_pipeline_defaults(
+            "stem_separation",
+            {"model": "mdx_extra", "device": "cuda"},
+        )
+        result = runtime.apply_app_pipeline_defaults_to_project(
+            template_ids=("stem_separation",)
+        )
+
+        assert result["updated_song_ids"] == tuple(sorted((song_1_id, song_2_id)))
+        assert result["updated_song_version_ids"] == tuple(sorted((version_1_id, version_2_id)))
+        assert result["updated_song_default_configs"] >= 2
+        assert result["updated_version_configs"] >= 2
+
+        runtime.select_song(song_1_id)
+        song_1_plan = runtime.describe_object_action(
+            "timeline.extract_stems",
+            {"layer_id": "source_audio"},
+            object_id="source_audio",
+            object_type="layer",
+            scope="version",
+        )
+        runtime.select_song(song_2_id)
+        song_2_plan = runtime.describe_object_action(
+            "timeline.extract_stems",
+            {"layer_id": "source_audio"},
+            object_id="source_audio",
+            object_type="layer",
+            scope="version",
+        )
+
+        for plan in (song_1_plan, song_2_plan):
+            assert any(
+                field.key == "model" and field.value == "mdx_extra"
+                for field in plan.editable_fields
+            )
+            assert any(
+                field.key == "device" and field.value == "cuda"
+                for field in plan.editable_fields
+            )
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_import_pipeline_extract_classified_drums_prepares_drums_stem(
+    monkeypatch,
+):
+    from echozero.application.settings import (
+        AppPreferences,
+        AppSettingsService,
+        SongImportPreferences,
+    )
+
+    temp_root = _repo_local_temp_root()
+    analysis_service = build_mock_analysis_service()
+    binary_executor = _SelectedLabelBinaryDrumClassifyExecutor()
+    analysis_service._executors["BinaryDrumClassify"] = binary_executor
+    settings_service = AppSettingsService(
+        _MemoryAppSettingsStore(
+            AppPreferences(
+                song_import=SongImportPreferences(
+                    pipeline_action_ids=("timeline.extract_classified_drums",)
+                )
+            )
+        )
+    )
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=analysis_service,
+        app_settings_service=settings_service,
+    )
+
+    fake_models_root = temp_root / "models"
+    kick_manifest = fake_models_root / "kick.manifest.json"
+    snare_manifest = fake_models_root / "snare.manifest.json"
+    clap_manifest = fake_models_root / "clap.manifest.json"
+    cymbal_manifest = fake_models_root / "cymbal.manifest.json"
+    _write_binary_drum_manifest(kick_manifest, "kick", macro_f1=0.91)
+    _write_binary_drum_manifest(snare_manifest, "snare", macro_f1=0.88)
+    _write_binary_drum_manifest(clap_manifest, "clap", macro_f1=0.84)
+    _write_binary_drum_manifest(cymbal_manifest, "cymbal", macro_f1=0.81)
+
+    monkeypatch.setattr(
+        "echozero.application.timeline.object_action_settings_service.ensure_installed_models_dir",
+        lambda: fake_models_root,
+    )
+    monkeypatch.setattr(
+        "echozero.application.timeline.object_action_settings_service.upgrade_installed_runtime_bundles",
+        lambda _models_dir: None,
+    )
+    monkeypatch.setattr(
+        "echozero.application.timeline.object_action_settings_service.resolve_installed_binary_drum_bundles",
+        lambda: {
+            "kick": type("Bundle", (), {"manifest_path": kick_manifest})(),
+            "snare": type("Bundle", (), {"manifest_path": snare_manifest})(),
+            "clap": type("Bundle", (), {"manifest_path": clap_manifest})(),
+            "cymbal": type("Bundle", (), {"manifest_path": cymbal_manifest})(),
+        },
+    )
+
+    try:
+        audio_path = write_test_wav(temp_root / "fixtures" / "import-classified-drums.wav")
+        presentation = runtime.add_song_from_path("Import Classified Fixture", audio_path)
+
+        assert binary_executor.target_labels == [("kick", "snare", "clap", "cymbal")]
+        titles = {layer.title for layer in presentation.layers}
+        assert {"Drums", "Kick", "Snare", "Clap", "Cymbal"} <= titles
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_init_state_edits_fall_back_to_song_defaults_without_version():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=build_mock_analysis_service(),
+    )
+
+    try:
+        audio_path = write_test_wav(temp_root / "fixtures" / "init-state-defaults.wav")
+        runtime.add_song_from_path("Init State Defaults", audio_path)
+        after_stems = runtime.extract_stems("source_audio")
+        drums_layer = next(layer for layer in after_stems.layers if layer.title == "Drums")
+        song_id = str(runtime.session.active_song_id)
+        runtime.session.active_song_version_id = None
+
+        refreshed = runtime.save_object_action_settings(
+            "timeline.classify_drum_events",
+            {
+                "layer_id": drums_layer.layer_id,
+                "classify_device": "cpu",
+                "classify_batch_size": 16,
+            },
+            object_id=drums_layer.layer_id,
+            object_type="layer",
+        )
+
+        assert any(
+            field.key == "classify_device" and field.value == "cpu"
+            for field in refreshed.editable_fields
+        )
+        assert any(
+            field.key == "classify_batch_size" and field.value == 16
+            for field in refreshed.editable_fields
+        )
+
+        default_config = next(
+            candidate
+            for candidate in runtime.project_storage.song_default_pipeline_configs.list_by_song(
+                song_id
+            )
+            if candidate.template_id == "drum_classification"
+        )
+        assert default_config.knob_values["classify_device"] == "cpu"
+        assert default_config.knob_values["classify_batch_size"] == 16
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)

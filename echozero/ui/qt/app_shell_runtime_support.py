@@ -107,6 +107,7 @@ def build_object_action_services(shell: _RuntimeControllerLike) -> None:
         presentation_getter=shell.presentation,
         require_layer=lambda layer_id: require_layer(shell, LayerId(str(layer_id))),
         analysis_service=shell._analysis_service,
+        app_settings_service=shell._app_settings_service,
         active_run_lookup=lambda action_id, object_id, object_type: shell._pipeline_runs.visible_operation_for(
             action_id=action_id,
             object_id=object_id,

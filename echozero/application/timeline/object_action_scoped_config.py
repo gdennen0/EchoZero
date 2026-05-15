@@ -6,7 +6,7 @@ Connects object-action settings flows to typed ProjectStorage config records.
 from __future__ import annotations
 
 import json
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Protocol, TypeAlias
 
@@ -18,6 +18,15 @@ from echozero.result import Err
 from echozero.services.orchestrator import Orchestrator
 
 ObjectActionConfigRecord: TypeAlias = PipelineConfigRecord | SongDefaultPipelineConfigRecord
+
+
+@dataclass(slots=True, frozen=True)
+class ProjectPipelineDefaultsSyncResult:
+    template_ids: tuple[str, ...]
+    updated_song_ids: tuple[str, ...]
+    updated_song_version_ids: tuple[str, ...]
+    updated_song_default_configs: int
+    updated_version_configs: int
 
 
 class ScopedConfigShell(Protocol):
@@ -50,6 +59,16 @@ class ScopedConfigShell(Protocol):
 
     def _extract_classified_drums_model_defaults(self) -> dict[str, object]: ...
 
+    def _can_edit_app_defaults(self) -> bool: ...
+
+    def _load_app_pipeline_defaults(self, template_id: str) -> dict[str, object]: ...
+
+    def _store_app_pipeline_defaults(
+        self,
+        template_id: str,
+        values: dict[str, object],
+    ) -> None: ...
+
 
 def load_scoped_action_config(
     shell: ScopedConfigShell,
@@ -68,6 +87,8 @@ def load_scoped_action_config(
         else None
     )
     if scope == "song_default" and (song_id is None or song_id == active_song_id):
+        return require_object_action_config(shell, template_id, scope=scope)
+    if scope == "app_default":
         return require_object_action_config(shell, template_id, scope=scope)
     if scope == "version" and (
         song_version_id is None or song_version_id == active_song_version_id
@@ -88,22 +109,24 @@ def require_object_action_config(
     *,
     scope: str = "version",
 ) -> ObjectActionConfigRecord:
+    if scope == "app_default":
+        if not shell._can_edit_app_defaults():
+            raise RuntimeError("Application pipeline defaults are unavailable in this runtime.")
+        return hydrate_object_action_config_defaults(
+            shell,
+            _create_app_default_action_config(shell, template_id=template_id),
+            scope=scope,
+        )
+
     if scope == "song_default":
         song_id = shell._require_active_song_id(template_id)
         configs = shell.project_storage.song_default_pipeline_configs.list_by_song(song_id)
         match = next((config for config in configs if config.template_id == template_id), None)
         if match is not None:
             return hydrate_object_action_config_defaults(shell, match, scope=scope)
-        song_version_id = shell._require_active_song_version_id(template_id)
-        created = shell._analysis_service.create_config(
-            shell.project_storage, song_version_id, template_id
-        )
-        if isinstance(created, Err):
-            raise RuntimeError(
-                f"Failed to create pipeline config for '{template_id}': {created.error}"
-            )
-        default_config = SongDefaultPipelineConfigRecord.from_version_config(
-            created.value,
+        default_config = _create_song_default_action_config(
+            shell,
+            template_id=template_id,
             song_id=song_id,
         )
         shell.project_storage.song_default_pipeline_configs.create(default_config)
@@ -125,6 +148,67 @@ def require_object_action_config(
             f"Failed to create pipeline config for '{template_id}': {created.error}"
         )
     return hydrate_object_action_config_defaults(shell, created.value, scope=scope)
+
+
+def _create_song_default_action_config(
+    shell: ScopedConfigShell,
+    *,
+    template_id: str,
+    song_id: str,
+) -> SongDefaultPipelineConfigRecord:
+    template = get_registry().get(template_id)
+    if template is None:
+        raise RuntimeError(f"Pipeline template not found: {template_id}")
+    knob_values = {key: knob.default for key, knob in template.knobs.items()}
+    knob_values.update(
+        {
+            key: value
+            for key, value in shell._load_app_pipeline_defaults(template_id).items()
+            if key in template.knobs
+        }
+    )
+    pipeline = template.build_pipeline(knob_values)
+    version_config = PipelineConfigRecord.from_pipeline(
+        pipeline,
+        template_id=template_id,
+        song_version_id="",
+        knob_values=knob_values,
+        name=template.name,
+    )
+    return SongDefaultPipelineConfigRecord.from_version_config(
+        version_config,
+        song_id=song_id,
+    )
+
+
+def _create_app_default_action_config(
+    shell: ScopedConfigShell,
+    *,
+    template_id: str,
+) -> SongDefaultPipelineConfigRecord:
+    template = get_registry().get(template_id)
+    if template is None:
+        raise RuntimeError(f"Pipeline template not found: {template_id}")
+    knob_values = {key: knob.default for key, knob in template.knobs.items()}
+    knob_values.update(
+        {
+            key: value
+            for key, value in shell._load_app_pipeline_defaults(template_id).items()
+            if key in template.knobs
+        }
+    )
+    pipeline = template.build_pipeline(knob_values)
+    version_config = PipelineConfigRecord.from_pipeline(
+        pipeline,
+        template_id=template_id,
+        song_version_id="",
+        knob_values=knob_values,
+        name=template.name,
+    )
+    return SongDefaultPipelineConfigRecord.from_version_config(
+        version_config,
+        song_id="",
+    )
 
 
 def persist_object_action_params(
@@ -163,6 +247,9 @@ def store_scoped_action_config(
     *,
     scope: str,
 ) -> None:
+    if scope == "app_default":
+        shell._store_app_pipeline_defaults(config.template_id, dict(config.knob_values))
+        return
     if scope == "song_default":
         if not isinstance(config, SongDefaultPipelineConfigRecord):
             raise TypeError("song_default scope requires a SongDefaultPipelineConfigRecord.")
@@ -174,6 +261,125 @@ def store_scoped_action_config(
     shell.project_storage.commit()
 
 
+def apply_app_defaults_to_project(
+    shell: ScopedConfigShell,
+    *,
+    template_ids: tuple[str, ...] | None = None,
+) -> ProjectPipelineDefaultsSyncResult:
+    if not shell._can_edit_app_defaults():
+        raise RuntimeError("Application pipeline defaults are unavailable in this runtime.")
+
+    registry = get_registry()
+    resolved_template_ids = tuple(
+        template_id
+        for template_id in (
+            template_ids if template_ids is not None else tuple(registry.ids())
+        )
+        if registry.get(template_id) is not None
+    )
+    if not resolved_template_ids:
+        return ProjectPipelineDefaultsSyncResult((), (), (), 0, 0)
+
+    songs = shell.project_storage.songs.list_by_project(shell.project_storage.project.id)
+    updated_song_ids: set[str] = set()
+    updated_song_version_ids: set[str] = set()
+    updated_song_default_configs = 0
+    updated_version_configs = 0
+
+    with shell.project_storage.transaction():
+        for song in songs:
+            song_default_configs = {
+                config.template_id: config
+                for config in shell.project_storage.song_default_pipeline_configs.list_by_song(song.id)
+            }
+            version_records = shell.project_storage.song_versions.list_by_song(song.id)
+            version_configs_by_version = {
+                version.id: {
+                    config.template_id: config
+                    for config in shell.project_storage.pipeline_configs.list_by_version(version.id)
+                }
+                for version in version_records
+            }
+            for template_id in resolved_template_ids:
+                desired_song_default = require_object_action_config(
+                    shell,
+                    template_id,
+                    scope="app_default",
+                )
+                desired_song_knobs = dict(desired_song_default.knob_values)
+                template = registry.get(template_id)
+                if template is None:
+                    continue
+
+                existing_song_default = song_default_configs.get(template_id)
+                if existing_song_default is None:
+                    version_config = PipelineConfigRecord.from_pipeline(
+                        template.build_pipeline(desired_song_knobs),
+                        template_id=template_id,
+                        song_version_id="",
+                        knob_values=desired_song_knobs,
+                        name=template.name,
+                    )
+                    existing_song_default = SongDefaultPipelineConfigRecord.from_version_config(
+                        version_config,
+                        song_id=song.id,
+                    )
+                    shell.project_storage.song_default_pipeline_configs.create(existing_song_default)
+                    song_default_configs[template_id] = existing_song_default
+                    updated_song_default_configs += 1
+                    updated_song_ids.add(song.id)
+                elif existing_song_default.knob_values != desired_song_knobs:
+                    updated_song_default = existing_song_default.with_knob_values(
+                        desired_song_knobs,
+                        knob_metadata=template.knobs,
+                    )
+                    shell.project_storage.song_default_pipeline_configs.update(updated_song_default)
+                    song_default_configs[template_id] = updated_song_default
+                    updated_song_default_configs += 1
+                    updated_song_ids.add(song.id)
+
+                desired_version_config = song_default_configs[template_id].to_version_config(
+                    song_version_id=""
+                )
+                desired_version_knobs = dict(desired_version_config.knob_values)
+                for version in version_records:
+                    version_configs = version_configs_by_version[version.id]
+                    existing_version = version_configs.get(template_id)
+                    if existing_version is None:
+                        created_version = PipelineConfigRecord.from_pipeline(
+                            template.build_pipeline(desired_version_knobs),
+                            template_id=template_id,
+                            song_version_id=version.id,
+                            knob_values=desired_version_knobs,
+                            name=template.name,
+                        )
+                        shell.project_storage.pipeline_configs.create(created_version)
+                        version_configs[template_id] = created_version
+                        updated_version_configs += 1
+                        updated_song_version_ids.add(version.id)
+                    elif existing_version.knob_values != desired_version_knobs:
+                        updated_version = existing_version.with_knob_values(
+                            desired_version_knobs,
+                            knob_metadata=template.knobs,
+                        )
+                        shell.project_storage.pipeline_configs.update(updated_version)
+                        version_configs[template_id] = updated_version
+                        updated_version_configs += 1
+                        updated_song_version_ids.add(version.id)
+
+    for song_id in updated_song_ids:
+        shell.project_storage.dirty_tracker.mark_dirty(song_id)
+    for song_version_id in updated_song_version_ids:
+        shell.project_storage.dirty_tracker.mark_dirty(song_version_id)
+    return ProjectPipelineDefaultsSyncResult(
+        template_ids=resolved_template_ids,
+        updated_song_ids=tuple(sorted(updated_song_ids)),
+        updated_song_version_ids=tuple(sorted(updated_song_version_ids)),
+        updated_song_default_configs=updated_song_default_configs,
+        updated_version_configs=updated_version_configs,
+    )
+
+
 def resolve_scoped_action_config(
     shell: ScopedConfigShell,
     template_id: str,
@@ -182,6 +388,15 @@ def resolve_scoped_action_config(
     song_id: str | None = None,
     song_version_id: str | None = None,
 ) -> ObjectActionConfigRecord:
+    if scope == "app_default":
+        if not shell._can_edit_app_defaults():
+            raise RuntimeError("Application pipeline defaults are unavailable in this runtime.")
+        return hydrate_object_action_config_defaults(
+            shell,
+            _create_app_default_action_config(shell, template_id=template_id),
+            scope=scope,
+        )
+
     if scope == "song_default":
         resolved_song_id = song_id or shell._require_active_song_id(template_id)
         configs = shell.project_storage.song_default_pipeline_configs.list_by_song(

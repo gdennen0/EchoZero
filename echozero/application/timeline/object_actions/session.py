@@ -112,6 +112,8 @@ class ObjectActionSettingsSession:
             target_label="This Version",
         )
     )
+    default_save_scope: str | None = None
+    default_save_label: str = "Defaults"
     can_save: bool = True
     can_save_and_run: bool = False
     run_disabled_reason: str = ""

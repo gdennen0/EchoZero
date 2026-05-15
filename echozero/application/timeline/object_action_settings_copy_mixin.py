@@ -28,6 +28,8 @@ class ObjectActionSettingsCopyShell(Protocol):
     @property
     def project_storage(self) -> ProjectStorage: ...
 
+    def _can_edit_app_defaults(self) -> bool: ...
+
     def save(
         self,
         action_id: str,
@@ -233,6 +235,8 @@ def build_copy_policy(
 
 
 def available_session_scopes(shell: ObjectActionSettingsCopyShell) -> tuple[str, ...]:
+    if shell.session.active_song_id is None and shell._can_edit_app_defaults():
+        return ("app_default",)
     scopes: list[str] = []
     if shell.session.active_song_version_id is not None:
         scopes.append("version")
@@ -244,6 +248,8 @@ def available_session_scopes(shell: ObjectActionSettingsCopyShell) -> tuple[str,
 
 
 def scope_label(scope: str) -> str:
+    if scope == "app_default":
+        return "Application Default"
     return "Song Default" if scope == "song_default" else "This Version"
 
 

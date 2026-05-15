@@ -1276,6 +1276,100 @@ def test_timeline_editor_pipeline_button_routes_to_pipeline_settings_browser(mon
         app.processEvents()
 
 
+def test_timeline_editor_pipeline_button_opens_application_defaults_without_active_song(
+    monkeypatch,
+):
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_song_switching_presentation())
+    opened_scopes: list[tuple[str, ...]] = []
+    try:
+        empty_presentation = replace(
+            widget.presentation,
+            active_song_id="",
+            active_song_version_id="",
+            active_song_title="",
+            active_song_version_label="",
+            layers=[],
+            selected_layer_id=None,
+            selected_layer_ids=[],
+        )
+        widget.set_presentation(empty_presentation)
+
+        class _Runtime:
+            def presentation(self):
+                return empty_presentation
+
+            def open_object_action_session(self, action_id, _params, **_kwargs):
+                model_field = ObjectActionSettingField(
+                    key="model",
+                    label="Model",
+                    value="latest_model",
+                    default_value="latest_model",
+                    persisted_value="latest_model",
+                )
+                field_values = (
+                    ObjectActionSessionFieldValue(
+                        key="model",
+                        persisted_value="latest_model",
+                        draft_value="latest_model",
+                    ),
+                )
+                return ObjectActionSettingsSession(
+                    session_id=f"session_{action_id}",
+                    action_id=action_id,
+                    object_id="",
+                    object_type="layer",
+                    scope="app_default",
+                    plan=ObjectActionSettingsPlan(
+                        action_id=action_id,
+                        title="Stage",
+                        object_id="",
+                        object_type="layer",
+                        pipeline_template_id="stem_separation",
+                        editable_fields=(model_field,),
+                        summary="No target layer selected · Application Default",
+                    ),
+                    scope_states=(
+                        ObjectActionSettingsScopeState(
+                            scope="app_default",
+                            label="Application Default",
+                            field_values=field_values,
+                            can_run=False,
+                        ),
+                    ),
+                    default_save_scope="app_default",
+                    default_save_label="Application Default",
+                    can_save=True,
+                    can_save_and_run=False,
+                    run_disabled_reason="Application defaults are the reusable baseline.",
+                )
+
+            def dispatch_object_action_command(self, *_args, **_kwargs):
+                raise AssertionError("dialog should not dispatch in this route test")
+
+        class _Dialog:
+            def __init__(self, sessions, **_kwargs):
+                opened_scopes.append(tuple(session.scope for session in sessions))
+
+            def exec(self):
+                return 0
+
+        monkeypatch.setattr(widget._action_router, "_resolve_runtime_shell", lambda: _Runtime())
+        monkeypatch.setattr(
+            widget._action_router,
+            "_pipeline_settings_browser_dialog_class",
+            _Dialog,
+        )
+
+        widget._editor_bar._pipeline_settings_button.click()
+
+        assert opened_scopes
+        assert all(scope == "app_default" for scope in opened_scopes[0])
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_open_object_action_settings_routes_to_focused_settings_dialog(monkeypatch):
     app = QApplication.instance() or QApplication([])
     widget = TimelineWidget(_song_switching_presentation())

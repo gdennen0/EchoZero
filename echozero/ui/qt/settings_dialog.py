@@ -368,6 +368,11 @@ class ActionSettingsDialog(QDialog):
 
     @staticmethod
     def _scope_hint_text(session: ObjectActionSettingsSession) -> str:
+        if session.scope == "app_default":
+            return (
+                "Application Default edits the machine-local baseline every new song starts from. "
+                "Open a song version when you want to run this stage."
+            )
         if session.scope == "song_default":
             return (
                 "Song Default edits the baseline recipe for this song. "
@@ -380,7 +385,10 @@ class ActionSettingsDialog(QDialog):
 
     @staticmethod
     def _can_save_defaults(session: ObjectActionSettingsSession) -> bool:
-        return "song_default" in session.available_scopes and session.scope != "song_default"
+        return (
+            session.default_save_scope is not None
+            and session.scope != session.default_save_scope
+        )
 
     @staticmethod
     def _save_defaults_hint_text(
@@ -388,11 +396,11 @@ class ActionSettingsDialog(QDialog):
         *,
         can_save: bool,
     ) -> str:
-        if "song_default" not in session.available_scopes:
-            return "Saving to defaults requires an active song."
+        if session.default_save_scope is None:
+            return "Saving to defaults is unavailable in this runtime."
         if can_save:
-            return "Save current stage values into this song's defaults."
-        return "You are already editing song defaults."
+            return f"Save current stage values into {session.default_save_label.lower()}."
+        return f"You are already editing {session.default_save_label.lower()}."
 
     @staticmethod
     def _can_reset_defaults(session: ObjectActionSettingsSession) -> bool:

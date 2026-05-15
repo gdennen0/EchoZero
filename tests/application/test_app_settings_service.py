@@ -164,6 +164,20 @@ def test_app_settings_service_apply_updates_persists_audio_osc_and_import_change
     )
 
 
+def test_app_settings_service_replaces_pipeline_defaults_per_template() -> None:
+    service = AppSettingsService(_MemoryStore(), audio_device_options_provider=_device_options)
+
+    service.replace_pipeline_defaults(
+        "stem_separation",
+        {"model": "mdx_extra_q", "device": "cpu"},
+    )
+
+    assert service.pipeline_defaults_for_template("stem_separation") == {
+        "model": "mdx_extra_q",
+        "device": "cpu",
+    }
+
+
 def test_app_settings_service_apply_updates_accepts_four_output_channels() -> None:
     service = AppSettingsService(_MemoryStore(), audio_device_options_provider=_device_options)
 
@@ -394,3 +408,18 @@ def test_app_preferences_from_dict_filters_non_import_safe_actions() -> None:
     )
 
     assert preferences.song_import.pipeline_action_ids == ("timeline.extract_stems",)
+
+
+def test_app_preferences_from_dict_parses_pipeline_defaults_by_template() -> None:
+    preferences = app_preferences_from_dict(
+        {
+            "pipeline_defaults_by_template": {
+                "stem_separation": {"model": "mdx_extra_q", "device": "cpu"},
+                "": {"ignored": True},
+            }
+        }
+    )
+
+    assert preferences.pipeline_defaults_by_template == {
+        "stem_separation": {"model": "mdx_extra_q", "device": "cpu"}
+    }
