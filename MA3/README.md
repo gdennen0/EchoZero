@@ -67,8 +67,8 @@ EZ.PrepareTrackForEvents(tcNo, tgNo, trackNo)      -- Ensure TimeRange/CmdSubTra
 EZ.Play([tcNo])                                    -- Trigger EZ transport play state
 EZ.Pause([tcNo])                                   -- Trigger EZ transport pause state
 EZ.Stop([tcNo])                                    -- Trigger EZ transport stop state
-EZ.JumpToPreviousSection([tcNo[, tgNo, trackNo]])  -- Jump to previous section marker/event
-EZ.JumpToNextSection([tcNo[, tgNo, trackNo]])      -- Jump to next section marker/event
+EZ.JumpToPreviousSection([tcNo[, tgNo, trackNo]])  -- Ask EZ to jump to previous EZ section cue
+EZ.JumpToNextSection([tcNo[, tgNo, trackNo]])      -- Ask EZ to jump to next EZ section cue
 EZ.ScrubTimecodeBy(deltaSeconds[, tcNo])           -- Scrub by signed seconds (+/-)
 EZ.ScrubTimecodeForward([stepSeconds[, tcNo]])     -- Scrub forward (default 1s)
 EZ.ScrubTimecodeBackward([stepSeconds[, tcNo]])    -- Scrub backward (default 1s)

@@ -5,6 +5,7 @@ Connects the compatibility wrapper to the bounded runtime-audio widget slice.
 
 from tests.ui.runtime_audio_shared_support import *  # noqa: F401,F403
 from echozero.ui.FEEL import TIMELINE_RUNTIME_TICK_IDLE_MS
+from echozero.application.presentation.models import SectionCuePresentation
 from echozero.application.shared.ranges import TimeRange
 from echozero.application.timeline.intents import CreateEvent
 
@@ -746,6 +747,72 @@ def test_widget_ma3_pause_transport_update_toggles_play_pause():
 
         assert [type(intent) for intent in dispatched] == [Pause, Play]
         assert widget.presentation.is_playing is True
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_widget_ma3_section_jump_uses_ez_section_cues_not_ma3_selected_timecode():
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(
+        _audio_presentation(),
+        playhead=12.0,
+        section_cues=[
+            SectionCuePresentation(
+                cue_id="intro",
+                start=0.0,
+                cue_ref="intro_01",
+                name="Intro",
+            ),
+            SectionCuePresentation(
+                cue_id="verse",
+                start=8.0,
+                cue_ref="verse_01",
+                name="Verse",
+            ),
+            SectionCuePresentation(
+                cue_id="chorus",
+                start=24.0,
+                cue_ref="chorus_01",
+                name="Chorus",
+            ),
+        ],
+    )
+    updates = [
+        {"change": "jump_next_section", "source": "ez_sections"},
+        {"change": "jump_previous_section", "source": "ez_sections"},
+    ]
+    dispatched: list[object] = []
+    state = {"presentation": presentation}
+
+    class RuntimeShell:
+        def consume_sync_transport_update(self):
+            return updates.pop(0) if updates else None
+
+    def _on_intent(intent):
+        dispatched.append(intent)
+        current = state["presentation"]
+        if isinstance(intent, Seek):
+            updated = replace(current, playhead=float(intent.position))
+        else:
+            updated = current
+        state["presentation"] = updated
+        return updated
+
+    widget = TimelineWidget(presentation, on_intent=_on_intent, runtime_audio=None)
+    widget._runtime_timer.stop()
+    widget._resolve_runtime_shell = lambda: RuntimeShell()
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+
+        widget._on_runtime_tick()
+        widget._on_runtime_tick()
+
+        assert [type(intent) for intent in dispatched] == [Seek, Seek]
+        assert [intent.position for intent in dispatched] == [24.0, 8.0]
+        assert widget.presentation.playhead == 8.0
     finally:
         widget.close()
         app.processEvents()

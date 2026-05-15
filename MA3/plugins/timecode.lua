@@ -1522,120 +1522,31 @@ function EZ.Stop(tcNo)
     return emitTransportState("stop", "stop", tcNo, false)
 end
 
--- Jump playhead to the previous section marker/event.
--- If tgNo+trackNo are omitted, auto-resolve a likely section track
--- (first track whose name contains "section", otherwise first non-empty track).
+-- Ask EchoZero to jump using its active song/timeline section cues.
+-- This intentionally does not scan the selected MA3 timecode. EZ may have a
+-- different active song/version than the local MA3 selected timecode, so EZ is
+-- the source of truth for previous/next section navigation.
 function EZ.JumpToPreviousSection(tcNo, tgNo, trackNo)
-    local tc, resolvedTcNo, tcErr = resolveTimecodeForTransport(tcNo)
-    if not tc then
-        sendTransportMessage("error", {
-            action = "jump_previous_section",
-            error = tcErr
-        })
-        return false
-    end
-
-    local cursorSeconds = readTimecodeCursorSeconds(tc) or 0
-    local sectionTrack, resolvedTgNo, resolvedTrackNo, sectionErr = resolveSectionTrack(
-        resolvedTcNo,
-        tgNo,
-        trackNo
-    )
-    if not sectionTrack then
-        sendTransportMessage("error", {
-            action = "jump_previous_section",
-            tc = resolvedTcNo,
-            error = sectionErr
-        })
-        return false
-    end
-
-    local events = EZ.getTrackEvents(sectionTrack) or {}
-    local previousTime = findPreviousEventTime(events, cursorSeconds)
-    local targetSeconds = previousTime or 0
-    local wrote = writeTimecodeCursorSeconds(tc, targetSeconds)
-    if not wrote then
-        sendTransportMessage("error", {
-            action = "jump_previous_section",
-            tc = resolvedTcNo,
-            tg = resolvedTgNo,
-            track = resolvedTrackNo,
-            error = "cursor_write_failed"
-        })
-        return false
-    end
-
-    local sent = sendTransportMessage("jumped_previous_section", {
-        tc = resolvedTcNo,
-        tg = resolvedTgNo,
-        track = resolvedTrackNo,
-        from_seconds = cursorSeconds,
-        to_seconds = targetSeconds
+    return sendTransportMessage("jump_previous_section", {
+        action = "jump_previous_section",
+        direction = "previous",
+        source = "ez_sections",
+        legacy_tc = tcNo,
+        legacy_tg = tgNo,
+        legacy_track = trackNo
     })
-    return sent
 end
 
--- Jump playhead to the next section marker/event.
--- If tgNo+trackNo are omitted, auto-resolve a likely section track
--- (first track whose name contains "section", otherwise first non-empty track).
+-- Ask EchoZero to jump using its active song/timeline section cues.
 function EZ.JumpToNextSection(tcNo, tgNo, trackNo)
-    local tc, resolvedTcNo, tcErr = resolveTimecodeForTransport(tcNo)
-    if not tc then
-        sendTransportMessage("error", {
-            action = "jump_next_section",
-            error = tcErr
-        })
-        return false
-    end
-
-    local cursorSeconds = readTimecodeCursorSeconds(tc) or 0
-    local sectionTrack, resolvedTgNo, resolvedTrackNo, sectionErr = resolveSectionTrack(
-        resolvedTcNo,
-        tgNo,
-        trackNo
-    )
-    if not sectionTrack then
-        sendTransportMessage("error", {
-            action = "jump_next_section",
-            tc = resolvedTcNo,
-            error = sectionErr
-        })
-        return false
-    end
-
-    local events = EZ.getTrackEvents(sectionTrack) or {}
-    local nextTime = findNextEventTime(events, cursorSeconds)
-    if nextTime == nil then
-        sendTransportMessage("error", {
-            action = "jump_next_section",
-            tc = resolvedTcNo,
-            tg = resolvedTgNo,
-            track = resolvedTrackNo,
-            error = "next_section_not_found"
-        })
-        return false
-    end
-
-    local wrote = writeTimecodeCursorSeconds(tc, nextTime)
-    if not wrote then
-        sendTransportMessage("error", {
-            action = "jump_next_section",
-            tc = resolvedTcNo,
-            tg = resolvedTgNo,
-            track = resolvedTrackNo,
-            error = "cursor_write_failed"
-        })
-        return false
-    end
-
-    local sent = sendTransportMessage("jumped_next_section", {
-        tc = resolvedTcNo,
-        tg = resolvedTgNo,
-        track = resolvedTrackNo,
-        from_seconds = cursorSeconds,
-        to_seconds = nextTime
+    return sendTransportMessage("jump_next_section", {
+        action = "jump_next_section",
+        direction = "next",
+        source = "ez_sections",
+        legacy_tc = tcNo,
+        legacy_tg = tgNo,
+        legacy_track = trackNo
     })
-    return sent
 end
 
 -- Move timecode cursor by delta seconds (+/-).

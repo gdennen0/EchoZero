@@ -869,6 +869,15 @@ class TimelineWidgetRuntimeMixin:
                         return 0.5 * (float(event.start) + float(event.end))
         return None
 
+    def _jump_to_adjacent_section(self: _TimelineWidgetRuntimeHost, *, direction: int) -> None:
+        target = _adjacent_section_start(
+            self.presentation,
+            direction=direction,
+            playhead=float(self.presentation.playhead),
+        )
+        if target is not None:
+            self._dispatch(Seek(position=float(target)))
+
     def _on_runtime_tick(self: _TimelineWidgetRuntimeHost) -> None:
         operation_id = str(self.presentation.manual_push_flow.operation_id or "").strip()
         operation_status = (
@@ -896,6 +905,10 @@ class TimelineWidgetRuntimeMixin:
                 self._dispatch(Pause() if bool(self.presentation.is_playing) else Play())
             elif transport_action == "stop":
                 self._dispatch(Stop())
+            elif transport_action == "jump_previous_section":
+                self._jump_to_adjacent_section(direction=-1)
+            elif transport_action == "jump_next_section":
+                self._jump_to_adjacent_section(direction=1)
             seek_seconds = _resolve_transport_seek_seconds(transport_update)
             if seek_seconds is not None:
                 self._dispatch(Seek(position=float(seek_seconds)))
@@ -1093,27 +1106,46 @@ def _resolve_transport_action(payload: dict[str, object] | None) -> str | None:
     if not isinstance(payload, dict):
         return None
     change = str(payload.get("change") or "").strip().lower()
-    if change in {"play", "pause", "stop"}:
+    if change in {"play", "pause", "stop", "jump_previous_section", "jump_next_section"}:
         return change
 
     action = str(payload.get("action") or "").strip().lower()
-    if action in {"play", "pause", "stop"}:
+    if action in {"play", "pause", "stop", "jump_previous_section", "jump_next_section"}:
         return action
 
     state = str(payload.get("state") or "").strip().lower()
-    if state in {"play", "pause", "stop"}:
+    if state in {"play", "pause", "stop", "jump_previous_section", "jump_next_section"}:
         return state
 
     fields = payload.get("fields")
     if isinstance(fields, dict):
         field_action = str(fields.get("action") or "").strip().lower()
-        if field_action in {"play", "pause", "stop"}:
+        if field_action in {"play", "pause", "stop", "jump_previous_section", "jump_next_section"}:
             return field_action
         field_state = str(fields.get("state") or "").strip().lower()
-        if field_state in {"play", "pause", "stop"}:
+        if field_state in {"play", "pause", "stop", "jump_previous_section", "jump_next_section"}:
             return field_state
 
     return None
+
+
+def _adjacent_section_start(
+    presentation: TimelinePresentation,
+    *,
+    direction: int,
+    playhead: float,
+) -> float | None:
+    cues = sorted(
+        {max(0.0, float(cue.start)) for cue in getattr(presentation, "section_cues", [])},
+    )
+    if not cues:
+        return None
+    epsilon = 0.025
+    if direction < 0:
+        previous = [start for start in cues if start < playhead - epsilon]
+        return previous[-1] if previous else cues[0]
+    next_cues = [start for start in cues if start > playhead + epsilon]
+    return next_cues[0] if next_cues else cues[-1]
 
 
 def _runtime_prefers_low_latency_transport_poll(runtime: object | None) -> bool:
