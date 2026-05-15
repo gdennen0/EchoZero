@@ -5,7 +5,7 @@ EchoZero grandMA3 Autosave Showfile Plugin
 Periodically saves the current showfile under a timestamped name.
 
 Load:
-  Lua "dofile('/path/to/MA3/plugins/autosave_showfile.lua')"
+  Lua "dofile('/path/to/MA3/plugins/TC22/autosave_showfile.lua')"
 
 Use:
   EZ_AutosaveShow.Start(10)                 -- every 10 minutes

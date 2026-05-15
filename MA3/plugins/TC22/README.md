@@ -5,7 +5,7 @@ Standalone grandMA3 Lua plugin that periodically saves the current showfile with
 ## Load
 
 ```lua
-Lua "dofile('/path/to/MA3/plugins/autosave_showfile.lua')"
+Lua "dofile('/path/to/MA3/plugins/TC22/autosave_showfile.lua')"
 ```
 
 ## Use
