@@ -736,6 +736,18 @@ local function boolText(value)
     return trimPresetText(value)
 end
 
+local function recipeEnabledText(recipeHandle)
+    local raw = rawHandlePropertyAny(recipeHandle, {"enabled", "Enabled", "ENABLED"})
+    local text = boolText(raw)
+    if text == "" then return "true" end
+    return text
+end
+
+local function recipeRowIsDisabled(row)
+    local text = tostring(row and row.recipe_enabled or ""):lower()
+    return text == "false" or text == "no" or text == "0"
+end
+
 local function rowTrackingLanes(row)
     local semantics = trimPresetText(row and row.value_semantics or row and row.recipe_mode):lower()
     if semantics == "mixed" then
@@ -817,7 +829,9 @@ local function buildCueRecipeRows(sequenceNo, cueNo)
         end
         for recipeIndex = 1, #recipes do
             local recipeHandle = recipes[recipeIndex]
-            local selectionHandle = recipeHandleRef(recipeHandle, {"selection", "Selection", "SELECTION"})
+            local recipeEnabled = recipeEnabledText(recipeHandle)
+            if not recipeRowIsDisabled({ recipe_enabled = recipeEnabled }) then
+                local selectionHandle = recipeHandleRef(recipeHandle, {"selection", "Selection", "SELECTION"})
             local matchedGroup = handleDisplayName(selectionHandle)
             if matchedGroup == "" then
                 matchedGroup = recipeObjectLabel(selectionHandle)
@@ -872,8 +886,9 @@ local function buildCueRecipeRows(sequenceNo, cueNo)
                 selection_mode = recipeTextProperty(recipeHandle, {"selectionmode", "SelectionMode", "SELECTIONMODE"}),
                 preset_mode = recipePresetMode,
                 preset_mode_internal = recipePresetModeInternal,
-                recipe_enabled = boolText(rawHandlePropertyAny(recipeHandle, {"enabled", "Enabled", "ENABLED"})),
+                recipe_enabled = recipeEnabled,
             })
+            end
         end
     end
 
@@ -1019,10 +1034,8 @@ local function effectiveRecipeContributorsFromRows(rows)
             end
             expanded.state_lane = lane
             local key = recipeStateKey(expanded)
-            if key ~= "" and key ~= ":" and lane ~= "unknown" then
-                if tostring(expanded.recipe_enabled or ""):lower() == "false" or tostring(expanded.recipe_enabled or ""):lower() == "no" then
-                    contributorsByKey[key] = {}
-                elseif lane == "relative" then
+            if key ~= "" and key ~= ":" and lane ~= "unknown" and not recipeRowIsDisabled(expanded) then
+                if lane == "relative" then
                     local bucket = contributorsByKey[key] or {}
                     table.insert(bucket, expanded)
                     contributorsByKey[key] = bucket
@@ -1186,6 +1199,7 @@ end
 
 local function buildCueRecipeRow(sequenceNo, sequenceName, cueNo, partIndex, recipeIndex, recipeHandle)
     local presetRef = recipeRowPresetRef(recipeHandle)
+    local recipeEnabled = recipeEnabledText(recipeHandle)
     local matchedGroup = recipeSelectionLabel(recipeHandle)
     local featureGroup = inferRecipeFeatureGroup(recipeHandle, presetRef)
     local recipeMode = inferRecipeMode(recipeHandle)
@@ -1203,6 +1217,7 @@ local function buildCueRecipeRow(sequenceNo, sequenceName, cueNo, partIndex, rec
         source_cue_number = tonumber(cueNo) or 0,
         source_part_number = partNumber,
         preset_ref = presetRef or "",
+        recipe_enabled = recipeEnabled,
     }
 end
 
@@ -1223,7 +1238,7 @@ local function cueRecipeRows(sequenceNo, cueNo)
             local recipes = EZ.safeChildren(part)
             for recipeIndex = 1, #recipes do
                 local recipe = recipes[recipeIndex]
-                if recipe then
+                if recipe and not recipeRowIsDisabled({ recipe_enabled = recipeEnabledText(recipe) }) then
                     table.insert(
                         rows,
                         buildCueRecipeRow(
@@ -1266,10 +1281,8 @@ local function effectiveRecipeContributorsFromRows(rows, sequenceNo, cueNo)
                 end
                 expanded.state_lane = lane
                 local key = recipeStateKey(expanded)
-                if key ~= "" and key ~= ":" and lane ~= "unknown" then
-                    if tostring(expanded.recipe_enabled or ""):lower() == "false" or tostring(expanded.recipe_enabled or ""):lower() == "no" then
-                        contributorsByKey[key] = {}
-                    elseif lane == "relative" then
+                if key ~= "" and key ~= ":" and lane ~= "unknown" and not recipeRowIsDisabled(expanded) then
+                    if lane == "relative" then
                         if not contributorsByKey[key] then
                             contributorsByKey[key] = {}
                         end
