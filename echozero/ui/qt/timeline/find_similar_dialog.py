@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QGridLayout,
     QLabel,
     QScrollArea,
     QSizePolicy,
@@ -60,7 +61,7 @@ class EventShapeComparisonPreviewWidget(QWidget):
     def __init__(self, rows: tuple[ShapePreviewRow, ...], parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._rows = rows
-        self.setMinimumHeight(max(300, 190 + 56 * max(1, len(rows) - 1)))
+        self.setMinimumHeight(max(320, 76 + 54 * max(1, len(rows) - 1)))
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding)
 
     @property
@@ -83,54 +84,72 @@ class EventShapeComparisonPreviewWidget(QWidget):
             return
 
         anchor = self._rows[0]
-        painter.setPen(QColor("#dbeafe"))
-        painter.drawText(
-            rect.adjusted(16, 12, -16, -8),
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
-            "SHAPE SCAN COMMAND PANEL",
-        )
-        anchor_rect = QRectF(rect.left() + 16, rect.top() + 42, rect.width() - 32, 104)
-        painter.fillRect(anchor_rect, QColor("#0f172a"))
-        painter.setPen(QPen(QColor("#38bdf8"), 1.0))
-        painter.drawRoundedRect(anchor_rect, 10.0, 10.0)
-        painter.setPen(QColor("#fbbf24"))
-        painter.drawText(
-            anchor_rect.adjusted(14, 8, -14, -8),
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
-            f"SELECTED CLIP · {anchor.label}",
-        )
-        self._draw_shape(painter, anchor_rect.adjusted(18, 30, -18, -18), anchor.shape, QColor("#f59e0b"), width=3.0)
-
-        progress_rect = QRectF(rect.left() + 16, anchor_rect.bottom() + 12, rect.width() - 32, 24)
         scanned_count = max(0, len(self._rows) - 1)
-        painter.setPen(QColor("#bae6fd"))
-        painter.drawText(progress_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, f"LIVE SCAN READY · {scanned_count} EVENTS QUEUED")
-        segment_left = progress_rect.left() + 340
-        segment_width = max(8.0, (progress_rect.right() - segment_left) / max(1, scanned_count))
-        for index in range(max(1, scanned_count)):
-            segment = QRectF(segment_left + index * segment_width + 2, progress_rect.top() + 5, segment_width - 4, 12)
-            painter.fillRect(segment, QColor("#0ea5e9") if index < scanned_count else QColor("#1e293b"))
+        left_width = min(360.0, max(285.0, rect.width() * 0.36))
+        gap = 12.0
+        left_panel = QRectF(rect.left() + 12, rect.top() + 12, left_width, rect.height() - 24)
+        right_panel = QRectF(left_panel.right() + gap, rect.top() + 12, rect.right() - left_panel.right() - gap - 12, rect.height() - 24)
 
-        top = progress_rect.bottom() + 14
-        row_height = 52
-        label_width = min(230, max(140, rect.width() // 3))
-        graph_left = rect.left() + label_width + 20
-        graph_width = max(80, rect.right() - graph_left - 14)
+        painter.fillRect(left_panel, QColor("#0b1f35"))
+        painter.setPen(QPen(QColor("#38bdf8"), 1.0))
+        painter.drawRoundedRect(left_panel, 10.0, 10.0)
+        painter.setPen(QColor("#dbeafe"))
+        painter.drawText(left_panel.adjusted(14, 10, -14, -10), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, "SELECTED CLIP")
+        painter.setPen(QColor("#fbbf24"))
+        painter.drawText(left_panel.adjusted(14, 32, -14, -10), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, anchor.label)
+        self._draw_shape(painter, QRectF(left_panel.left() + 14, left_panel.top() + 62, left_panel.width() - 28, 128), anchor.shape, QColor("#f59e0b"), width=3.2)
+
+        progress_rect = QRectF(left_panel.left() + 14, left_panel.top() + 204, left_panel.width() - 28, 72)
+        painter.fillRect(progress_rect, QColor("#07111f"))
+        painter.setPen(QColor("#bae6fd"))
+        painter.drawText(progress_rect.adjusted(10, 4, -10, -4), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, "LIVE ITERATION")
+        painter.setPen(QColor("#e0f2fe"))
+        painter.drawText(progress_rect.adjusted(10, 26, -10, -4), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, f"{scanned_count} queued · preview ready")
+        segment_top = progress_rect.top() + 52
+        segment_width = max(5.0, (progress_rect.width() - 20) / max(1, min(scanned_count, 28)))
+        for index in range(max(1, min(scanned_count, 28))):
+            segment = QRectF(progress_rect.left() + 10 + index * segment_width + 1, segment_top, segment_width - 2, 8)
+            painter.fillRect(segment, QColor("#0ea5e9"))
+
+        meter_top = progress_rect.bottom() + 16
+        for index, (label, value, color) in enumerate(
+            (
+                ("strictness", 0.72, QColor("#22d3ee")),
+                ("alignment", 0.86, QColor("#a78bfa")),
+                ("window", 0.54, QColor("#f59e0b")),
+            )
+        ):
+            y = meter_top + index * 34
+            painter.setPen(QColor("#93c5fd"))
+            painter.drawText(QRectF(left_panel.left() + 14, y, 88, 18), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, label.upper())
+            bar = QRectF(left_panel.left() + 112, y + 5, left_panel.width() - 132, 8)
+            painter.fillRect(bar, QColor("#1e293b"))
+            painter.fillRect(QRectF(bar.left(), bar.top(), bar.width() * value, bar.height()), color)
+
+        painter.fillRect(right_panel, QColor("#081827"))
+        painter.setPen(QPen(QColor("#164e63"), 1.0))
+        painter.drawRoundedRect(right_panel, 10.0, 10.0)
         painter.setPen(QColor("#93c5fd"))
-        painter.drawText(QRectF(rect.left() + 16, top, rect.width() - 32, 18), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "CANDIDATE OVERLAYS · GOLD = ANCHOR · CYAN = SCANNED EVENT")
+        painter.drawText(right_panel.adjusted(14, 10, -14, -10), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, "CANDIDATE OVERLAYS · GOLD ANCHOR / CYAN EVENT")
+
+        top = right_panel.top() + 38
+        row_height = 48
+        label_width = min(210, max(135, int(right_panel.width() * 0.31)))
+        graph_left = right_panel.left() + label_width + 24
+        graph_width = max(120, right_panel.right() - graph_left - 14)
         for index, row in enumerate(self._rows[1:]):
-            y = top + 24 + index * row_height
-            row_rect = QRectF(rect.left() + 12, y, rect.width() - 24, row_height - 8)
-            painter.fillRect(row_rect, QColor("#0b1f35"))
-            painter.setPen(QPen(QColor("#164e63"), 1.0))
-            painter.drawRoundedRect(row_rect, 8.0, 8.0)
+            y = top + index * row_height
+            row_rect = QRectF(right_panel.left() + 10, y, right_panel.width() - 20, row_height - 7)
+            painter.fillRect(row_rect, QColor("#0d2740") if index % 2 == 0 else QColor("#0b2137"))
+            painter.setPen(QPen(QColor("#155e75"), 0.8))
+            painter.drawRoundedRect(row_rect, 7.0, 7.0)
             painter.setPen(QColor("#e0f2fe"))
             score = "--" if row.score is None else f"{row.score:.2f}"
-            painter.drawText(row_rect.adjusted(10, 0, -4, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, f"{row.label} · match {score}")
-            graph_rect = QRectF(graph_left, y + 9, graph_width, row_height - 26)
+            painter.drawText(row_rect.adjusted(10, 0, -4, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, f"{row.label} · {score}")
+            graph_rect = QRectF(graph_left, y + 8, graph_width, row_height - 24)
             painter.setPen(QPen(QColor("#1e3a8a"), 1.0))
             painter.drawLine(QPointF(graph_rect.left(), graph_rect.center().y()), QPointF(graph_rect.right(), graph_rect.center().y()))
-            self._draw_shape(painter, graph_rect, anchor.shape, QColor("#f59e0b"), width=2.4)
+            self._draw_shape(painter, graph_rect, anchor.shape, QColor("#f59e0b"), width=2.2)
             self._draw_shape(painter, graph_rect, row.shape, QColor("#22d3ee"), width=2.0)
         painter.end()
 
@@ -193,19 +212,20 @@ class FindSimilarSoundsDialog(QDialog):
         )
 
         layout = QVBoxLayout(self)
+        control_grid = QGridLayout()
         self._summary = QLabel(self._summary_text(), self)
         self._summary.setWordWrap(True)
-        layout.addWidget(self._summary)
+        control_grid.addWidget(self._summary, 0, 0, 1, 6)
 
         self._mode_label = QLabel("Shape telemetry mode", self)
-        layout.addWidget(self._mode_label)
+        control_grid.addWidget(self._mode_label, 1, 0)
         self._mode_combo = QComboBox(self)
         self._mode_combo.addItem("Shape Envelope", "shape_envelope")
         self._mode_combo.addItem("Timbre Fingerprint", "timbre_fingerprint")
-        layout.addWidget(self._mode_combo)
+        control_grid.addWidget(self._mode_combo, 1, 1)
 
         self._scope_label = QLabel("Scan field", self)
-        layout.addWidget(self._scope_label)
+        control_grid.addWidget(self._scope_label, 1, 2)
         self._scope_combo = QComboBox(self)
         self._scope_combo.addItem("Current Take", "take")
         self._scope_combo.addItem("Current Layer", "layer")
@@ -214,10 +234,10 @@ class FindSimilarSoundsDialog(QDialog):
         if index >= 0:
             self._scope_combo.setCurrentIndex(index)
         self._scope_combo.currentIndexChanged.connect(self._refresh_preview)
-        layout.addWidget(self._scope_combo)
+        control_grid.addWidget(self._scope_combo, 1, 3)
 
         self._strength_label = QLabel("Match sensitivity", self)
-        layout.addWidget(self._strength_label)
+        control_grid.addWidget(self._strength_label, 1, 4)
         self._strength_combo = QComboBox(self)
         self._strength_combo.addItem("Very Strict", "very_strict")
         self._strength_combo.addItem("Strict", "strict")
@@ -226,7 +246,8 @@ class FindSimilarSoundsDialog(QDialog):
         balanced = self._strength_combo.findData("balanced")
         if balanced >= 0:
             self._strength_combo.setCurrentIndex(balanced)
-        layout.addWidget(self._strength_combo)
+        control_grid.addWidget(self._strength_combo, 1, 5)
+        layout.addLayout(control_grid)
 
         self._preview_scroll = QScrollArea(self)
         self._preview_scroll.setWidgetResizable(True)
