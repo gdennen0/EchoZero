@@ -3,6 +3,10 @@ Exists to keep inspector and context hit-target coverage separate from transfer 
 Connects the compatibility wrapper to the bounded object-info support slice.
 """
 
+import wave
+
+import numpy as np
+
 from echozero.ui.qt.timeline.object_info_panel_text import (
     rendered_contract_text as _rendered_object_info_text,
 )
@@ -1252,6 +1256,55 @@ def test_find_similar_shapes_dialog_constructs_for_real_event():
         assert dialog._mode_combo.count() == 2
         assert dialog._mode_combo.itemText(0) == "Shape Envelope"
         assert dialog._mode_combo.itemText(1) == "Timbre Fingerprint"
+        assert hasattr(dialog, "_preview_widget")
+    finally:
+        dialog.close()
+        app.processEvents()
+
+
+def test_find_similar_shapes_dialog_previews_anchor_and_candidate_shapes(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    audio_path = tmp_path / "shape-preview.wav"
+    sample_rate = 8000
+    seconds = 3.0
+    t = np.linspace(0.0, seconds, int(sample_rate * seconds), endpoint=False, dtype=np.float32)
+    samples = np.zeros_like(t)
+    samples[int(1.0 * sample_rate) : int(1.5 * sample_rate)] = np.hanning(int(0.5 * sample_rate)).astype(np.float32) * 0.8
+    samples[int(2.0 * sample_rate) : int(2.5 * sample_rate)] = np.hanning(int(0.5 * sample_rate)).astype(np.float32) * 0.6
+    with wave.open(str(audio_path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(sample_rate)
+        handle.writeframes(np.clip(samples * 32767.0, -32768, 32767).astype("<i2").tobytes())
+
+    base = _selection_test_presentation()
+    layer = replace(
+        base.layers[0],
+        source_audio_path=str(audio_path),
+        takes=[
+            replace(
+                base.layers[0].takes[0],
+                take_id=TakeId("take_main"),
+                source_audio_path=str(audio_path),
+            )
+        ],
+    )
+    presentation = replace(base, layers=[layer])
+    dialog = FindSimilarSoundsDialog(
+        presentation=presentation,
+        layer_id=LayerId("layer_kick"),
+        take_id=TakeId("take_main"),
+        event_id=EventId("main_evt"),
+        default_scope_mode="take",
+        parent=None,
+    )
+    try:
+        rows = dialog._preview_widget.rows
+        assert len(rows) == 2
+        assert rows[0].is_anchor is True
+        assert rows[0].shape
+        assert rows[1].score is not None
+        assert rows[1].shape
     finally:
         dialog.close()
         app.processEvents()
