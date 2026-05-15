@@ -113,7 +113,14 @@ def apply_transport_command(
     state: TransportState,
     command: TransportCommand,
 ) -> TransportState:
-    """Return the next transport state after applying one explicit command."""
+    """Return the next transport state after applying one monotonic command.
+
+    Stale or replayed commands are ignored so an RT command stream cannot move
+    command sequence or transport state backward.
+    """
+
+    if command.sequence <= state.command_sequence:
+        return state
 
     if command.kind is TransportCommandKind.PLAY:
         return replace(

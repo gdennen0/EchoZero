@@ -35,7 +35,7 @@ def _graph() -> PreparedGraph:
     master = PreparedBus(
         bus_id=MASTER_BUS_ID,
         name="Master",
-        output_routes=(HardwareOutputRoute(1, 2),),
+        route=TrackRoute.to_hardware((HardwareOutputRoute(1, 2),)),
     )
     track = PreparedTrack(track_id="drums", name="Drums", source_key="audio:drums.wav")
     return PreparedGraph(graph_id="song-a", tracks=(track,), buses=(master,))
@@ -97,7 +97,7 @@ def test_graph_identity_changes_by_structural_route_and_mix_edits() -> None:
     assert mixed.identity.full_hash != graph.identity.full_hash
 
 
-def test_master_no_output_and_direct_hardware_routes_are_explicit() -> None:
+def test_master_no_output_direct_and_multi_target_routes_are_explicit() -> None:
     graph = _graph()
     no_output = replace_track_route(
         graph,
@@ -109,13 +109,129 @@ def test_master_no_output_and_direct_hardware_routes_are_explicit() -> None:
         track_id="drums",
         route=TrackRoute.to_hardware((HardwareOutputRoute(5, 6),)),
     )
+    mirrored = replace_track_route(
+        graph,
+        track_id="drums",
+        route=TrackRoute.to_master_and_hardware((HardwareOutputRoute(3, 3),)),
+    )
 
-    assert graph.tracks[0].route.bus_id == MASTER_BUS_ID
-    assert graph.buses[0].output_routes == (HardwareOutputRoute(1, 2),)
-    assert no_output.tracks[0].route.bus_id is None
-    assert no_output.tracks[0].route.hardware_outputs == ()
-    assert direct.tracks[0].route.bus_id is None
+    assert graph.tracks[0].route.bus_ids == (MASTER_BUS_ID,)
+    assert graph.buses[0].route.hardware_outputs == (HardwareOutputRoute(1, 2),)
+    assert no_output.tracks[0].route.targets == ()
+    assert direct.tracks[0].route.bus_ids == ()
     assert direct.tracks[0].route.hardware_outputs == (HardwareOutputRoute(5, 6),)
+    assert mirrored.tracks[0].route.bus_ids == (MASTER_BUS_ID,)
+    assert mirrored.tracks[0].route.hardware_outputs == (HardwareOutputRoute(3, 3),)
+
+
+def test_route_identity_distinguishes_output_semantics() -> None:
+    graph = _graph()
+    route_hashes = {
+        "master": graph.identity.route_hash,
+        "none": replace_track_route(
+            graph,
+            track_id="drums",
+            route=TrackRoute.no_output(),
+        ).identity.route_hash,
+        "hardware": replace_track_route(
+            graph,
+            track_id="drums",
+            route=TrackRoute.to_hardware((HardwareOutputRoute(3, 3),)),
+        ).identity.route_hash,
+        "master_and_hardware": replace_track_route(
+            graph,
+            track_id="drums",
+            route=TrackRoute.to_master_and_hardware((HardwareOutputRoute(3, 3),)),
+        ).identity.route_hash,
+    }
+
+    assert len(set(route_hashes.values())) == len(route_hashes)
+
+
+def test_bus_downstream_routes_validate_and_affect_identity() -> None:
+    subgroup = PreparedBus(
+        bus_id="drum_bus",
+        name="Drum Bus",
+        route=TrackRoute.to_master(),
+    )
+    graph = PreparedGraph(
+        graph_id="bus-routing",
+        tracks=(
+            PreparedTrack(
+                track_id="drums",
+                name="Drums",
+                source_key="audio:drums.wav",
+                route=TrackRoute.to_bus("drum_bus"),
+            ),
+        ),
+        buses=(
+            subgroup,
+            PreparedBus(
+                bus_id=MASTER_BUS_ID,
+                name="Master",
+                route=TrackRoute.to_hardware((HardwareOutputRoute(1, 2),)),
+            ),
+        ),
+    )
+    rerouted_bus = PreparedGraph(
+        graph_id="bus-routing",
+        tracks=graph.tracks,
+        buses=(
+            PreparedBus(
+                bus_id="drum_bus",
+                name="Drum Bus",
+                route=TrackRoute.to_hardware((HardwareOutputRoute(3, 4),)),
+            ),
+            graph.buses[1],
+        ),
+    )
+
+    assert graph.tracks[0].route.bus_ids == ("drum_bus",)
+    assert graph.buses[0].route.bus_ids == (MASTER_BUS_ID,)
+    assert rerouted_bus.identity.route_hash != graph.identity.route_hash
+    with pytest.raises(ValueError, match="missing bus"):
+        PreparedGraph(
+            graph_id="missing-bus",
+            tracks=(PreparedTrack("drums", "Drums", "audio:drums.wav"),),
+            buses=(
+                PreparedBus(
+                    bus_id=MASTER_BUS_ID,
+                    name="Master",
+                    route=TrackRoute.to_bus("missing"),
+                ),
+            ),
+        )
+    with pytest.raises(ValueError, match="cycle"):
+        PreparedGraph(
+            graph_id="cycle",
+            tracks=(PreparedTrack("drums", "Drums", "audio:drums.wav"),),
+            buses=(
+                PreparedBus("a", "A", TrackRoute.to_bus("b")),
+                PreparedBus("b", "B", TrackRoute.to_bus("a")),
+                PreparedBus(
+                    bus_id=MASTER_BUS_ID,
+                    name="Master",
+                    route=TrackRoute.to_hardware((HardwareOutputRoute(1, 2),)),
+                ),
+            ),
+        )
+
+
+def test_idempotent_track_replacements_do_not_raise() -> None:
+    graph = _graph()
+    same_mix = replace_track_mix(
+        graph,
+        track_id="drums",
+        mix=graph.tracks[0].mix,
+    )
+    same_route = replace_track_route(
+        graph,
+        track_id="drums",
+        route=graph.tracks[0].route,
+    )
+
+    assert same_mix.tracks == graph.tracks
+    assert same_route.tracks == graph.tracks
 
 
 def test_playback_plan_mapping_preserves_route_semantics() -> None:
@@ -140,6 +256,15 @@ def test_playback_plan_mapping_preserves_route_semantics() -> None:
                 sample_rate=44100,
             ),
             SimpleNamespace(
+                track_id="stem",
+                name="Stem",
+                source_key="audio:stem.wav",
+                gain_db=0.0,
+                muted=False,
+                output_bus="master,outputs_3_3",
+                sample_rate=44100,
+            ),
+            SimpleNamespace(
                 track_id="ltc",
                 name="LTC",
                 source_key="audio:ltc.wav",
@@ -160,8 +285,11 @@ def test_playback_plan_mapping_preserves_route_semantics() -> None:
     assert graph.tracks[0].route == TrackRoute.to_master()
     assert graph.tracks[1].route == TrackRoute.no_output()
     assert graph.tracks[1].mix.muted is True
-    assert graph.tracks[2].route == TrackRoute.to_hardware((HardwareOutputRoute(3, 3),))
-    assert graph.buses[0].output_routes == (HardwareOutputRoute(1, 2),)
+    assert graph.tracks[2].route == TrackRoute.to_master_and_hardware(
+        (HardwareOutputRoute(3, 3),)
+    )
+    assert graph.tracks[3].route == TrackRoute.to_hardware((HardwareOutputRoute(3, 3),))
+    assert graph.buses[0].route.hardware_outputs == (HardwareOutputRoute(1, 2),)
 
 
 def test_transport_commands_return_new_state_values() -> None:
@@ -186,3 +314,15 @@ def test_transport_commands_return_new_state_values() -> None:
     assert stopped.play_state is TransportPlayState.STOPPED
     assert stopped.position_seconds == 0.0
     assert stopped.command_sequence == 4
+
+
+def test_stale_transport_command_cannot_mutate_state_or_sequence() -> None:
+    playing = apply_transport_command(TransportState(), TransportCommand.play(10))
+    stale_seek = apply_transport_command(playing, TransportCommand.seek(9, 45.0))
+    replay_stop = apply_transport_command(playing, TransportCommand.stop(10))
+
+    assert stale_seek is playing
+    assert replay_stop is playing
+    assert playing.play_state is TransportPlayState.PLAYING
+    assert playing.position_seconds == 0.0
+    assert playing.command_sequence == 10

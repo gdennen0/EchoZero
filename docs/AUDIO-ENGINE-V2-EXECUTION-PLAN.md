@@ -12,8 +12,9 @@ Scope:
 
 - document the DAW-style backend architecture
 - add immutable snapshot/generation models
-- add prepared graph models for tracks, buses, master, and hardware outputs
-- add explicit transport command/state models
+- add prepared graph models for tracks, buses, master, route targets, and
+  hardware outputs
+- add explicit monotonic transport command/state models
 - add deterministic graph identity helpers
 - add compatibility mapping from current playback track plans
 
@@ -23,6 +24,10 @@ Gates:
 - no app wiring to v2 graph execution
 - focused tests for immutability, copy-on-write, identity, routing semantics,
   mapping, and transport command reduction
+- routing tests prove master-only, no-output, direct hardware, master plus
+  direct hardware, and bus-to-bus route behavior
+- stale/replayed transport commands cannot mutate state or move sequence
+  backward
 - targeted tests plus one broader import/test slice pass
 
 Audit:
@@ -45,7 +50,8 @@ Gates:
 - shadow planner runs without changing audible output
 - route summaries match existing v1 behavior for representative projects
 - app-boundary tests cover selected song, selected version, event-slice, mute,
-  solo, gain, no-output, master, and direct output cases
+  solo, gain, no-output, master, master plus direct output, bus-to-bus, and
+  direct output cases
 
 Audit:
 

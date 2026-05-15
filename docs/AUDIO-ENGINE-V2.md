@@ -41,11 +41,23 @@ real-time code only swaps committed references at block or sample boundaries.
 - master: final mix bus before hardware output
 - hardware outputs: explicit 1-based physical channel spans
 - mix parameters: gain, pan, mute, solo, and future automation/ramp metadata
-- routes: track-to-bus, bus-to-bus, bus-to-hardware, or explicit no-output
+- routes: ordered route-target lists on tracks and buses
 
-The default route is `track -> master bus -> hardware outputs`. A no-output
-route is an empty route. Direct physical output is explicit and bypasses the
-master only when the graph says so.
+Route targets are explicit data:
+
+- bus target: send downstream to a bus, including the master bus
+- hardware target: send directly to one physical output span
+- empty target list: no output
+
+The default track route is `track -> master bus`. The master bus normally
+targets hardware outputs. Direct physical output is explicit and bypasses the
+master only when the graph says so. A route may target both master and hardware,
+which preserves current route strings such as `master,outputs_3_3` as
+`track -> master` plus `track -> output 3`.
+
+Buses use the same route-target model as tracks. Subgroup routing is represented
+as `track -> subgroup bus -> master bus -> hardware`. Bus validation rejects
+missing bus targets, self-routes, and obvious bus route cycles.
 
 `PlaybackSnapshotGeneration` binds:
 
@@ -68,7 +80,7 @@ Future IPC v2 messages should be generation-aware:
 Graph identity is split so planners can classify work:
 
 - structural hash: tracks, sources, buses, channel layout
-- route hash: track routes and bus hardware outputs
+- route hash: track and bus route-target lists
 - mix hash: gain/pan/mute/solo state
 - full hash: complete render-relevant identity
 
@@ -90,7 +102,10 @@ Transport is an explicit command stream, not direct mutation:
 Commands reduce immutable `TransportState` values. The RT engine may apply the
 result at sample boundaries, but application code should not poke callback state
 directly. Transport commands carry sequence numbers so IPC and telemetry can
-prove ordering.
+prove ordering. Commands with a sequence less than or equal to the current
+transport state's sequence are stale/replayed commands and are ignored. This
+matches the RT command-stream requirement that late messages must not move
+state backward.
 
 ## Real-Time Contract
 
