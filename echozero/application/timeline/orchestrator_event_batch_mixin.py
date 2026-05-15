@@ -123,7 +123,12 @@ class TimelineOrchestratorEventBatchMixin(TimelineOrchestratorEventEditMixin):
                     match_strength,
                     similarity_threshold_override=similarity_threshold_override,
                 ),
-                comparison_settings=comparison_options.get("comparison_settings"),
+                comparison_settings=(
+                    comparison_options.get("comparison_settings")
+                    or comparison_options.get("artifact_path")
+                    or comparison_options.get("mini_model_path")
+                    or comparison_options
+                ),
             ),
         )
 

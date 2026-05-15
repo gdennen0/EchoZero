@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 
@@ -23,6 +25,16 @@ class TimbreFingerprintSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class SavedTimbreMiniModelSettings:
+    """Settings needed to score candidates against a saved local timbre prototype."""
+
+    artifact_path: str | Path
+    sample_count: int = 64
+    padding_ms: float = 20.0
+    centroid: tuple[float, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class EventComparisonCandidateRecord:
     layer_id: LayerId
     take_id: TakeId
@@ -39,6 +51,22 @@ class EventComparisonRequest:
     comparison_settings: object | None = None
 
 
+PreviewBuilder = Callable[[tuple[np.ndarray, int], object], tuple[float, ...]]
+ScoreBuilder = Callable[[tuple[float, ...], tuple[float, ...], object], float]
+
+
+@dataclass(frozen=True, slots=True)
+class EventComparisonMethod:
+    """Registered strategy for one find-similar comparison method."""
+
+    mode: str
+    label: str
+    preview_builder: PreviewBuilder
+    score_builder: ScoreBuilder
+    settings_factory: Callable[[object | None], object]
+    requires_anchor_preview: bool = True
+
+
 class EventComparisonService:
     """Select events whose audio comparison fingerprint matches an anchor."""
 
@@ -53,31 +81,47 @@ class EventComparisonService:
         anchor = next((event for event in anchor_take.events if event.id == request.anchor_event_id), None)
         if anchor is None:
             return ()
-        settings = request.comparison_settings
-        if not isinstance(settings, TimbreFingerprintSettings):
-            settings = TimbreFingerprintSettings()
-        mode = (request.comparison_mode or "shape_envelope").strip().lower()
+        method = comparison_method_for_mode(request.comparison_mode)
+        settings = method.settings_factory(request.comparison_settings)
         cache: dict[str, tuple[np.ndarray, int]] = {}
-        anchor_preview = _event_preview(anchor_take, anchor, settings=settings, mode=mode, cache=cache)
-        if anchor_preview is None:
-            return (EventRef(anchor_layer.id, anchor_take.id, anchor.id),)
+        anchor_preview: tuple[float, ...] | None = None
+        if method.requires_anchor_preview:
+            anchor_preview = _event_preview(anchor_take, anchor, method=method, settings=settings, cache=cache)
+            if anchor_preview is None:
+                return (EventRef(anchor_layer.id, anchor_take.id, anchor.id),)
+        elif isinstance(settings, SavedTimbreMiniModelSettings):
+            anchor_preview = _saved_model_centroid(settings)
+            if not anchor_preview:
+                return (EventRef(anchor_layer.id, anchor_take.id, anchor.id),)
 
         matches: list[EventRef] = []
         threshold = max(0.0, min(1.0, float(request.similarity_threshold)))
         for record in candidate_records:
-            preview = _event_preview(record.take, record.event, settings=settings, mode=mode, cache=cache)
-            score = 1.0 if record.event.id == anchor.id and record.take.id == anchor_take.id else 0.0
-            if preview is not None:
-                score = (
-                    compare_timbre_fingerprint_similarity(anchor_preview, preview)
-                    if mode == "timbre_fingerprint"
-                    else compare_shape_similarity(anchor_preview, preview)
-                )
+            preview = _event_preview(record.take, record.event, method=method, settings=settings, cache=cache)
+            is_anchor_candidate = record.event.id == anchor.id and record.take.id == anchor_take.id
+            score = 1.0 if is_anchor_candidate else 0.0
+            if preview is not None and anchor_preview is not None and not is_anchor_candidate:
+                score = method.score_builder(anchor_preview, preview, settings)
             if score >= threshold:
                 matches.append(EventRef(record.layer_id, record.take_id, record.event.id))
         if not matches:
             matches.append(EventRef(anchor_layer.id, anchor_take.id, anchor.id))
         return tuple(matches)
+
+
+def comparison_method_for_mode(mode: str | None) -> EventComparisonMethod:
+    normalized = normalize_comparison_mode(mode)
+    return COMPARISON_METHODS[normalized]
+
+
+def normalize_comparison_mode(mode: str | None) -> str:
+    normalized = (mode or "").strip().lower()
+    if not normalized:
+        normalized = "shape_envelope"
+    if normalized not in COMPARISON_METHODS:
+        allowed = ", ".join(sorted(COMPARISON_METHODS))
+        raise ValueError(f"Unsupported comparison_mode {mode!r}; expected one of: {allowed}")
+    return normalized
 
 
 def build_timbre_fingerprint_preview(
@@ -118,27 +162,75 @@ def compare_timbre_fingerprint_similarity(
     return max(0.0, min(1.0, float(np.dot(ref, cand))))
 
 
+def _coerce_fingerprint_settings(settings: object | None) -> TimbreFingerprintSettings:
+    if isinstance(settings, TimbreFingerprintSettings):
+        return settings
+    if isinstance(settings, SavedTimbreMiniModelSettings):
+        return TimbreFingerprintSettings(sample_count=settings.sample_count, padding_ms=settings.padding_ms)
+    if isinstance(settings, dict):
+        return TimbreFingerprintSettings(
+            sample_count=int(settings.get("sample_count", 64)),
+            padding_ms=float(settings.get("padding_ms", 0.0)),
+        )
+    return TimbreFingerprintSettings()
+
+
+def _coerce_saved_model_settings(settings: object | None) -> SavedTimbreMiniModelSettings:
+    if isinstance(settings, SavedTimbreMiniModelSettings):
+        return settings
+    if isinstance(settings, (str, Path)):
+        return _settings_from_saved_model(Path(settings))
+    if isinstance(settings, dict):
+        artifact_path = settings.get("artifact_path") or settings.get("mini_model_path")
+        if not artifact_path:
+            raise ValueError("Saved mini-model comparison requires an artifact_path")
+        if settings.get("centroid"):
+            return SavedTimbreMiniModelSettings(
+                artifact_path=artifact_path,
+                sample_count=int(settings.get("sample_count", 64)),
+                padding_ms=float(settings.get("padding_ms", 20.0)),
+                centroid=tuple(float(value) for value in settings.get("centroid", ())),
+            )
+        return _settings_from_saved_model(Path(str(artifact_path)))
+    raise ValueError("Saved mini-model comparison requires SavedTimbreMiniModelSettings or artifact_path")
+
+
+def _settings_from_saved_model(artifact_path: Path) -> SavedTimbreMiniModelSettings:
+    payload = json.loads(Path(artifact_path).read_text(encoding="utf-8"))
+    if payload.get("schema") != "echozero.find-similar-mini-model.v1":
+        raise ValueError(f"Unsupported mini-model schema: {payload.get('schema')!r}")
+    if payload.get("model_kind") != "timbre_prototype":
+        raise ValueError(f"Unsupported mini-model kind: {payload.get('model_kind')!r}")
+    centroid = payload.get("centroid")
+    if not isinstance(centroid, list) or not centroid:
+        raise ValueError("Mini-model artifact is missing a centroid")
+    settings = payload.get("settings") or {}
+    return SavedTimbreMiniModelSettings(
+        artifact_path=artifact_path,
+        sample_count=int(settings.get("sample_count", 64)),
+        padding_ms=float(settings.get("padding_ms", 20.0)),
+        centroid=tuple(float(value) for value in centroid),
+    )
+
+
 def _event_preview(
     take: Take,
     event: Event,
     *,
-    settings: TimbreFingerprintSettings,
-    mode: str,
+    method: EventComparisonMethod,
+    settings: object,
     cache: dict[str, tuple[np.ndarray, int]],
 ) -> tuple[float, ...] | None:
     audio = _read_cached_slice(
         _take_audio_path(take),
         start_seconds=float(event.start),
         end_seconds=float(event.end),
-        settings=settings,
+        settings=_coerce_fingerprint_settings(settings),
         audio_cache=cache,
     )
     if audio is None:
         return None
-    samples, sample_rate = audio
-    if mode == "timbre_fingerprint":
-        return _timbre_fingerprint(samples, sample_rate=sample_rate, sample_count=max(8, int(settings.sample_count)))
-    return audio_shape_preview(samples, sample_count=max(8, int(settings.sample_count)))
+    return method.preview_builder(audio, settings)
 
 
 def _read_cached_slice(
@@ -163,6 +255,41 @@ def _read_cached_slice(
     if sliced is not None and audio_cache is not None:
         audio_cache[cache_key] = sliced
     return sliced
+
+
+def _shape_preview_from_audio(audio: tuple[np.ndarray, int], settings: object) -> tuple[float, ...]:
+    samples, _sample_rate = audio
+    resolved = _coerce_fingerprint_settings(settings)
+    return audio_shape_preview(samples, sample_count=max(8, int(resolved.sample_count)))
+
+
+def _timbre_preview_from_audio(audio: tuple[np.ndarray, int], settings: object) -> tuple[float, ...]:
+    samples, sample_rate = audio
+    resolved = _coerce_fingerprint_settings(settings)
+    return _timbre_fingerprint(samples, sample_rate=sample_rate, sample_count=max(8, int(resolved.sample_count)))
+
+
+def _shape_score(anchor_preview: tuple[float, ...], candidate_preview: tuple[float, ...], _settings: object) -> float:
+    return compare_shape_similarity(anchor_preview, candidate_preview)
+
+
+def _timbre_score(anchor_preview: tuple[float, ...], candidate_preview: tuple[float, ...], _settings: object) -> float:
+    return compare_timbre_fingerprint_similarity(anchor_preview, candidate_preview)
+
+
+def _saved_model_score(
+    anchor_preview: tuple[float, ...],
+    candidate_preview: tuple[float, ...],
+    settings: object,
+) -> float:
+    centroid = _saved_model_centroid(settings)
+    return compare_timbre_fingerprint_similarity(centroid or anchor_preview, candidate_preview)
+
+
+def _saved_model_centroid(settings: object) -> tuple[float, ...]:
+    if isinstance(settings, SavedTimbreMiniModelSettings):
+        return tuple(float(value) for value in settings.centroid)
+    return ()
 
 
 def _timbre_fingerprint(
@@ -218,11 +345,42 @@ def _take_audio_path(take: Take) -> str | None:
     return None
 
 
+COMPARISON_METHODS: dict[str, EventComparisonMethod] = {
+    "shape_envelope": EventComparisonMethod(
+        mode="shape_envelope",
+        label="Shape Envelope",
+        preview_builder=_shape_preview_from_audio,
+        score_builder=_shape_score,
+        settings_factory=_coerce_fingerprint_settings,
+    ),
+    "timbre_fingerprint": EventComparisonMethod(
+        mode="timbre_fingerprint",
+        label="Timbre Fingerprint",
+        preview_builder=_timbre_preview_from_audio,
+        score_builder=_timbre_score,
+        settings_factory=_coerce_fingerprint_settings,
+    ),
+    "timbre_mini_model": EventComparisonMethod(
+        mode="timbre_mini_model",
+        label="Saved Mini-model",
+        preview_builder=_timbre_preview_from_audio,
+        score_builder=_saved_model_score,
+        settings_factory=_coerce_saved_model_settings,
+        requires_anchor_preview=False,
+    ),
+}
+
+
 __all__ = [
+    "COMPARISON_METHODS",
     "EventComparisonCandidateRecord",
+    "EventComparisonMethod",
     "EventComparisonRequest",
     "EventComparisonService",
+    "SavedTimbreMiniModelSettings",
     "TimbreFingerprintSettings",
     "build_timbre_fingerprint_preview",
     "compare_timbre_fingerprint_similarity",
+    "comparison_method_for_mode",
+    "normalize_comparison_mode",
 ]

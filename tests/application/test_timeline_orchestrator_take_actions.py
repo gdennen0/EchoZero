@@ -43,11 +43,16 @@ from echozero.application.timeline.event_comparison_service import (
     TimbreFingerprintSettings,
     build_timbre_fingerprint_preview,
     compare_timbre_fingerprint_similarity,
+    normalize_comparison_mode,
 )
 from echozero.application.timeline.event_similarity_mini_model import (
     AudioEventTrainingSample,
+    delete_timbre_mini_model,
+    list_timbre_mini_models,
     load_timbre_mini_model,
+    load_timbre_mini_model_by_id,
     score_timbre_mini_model,
+    score_timbre_mini_model_candidates,
     train_timbre_mini_model,
 )
 from echozero.application.timeline.event_batch_scope import EventBatchScope
@@ -1209,6 +1214,149 @@ def test_timbre_mini_model_trains_json_centroid_and_scores_candidates(tmp_path: 
     ).score
     assert matching_score >= 0.9
     assert different_score <= matching_score - 0.15
+
+
+def test_timbre_mini_model_registry_lists_loads_and_deletes_without_collisions(tmp_path: Path):
+    kick = _shaped_burst(shape="tight", frequency_hz=120.0)
+    audio_path = tmp_path / "registry.wav"
+    _write_mono_wav(audio_path, kick)
+    sample = AudioEventTrainingSample(
+        event_ref=EventRef(LayerId("layer"), TakeId("take"), EventId("kick")),
+        label="Kick",
+        audio_path=str(audio_path),
+        start_seconds=0.0,
+        end_seconds=0.18,
+    )
+    created_at = datetime(2026, 5, 14, 12, 0, tzinfo=timezone.utc)
+
+    first = train_timbre_mini_model(
+        anchor_sample=sample,
+        positive_samples=[sample],
+        output_dir=tmp_path,
+        created_at=created_at,
+    )
+    second = train_timbre_mini_model(
+        anchor_sample=sample,
+        positive_samples=[sample],
+        output_dir=tmp_path,
+        created_at=created_at,
+    )
+
+    assert first.artifact_path != second.artifact_path
+    entries = list_timbre_mini_models(models_dir=tmp_path)
+    assert {entry.model_id for entry in entries} == {first.model_id, second.model_id}
+    assert load_timbre_mini_model_by_id(first.model_id, models_dir=tmp_path)["model_id"] == first.model_id
+    assert delete_timbre_mini_model(first.model_id, models_dir=tmp_path) is True
+    remaining = list_timbre_mini_models(models_dir=tmp_path)
+    assert [entry.model_id for entry in remaining] == [second.model_id]
+
+
+def test_timbre_mini_model_scores_candidates_in_batch(tmp_path: Path):
+    kick_a = _shaped_burst(shape="tight", frequency_hz=120.0)
+    kick_b = _shaped_burst(shape="tight", frequency_hz=120.0)
+    hat = _shaped_burst(shape="tight", frequency_hz=2200.0)
+    audio = np.concatenate((kick_a, np.zeros(4000), kick_b, np.zeros(4000), hat))
+    audio_path = tmp_path / "mini-model-batch.wav"
+    _write_mono_wav(audio_path, audio)
+    anchor = AudioEventTrainingSample(
+        event_ref=EventRef(LayerId("layer"), TakeId("take"), EventId("kick_a")),
+        label="Kick",
+        audio_path=str(audio_path),
+        start_seconds=0.0,
+        end_seconds=0.18,
+    )
+    matching = AudioEventTrainingSample(
+        event_ref=EventRef(LayerId("layer"), TakeId("take"), EventId("kick_b")),
+        label="Kick 2",
+        audio_path=str(audio_path),
+        start_seconds=0.18 + 4000 / 22050,
+        end_seconds=0.36 + 4000 / 22050,
+    )
+    different = AudioEventTrainingSample(
+        event_ref=EventRef(LayerId("layer"), TakeId("take"), EventId("hat")),
+        label="Hat",
+        audio_path=str(audio_path),
+        start_seconds=0.36 + 8000 / 22050,
+        end_seconds=0.54 + 8000 / 22050,
+    )
+    result = train_timbre_mini_model(
+        anchor_sample=anchor,
+        positive_samples=[matching],
+        output_dir=tmp_path,
+    )
+
+    scores = score_timbre_mini_model_candidates(
+        artifact_path=result.artifact_path,
+        candidate_samples=[matching, different],
+    )
+
+    assert scores[0].event_ref.event_id == EventId("kick_b")
+    assert scores[0].score >= 0.9
+    assert scores[1].score <= scores[0].score - 0.15
+
+
+def test_normalize_comparison_mode_accepts_registered_modes_and_rejects_unknown():
+    assert normalize_comparison_mode(None) == "shape_envelope"
+    assert normalize_comparison_mode(" Timbre_Fingerprint ") == "timbre_fingerprint"
+    assert normalize_comparison_mode("timbre_mini_model") == "timbre_mini_model"
+    with pytest.raises(ValueError, match="Unsupported comparison_mode"):
+        normalize_comparison_mode("mystery")
+
+
+def test_select_similar_events_rejects_unknown_comparison_mode():
+    with pytest.raises(ValueError, match="Unsupported comparison_mode"):
+        SelectSimilarEvents(
+            layer_id=LayerId("layer"),
+            take_id=TakeId("take"),
+            event_id=EventId("event"),
+            comparison_mode="mystery",
+        )
+
+
+def test_select_similar_events_saved_mini_model_mode_scores_candidates(tmp_path: Path):
+    kick_a = _shaped_burst(shape="tight", frequency_hz=120.0)
+    kick_b = _shaped_burst(shape="tight", frequency_hz=120.0)
+    hat_a = _shaped_burst(shape="tight", frequency_hz=2200.0)
+    hat_b = _shaped_burst(shape="tight", frequency_hz=2200.0)
+    silence = np.zeros(int(22050 * 0.32), dtype=np.float32)
+    audio = np.concatenate((kick_a, silence, kick_b, silence, hat_a, silence, hat_b))
+    audio_path = tmp_path / "model_mode.wav"
+    _write_mono_wav(audio_path, audio)
+    orchestrator, timeline, layer, take = _build_audio_similarity_timeline(audio_path)
+    anchor = AudioEventTrainingSample(
+        event_ref=EventRef(layer.id, take.id, EventId("evt_low_1")),
+        label="Kick",
+        audio_path=str(audio_path),
+        start_seconds=0.0,
+        end_seconds=0.18,
+    )
+    matching = AudioEventTrainingSample(
+        event_ref=EventRef(layer.id, take.id, EventId("evt_low_2")),
+        label="Kick 2",
+        audio_path=str(audio_path),
+        start_seconds=0.5,
+        end_seconds=0.68,
+    )
+    result = train_timbre_mini_model(
+        anchor_sample=anchor,
+        positive_samples=[matching],
+        output_dir=tmp_path,
+    )
+
+    orchestrator.handle(
+        timeline,
+        SelectSimilarEvents(
+            layer_id=layer.id,
+            take_id=take.id,
+            event_id=EventId("evt_low_1"),
+            comparison_mode="timbre_mini_model",
+            match_strength="very_strict",
+            similarity_threshold_override=0.95,
+            comparison_options={"artifact_path": str(result.artifact_path)},
+        ),
+    )
+
+    assert timeline.selection.selected_event_ids == [EventId("evt_low_1"), EventId("evt_low_2")]
 
 
 def test_select_similar_sounding_events_same_take_uses_normalized_shape(tmp_path: Path):

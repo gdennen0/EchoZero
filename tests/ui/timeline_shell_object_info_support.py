@@ -3,11 +3,16 @@ Exists to keep inspector and context hit-target coverage separate from transfer 
 Connects the compatibility wrapper to the bounded object-info support slice.
 """
 
+import json
 import wave
 from types import SimpleNamespace
 
 import numpy as np
 
+from echozero.application.timeline.event_comparison_service import (
+    TimbreFingerprintSettings,
+    build_timbre_fingerprint_preview,
+)
 from echozero.ui.qt.timeline.object_info_panel_text import (
     rendered_contract_text as _rendered_object_info_text,
 )
@@ -1254,9 +1259,10 @@ def test_find_similar_shapes_dialog_constructs_for_real_event():
     try:
         assert dialog.windowTitle() == "Compare Events"
         assert "candidate events across" in dialog._summary.text()
-        assert dialog._mode_combo.count() == 2
+        assert dialog._mode_combo.count() == 3
         assert dialog._mode_combo.itemText(0) == "Shape Envelope"
         assert dialog._mode_combo.itemText(1) == "Timbre Fingerprint"
+        assert dialog._mode_combo.itemText(2) == "Saved Mini-model"
         assert dialog._smoothing_slider.value() == 3
         assert dialog._points_slider.value() == 24
         assert dialog._fuzziness_slider.value() == 35
@@ -1277,7 +1283,7 @@ def test_find_similar_shapes_dialog_constructs_for_real_event():
         app.processEvents()
 
 
-def test_find_similar_shapes_dialog_previews_anchor_and_candidate_shapes(tmp_path):
+def test_find_similar_shapes_dialog_previews_anchor_and_candidate_shapes(tmp_path, monkeypatch):
     app = QApplication.instance() or QApplication([])
     audio_path = tmp_path / "shape-preview.wav"
     sample_rate = 8000
@@ -1305,6 +1311,16 @@ def test_find_similar_shapes_dialog_previews_anchor_and_candidate_shapes(tmp_pat
         ],
     )
     presentation = replace(base, layers=[layer])
+    import echozero.ui.qt.timeline.find_similar_dialog as dialog_module
+
+    read_calls = []
+    original_read = dialog_module.read_mono_audio_slice
+
+    def counting_read(*args, **kwargs):
+        read_calls.append((args, kwargs))
+        return original_read(*args, **kwargs)
+
+    monkeypatch.setattr(dialog_module, "read_mono_audio_slice", counting_read)
     dialog = FindSimilarSoundsDialog(
         presentation=presentation,
         layer_id=LayerId("layer_kick"),
@@ -1326,9 +1342,11 @@ def test_find_similar_shapes_dialog_previews_anchor_and_candidate_shapes(tmp_pat
         dialog.set_scan_preview_limit(1)
         app.processEvents()
         assert len(dialog._preview_widget.rows) == 2
+        cached_call_count = len(read_calls)
         dialog._points_slider.setValue(12)
         app.processEvents()
         assert len(dialog._preview_widget.rows[0].shape) == 12
+        assert len(read_calls) == cached_call_count
     finally:
         dialog.close()
         app.processEvents()
@@ -1393,6 +1411,118 @@ def test_find_similar_dialog_timbre_mode_and_mini_model_affordance(tmp_path, mon
         assert payload["mini_model_requested"] is True
         assert payload["mini_model_path"].endswith("saved-model.json")
         assert train_calls[0][0].event_ref.event_id == EventId("main_evt")
+    finally:
+        dialog.close()
+        app.processEvents()
+
+
+def test_find_similar_dialog_saved_mini_model_path_scores_and_payload(tmp_path, monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    audio_path = tmp_path / "saved-model-preview.wav"
+    sample_rate = 8000
+    seconds = 3.0
+    times = np.linspace(0.0, seconds, int(sample_rate * seconds), endpoint=False, dtype=np.float32)
+    samples = np.zeros_like(times)
+    first = slice(int(1.0 * sample_rate), int(1.5 * sample_rate))
+    second = slice(int(2.0 * sample_rate), int(2.5 * sample_rate))
+    samples[first] = np.sin(2.0 * np.pi * 130.0 * times[first]) * np.hanning(first.stop - first.start) * 0.8
+    samples[second] = np.sin(2.0 * np.pi * 130.0 * times[second]) * np.hanning(second.stop - second.start) * 0.8
+    with wave.open(str(audio_path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(sample_rate)
+        handle.writeframes(np.clip(samples * 32767.0, -32768, 32767).astype("<i2").tobytes())
+
+    centroid = build_timbre_fingerprint_preview(
+        audio_path=str(audio_path),
+        start_seconds=1.0,
+        end_seconds=1.5,
+        settings=TimbreFingerprintSettings(sample_count=64, padding_ms=20.0),
+        audio_cache={},
+    )
+    model_path = tmp_path / "saved-model.json"
+    model_path.write_text(
+        json.dumps(
+            {
+                "schema": "echozero.find-similar-mini-model.v1",
+                "model_id": "model-1",
+                "model_kind": "timbre_prototype",
+                "created_at": "2026-05-14T12:00:00+00:00",
+                "anchor_label": "Saved Kick",
+                "anchor_event_ref": {
+                    "layer_id": "layer_kick",
+                    "take_id": "take_main",
+                    "event_id": "main_evt",
+                },
+                "settings": {"sample_count": 64, "padding_ms": 20.0},
+                "positive_sample_count": 1,
+                "centroid": list(centroid or ()),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.find_similar_dialog.list_timbre_mini_models",
+        lambda: (SimpleNamespace(label="Saved Kick", positive_sample_count=1, artifact_path=model_path),),
+    )
+    base = _selection_test_presentation()
+    layer = replace(
+        base.layers[0],
+        source_audio_path=str(audio_path),
+        takes=[
+            replace(
+                base.layers[0].takes[0],
+                take_id=TakeId("take_main"),
+                source_audio_path=str(audio_path),
+            )
+        ],
+    )
+    presentation = replace(base, layers=[layer])
+    dialog = FindSimilarSoundsDialog(
+        presentation=presentation,
+        layer_id=LayerId("layer_kick"),
+        take_id=TakeId("take_main"),
+        event_id=EventId("main_evt"),
+        default_scope_mode="take",
+        parent=None,
+    )
+    try:
+        dialog._mode_combo.setCurrentIndex(dialog._mode_combo.findData("timbre_mini_model"))
+        app.processEvents()
+        assert dialog._model_combo.currentData() == str(model_path)
+        assert dialog._preview_widget.rows[1].score is not None
+        payload = dialog.selected_payload()
+        assert payload["comparison_mode"] == "timbre_mini_model"
+        assert payload["mini_model_path"] == str(model_path)
+        assert payload["comparison_options"] == {"artifact_path": str(model_path)}
+    finally:
+        dialog.close()
+        app.processEvents()
+
+
+def test_find_similar_dialog_saved_mini_model_without_model_falls_back_safely(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.find_similar_dialog.list_timbre_mini_models",
+        lambda: (),
+    )
+    presentation = _selection_test_presentation()
+    dialog = FindSimilarSoundsDialog(
+        presentation=presentation,
+        layer_id=LayerId("layer_kick"),
+        take_id=TakeId("take_main"),
+        event_id=EventId("main_evt"),
+        default_scope_mode="take",
+        parent=None,
+    )
+    try:
+        dialog._mode_combo.setCurrentIndex(dialog._mode_combo.findData("timbre_mini_model"))
+        app.processEvents()
+        payload = dialog.selected_payload()
+
+        assert payload["comparison_mode"] == "timbre_fingerprint"
+        assert payload["mini_model_error"] == "No saved mini-model selected"
+        assert "comparison_options" not in payload
     finally:
         dialog.close()
         app.processEvents()

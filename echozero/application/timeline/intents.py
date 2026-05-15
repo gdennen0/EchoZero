@@ -13,6 +13,7 @@ from echozero.application.shared.ids import EventId, LayerId, SectionCueId, Take
 from echozero.application.shared.ranges import TimeRange
 from echozero.application.sync.models import LiveSyncState, coerce_live_sync_state
 from echozero.application.timeline.event_batch_scope import EventBatchScope
+from echozero.application.timeline.event_comparison_service import normalize_comparison_mode
 from echozero.application.timeline.models import Event, EventRef
 from echozero.output_routing import canonical_layer_output_bus
 
@@ -117,10 +118,7 @@ class SelectSimilarEvents(TimelineIntent):
                 "SelectSimilarEvents requires scope_mode 'take', 'layer', or 'selected_layers_main'"
             )
         self.scope_mode = scope_mode
-        comparison_mode = (self.comparison_mode or "").strip().lower()
-        if not comparison_mode:
-            raise ValueError("SelectSimilarEvents requires a non-empty comparison_mode")
-        self.comparison_mode = comparison_mode
+        self.comparison_mode = normalize_comparison_mode(self.comparison_mode)
         match_strength = (self.match_strength or "").strip().lower()
         if match_strength not in {"very_strict", "strict", "balanced", "loose"}:
             raise ValueError(

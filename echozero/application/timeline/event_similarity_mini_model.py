@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 import re
 from typing import Any, Sequence
+from uuid import uuid4
 
 import numpy as np
 
@@ -27,6 +28,8 @@ from echozero.models.paths import ensure_installed_models_dir
 
 SCHEMA = "echozero.find-similar-mini-model.v1"
 MODEL_KIND = "timbre_prototype"
+INDEX_FILENAME = "_index.json"
+INDEX_SCHEMA = "echozero.find-similar-mini-model-index.v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +51,7 @@ class TimbreMiniModelResult:
     positive_sample_count: int
     centroid: tuple[float, ...]
     anchor_event_ref: EventRef
+    model_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,12 +62,79 @@ class TimbreMiniModelScore:
     score: float
 
 
+@dataclass(frozen=True, slots=True)
+class TimbreMiniModelRegistryEntry:
+    """List/load metadata for one saved mini-model artifact."""
+
+    model_id: str
+    label: str
+    artifact_path: Path
+    created_at: str
+    positive_sample_count: int
+    anchor_event_ref: EventRef | None = None
+
+
 def ensure_find_similar_models_dir() -> Path:
     """Create and return the app-managed local find-similar model directory."""
 
     path = ensure_installed_models_dir() / "find-similar"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def list_timbre_mini_models(*, models_dir: Path | None = None) -> tuple[TimbreMiniModelRegistryEntry, ...]:
+    """Return saved local timbre mini-models, newest first.
+
+    The registry is intentionally rebuildable from artifacts so a lost/corrupt index does not hide
+    user-created local models.
+    """
+
+    root = _models_root(models_dir)
+    entries = _scan_model_entries(root)
+    _write_index(root, entries)
+    return tuple(sorted(entries, key=lambda entry: entry.created_at, reverse=True))
+
+
+def load_timbre_mini_model_by_id(
+    identifier: str | Path,
+    *,
+    models_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Load a saved mini-model by registry id or artifact path."""
+
+    return load_timbre_mini_model(resolve_timbre_mini_model(identifier, models_dir=models_dir))
+
+
+def resolve_timbre_mini_model(identifier: str | Path, *, models_dir: Path | None = None) -> Path:
+    """Resolve a registry id, filename, or path to a saved mini-model artifact path."""
+
+    raw = Path(identifier) if isinstance(identifier, Path) else Path(str(identifier))
+    if raw.exists():
+        return raw
+    root = _models_root(models_dir)
+    candidate = root / raw.name
+    if candidate.exists():
+        return candidate
+    wanted = str(identifier)
+    for entry in list_timbre_mini_models(models_dir=root):
+        if entry.model_id == wanted or entry.artifact_path.name == wanted:
+            return entry.artifact_path
+    raise FileNotFoundError(f"No saved timbre mini-model found for {identifier!r}")
+
+
+def delete_timbre_mini_model(identifier: str | Path, *, models_dir: Path | None = None) -> bool:
+    """Delete a saved mini-model artifact and refresh the registry index."""
+
+    root = _models_root(models_dir)
+    try:
+        artifact_path = resolve_timbre_mini_model(identifier, models_dir=root)
+    except FileNotFoundError:
+        return False
+    if not _is_within(artifact_path, root):
+        raise ValueError("Refusing to delete a mini-model outside the find-similar model directory")
+    artifact_path.unlink(missing_ok=True)
+    _write_index(root, _scan_model_entries(root))
+    return True
 
 
 def train_timbre_mini_model(
@@ -90,22 +161,25 @@ def train_timbre_mini_model(
 
     centroid = _centroid(tuple(embedding for _sample, embedding in embeddings))
     timestamp = created_at or datetime.now(timezone.utc)
-    artifact_root = output_dir if output_dir is not None else ensure_find_similar_models_dir()
-    artifact_root.mkdir(parents=True, exist_ok=True)
-    artifact_path = artifact_root / _artifact_filename(anchor_sample, timestamp)
+    artifact_root = _models_root(output_dir)
+    model_id = _model_id(anchor_sample, timestamp)
+    artifact_path = _unique_artifact_path(artifact_root, anchor_sample, timestamp, model_id=model_id)
     payload = _artifact_payload(
+        model_id=model_id,
         anchor_sample=anchor_sample,
         embeddings=tuple(embeddings),
         centroid=centroid,
         settings=resolved_settings,
         created_at=timestamp,
     )
-    artifact_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _atomic_write_json(artifact_path, payload)
+    _write_index(artifact_root, _scan_model_entries(artifact_root))
     return TimbreMiniModelResult(
         artifact_path=artifact_path,
         positive_sample_count=len(embeddings),
         centroid=centroid,
         anchor_event_ref=anchor_sample.event_ref,
+        model_id=model_id,
     )
 
 
@@ -116,17 +190,32 @@ def score_timbre_mini_model(
 ) -> TimbreMiniModelScore:
     """Score one candidate event against a saved centroid timbre prototype."""
 
+    return score_timbre_mini_model_candidates(
+        artifact_path=artifact_path,
+        candidate_samples=(candidate_sample,),
+    )[0]
+
+
+def score_timbre_mini_model_candidates(
+    *,
+    artifact_path: Path,
+    candidate_samples: Sequence[AudioEventTrainingSample],
+) -> tuple[TimbreMiniModelScore, ...]:
+    """Score candidate events against a saved centroid, reusing one slice cache."""
+
     payload = load_timbre_mini_model(artifact_path)
     settings = TimbreFingerprintSettings(
         sample_count=int(payload.get("settings", {}).get("sample_count", 64)),
         padding_ms=float(payload.get("settings", {}).get("padding_ms", 20.0)),
     )
-    embedding = _embedding_for_sample(candidate_sample, settings=settings, audio_cache={})
-    score = 0.0 if embedding is None else compare_timbre_fingerprint_similarity(
-        tuple(float(value) for value in payload["centroid"]),
-        embedding,
-    )
-    return TimbreMiniModelScore(event_ref=candidate_sample.event_ref, score=score)
+    centroid = tuple(float(value) for value in payload["centroid"])
+    audio_cache: dict[str, tuple[np.ndarray, int]] = {}
+    scores: list[TimbreMiniModelScore] = []
+    for sample in candidate_samples:
+        embedding = _embedding_for_sample(sample, settings=settings, audio_cache=audio_cache)
+        score = 0.0 if embedding is None else compare_timbre_fingerprint_similarity(centroid, embedding)
+        scores.append(TimbreMiniModelScore(event_ref=sample.event_ref, score=score))
+    return tuple(scores)
 
 
 def load_timbre_mini_model(artifact_path: Path) -> dict[str, Any]:
@@ -140,6 +229,8 @@ def load_timbre_mini_model(artifact_path: Path) -> dict[str, Any]:
     centroid = payload.get("centroid")
     if not isinstance(centroid, list) or not centroid:
         raise ValueError("Mini-model artifact is missing a centroid")
+    if not payload.get("model_id"):
+        payload["model_id"] = _legacy_model_id(Path(artifact_path), payload)
     return payload
 
 
@@ -195,6 +286,7 @@ def _centroid(embeddings: Sequence[tuple[float, ...]]) -> tuple[float, ...]:
 
 def _artifact_payload(
     *,
+    model_id: str,
     anchor_sample: AudioEventTrainingSample,
     embeddings: Sequence[tuple[AudioEventTrainingSample, tuple[float, ...]]],
     centroid: tuple[float, ...],
@@ -203,6 +295,7 @@ def _artifact_payload(
 ) -> dict[str, Any]:
     return {
         "schema": SCHEMA,
+        "model_id": model_id,
         "model_kind": MODEL_KIND,
         "created_at": created_at.astimezone(timezone.utc).isoformat(),
         "anchor_event_ref": _event_ref_payload(anchor_sample.event_ref),
@@ -213,6 +306,8 @@ def _artifact_payload(
         },
         "positive_sample_count": len(embeddings),
         "centroid": [float(value) for value in centroid],
+        # Privacy note: we intentionally do not persist source audio paths or raw embeddings.
+        # Stored sample metadata is only enough to describe/review what local events trained the prototype.
         "positive_samples": [
             {
                 "event_ref": _event_ref_payload(sample.event_ref),
@@ -234,12 +329,44 @@ def _event_ref_payload(event_ref: EventRef) -> dict[str, str]:
     }
 
 
-def _artifact_filename(sample: AudioEventTrainingSample, timestamp: datetime) -> str:
+def _event_ref_from_payload(payload: object) -> EventRef | None:
+    if not isinstance(payload, dict):
+        return None
+    try:
+        return EventRef(
+            LayerId(str(payload["layer_id"])),
+            TakeId(str(payload["take_id"])),
+            EventId(str(payload["event_id"])),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _model_id(sample: AudioEventTrainingSample, timestamp: datetime) -> str:
     anchor_key = f"{sample.event_ref.layer_id}:{sample.event_ref.take_id}:{sample.event_ref.event_id}"
-    digest = hashlib.sha1(anchor_key.encode("utf-8")).hexdigest()[:10]
+    stamp = timestamp.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    return hashlib.sha1(f"{stamp}:{anchor_key}:{uuid4().hex}".encode("utf-8")).hexdigest()[:16]
+
+
+def _legacy_model_id(path: Path, payload: dict[str, Any]) -> str:
+    source = f"{path.name}:{payload.get('created_at', '')}:{payload.get('anchor_label', '')}"
+    return hashlib.sha1(source.encode("utf-8")).hexdigest()[:16]
+
+
+def _unique_artifact_path(
+    root: Path,
+    sample: AudioEventTrainingSample,
+    timestamp: datetime,
+    *,
+    model_id: str,
+) -> Path:
     label = _safe_slug(sample.label or str(sample.event_ref.event_id))
-    stamp = timestamp.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return f"{stamp}-{label}-{digest}.json"
+    stamp = timestamp.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    base = f"{stamp}-{label}-{model_id[:8]}"
+    candidate = root / f"{base}.json"
+    while candidate.exists():
+        candidate = root / f"{base}-{uuid4().hex[:8]}.json"
+    return candidate
 
 
 def _safe_slug(value: str) -> str:
@@ -247,12 +374,84 @@ def _safe_slug(value: str) -> str:
     return slug[:36] or "sound"
 
 
+def _models_root(models_dir: Path | None) -> Path:
+    root = models_dir if models_dir is not None else ensure_find_similar_models_dir()
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _scan_model_entries(root: Path) -> tuple[TimbreMiniModelRegistryEntry, ...]:
+    entries: list[TimbreMiniModelRegistryEntry] = []
+    for artifact_path in root.glob("*.json"):
+        if artifact_path.name == INDEX_FILENAME:
+            continue
+        try:
+            payload = load_timbre_mini_model(artifact_path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        entries.append(_entry_from_payload(artifact_path, payload))
+    return tuple(entries)
+
+
+def _entry_from_payload(artifact_path: Path, payload: dict[str, Any]) -> TimbreMiniModelRegistryEntry:
+    return TimbreMiniModelRegistryEntry(
+        model_id=str(payload.get("model_id") or _legacy_model_id(artifact_path, payload)),
+        label=str(payload.get("anchor_label") or artifact_path.stem),
+        artifact_path=artifact_path,
+        created_at=str(payload.get("created_at") or ""),
+        positive_sample_count=int(payload.get("positive_sample_count") or 0),
+        anchor_event_ref=_event_ref_from_payload(payload.get("anchor_event_ref")),
+    )
+
+
+def _write_index(root: Path, entries: Sequence[TimbreMiniModelRegistryEntry]) -> None:
+    payload = {
+        "schema": INDEX_SCHEMA,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "models": [
+            {
+                "model_id": entry.model_id,
+                "label": entry.label,
+                "artifact_path": entry.artifact_path.name,
+                "created_at": entry.created_at,
+                "positive_sample_count": entry.positive_sample_count,
+                "anchor_event_ref": (
+                    _event_ref_payload(entry.anchor_event_ref) if entry.anchor_event_ref is not None else None
+                ),
+            }
+            for entry in sorted(entries, key=lambda item: item.created_at, reverse=True)
+        ],
+    }
+    _atomic_write_json(root / INDEX_FILENAME, payload)
+
+
+def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp_path.replace(path)
+
+
+def _is_within(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
 __all__ = [
     "AudioEventTrainingSample",
+    "TimbreMiniModelRegistryEntry",
     "TimbreMiniModelResult",
     "TimbreMiniModelScore",
+    "delete_timbre_mini_model",
     "ensure_find_similar_models_dir",
+    "list_timbre_mini_models",
     "load_timbre_mini_model",
+    "load_timbre_mini_model_by_id",
+    "resolve_timbre_mini_model",
     "score_timbre_mini_model",
+    "score_timbre_mini_model_candidates",
     "train_timbre_mini_model",
 ]
