@@ -194,14 +194,15 @@ def add_song_from_path(
 ) -> TimelinePresentation:
     carried_draft_layers = bool(shell._draft_layers)
     audio_import_options = _resolve_audio_import_options(shell)
-    seed_default_song_id = (
-        str(shell.session.active_song_id) if shell.session.active_song_id is not None else None
-    )
     song, version = shell.project_storage.import_song(
         title=title,
         audio_source=Path(audio_path),
-        seed_default_song_id=seed_default_song_id,
         audio_import_options=audio_import_options,
+    )
+    _apply_app_pipeline_defaults_to_new_song(
+        shell,
+        song_id=song.id,
+        song_version_id=version.id,
     )
     shell._materialize_draft_layers(song_version_id=str(version.id))
     refresh_from_storage(
@@ -219,6 +220,59 @@ def add_song_from_path(
     shell._is_dirty = True
     shell._clear_history()
     return shell.presentation()
+
+
+def _apply_app_pipeline_defaults_to_new_song(
+    shell: ProjectLifecycleShell,
+    *,
+    song_id: str,
+    song_version_id: str,
+) -> None:
+    settings_service = getattr(shell, "_app_settings_service", None)
+    if not isinstance(settings_service, AppSettingsService):
+        return
+    defaults_by_template = settings_service.preferences().pipeline_defaults_by_template
+    if not defaults_by_template:
+        return
+
+    from echozero.pipelines.registry import get_registry
+
+    registry = get_registry()
+    song_defaults = {
+        config.template_id: config
+        for config in shell.project_storage.song_default_pipeline_configs.list_by_song(song_id)
+    }
+    version_defaults = {
+        config.template_id: config
+        for config in shell.project_storage.pipeline_configs.list_by_version(song_version_id)
+    }
+    updated = False
+    for template_id, saved_defaults in defaults_by_template.items():
+        template = registry.get(template_id)
+        if template is None:
+            continue
+        knob_updates = {
+            key: value for key, value in saved_defaults.items() if key in template.knobs
+        }
+        if not knob_updates:
+            continue
+        song_default = song_defaults.get(template_id)
+        if song_default is not None:
+            shell.project_storage.song_default_pipeline_configs.update(
+                song_default.with_knob_values(knob_updates, knob_metadata=template.knobs)
+            )
+            updated = True
+        version_default = version_defaults.get(template_id)
+        if version_default is not None:
+            shell.project_storage.pipeline_configs.update(
+                version_default.with_knob_values(knob_updates, knob_metadata=template.knobs)
+            )
+            updated = True
+    if not updated:
+        return
+    shell.project_storage.commit()
+    shell.project_storage.dirty_tracker.mark_dirty(song_id)
+    shell.project_storage.dirty_tracker.mark_dirty(song_version_id)
 
 
 def select_song(
@@ -776,6 +830,75 @@ def _resolve_import_source_audio_layer_id(shell: ProjectLifecycleShell) -> objec
     return None
 
 
+def _resolve_import_drums_layer_id(shell: ProjectLifecycleShell) -> object | None:
+    presentation = shell.presentation()
+    for layer in presentation.layers:
+        if layer.kind is not LayerKind.AUDIO or not layer.source_audio_path:
+            continue
+        output_name = (
+            str(layer.status.output_name).strip().lower() if layer.status is not None else ""
+        )
+        source_label = (
+            str(layer.status.source_label).strip().lower() if layer.status is not None else ""
+        )
+        badges = {str(badge).strip().lower() for badge in layer.badges}
+        title = layer.title.strip().lower()
+        if (
+            output_name == "drums"
+            or "drums" in badges
+            or title == "drums"
+            or "drum" in source_label
+        ):
+            return layer.layer_id
+    return None
+
+
+def _import_action_requires_drums_stem(action_id: str) -> bool:
+    return action_id in {
+        "timeline.extract_drum_events",
+        "timeline.classify_drum_events",
+        "timeline.extract_classified_drums",
+    }
+
+
+def _resolve_import_action_layer_id(
+    shell: ProjectLifecycleShell,
+    *,
+    action_id: str,
+    source_layer_id: object,
+    completed_action_ids: set[str],
+) -> object | None:
+    if not _import_action_requires_drums_stem(action_id):
+        return source_layer_id
+
+    drums_layer_id = _resolve_import_drums_layer_id(shell)
+    if drums_layer_id is not None:
+        return drums_layer_id
+
+    try:
+        shell.run_object_action(
+            "timeline.extract_stems",
+            object_id=source_layer_id,
+            object_type="layer",
+        )
+        completed_action_ids.add("timeline.extract_stems")
+    except Exception as exc:
+        logger.warning(
+            "Import pipeline dependency 'timeline.extract_stems' failed while preparing '%s': %s",
+            action_id,
+            exc,
+        )
+        return None
+
+    drums_layer_id = _resolve_import_drums_layer_id(shell)
+    if drums_layer_id is None:
+        logger.warning(
+            "Import pipeline action '%s' could not find a drums stem after stem separation.",
+            action_id,
+        )
+    return drums_layer_id
+
+
 def _run_song_import_pipeline_actions(
     shell: ProjectLifecycleShell,
     *,
@@ -794,13 +917,25 @@ def _run_song_import_pipeline_actions(
     if source_layer_id is None:
         return
 
+    completed_action_ids: set[str] = set()
     for action_id in action_ids:
+        if action_id in completed_action_ids:
+            continue
+        target_layer_id = _resolve_import_action_layer_id(
+            shell,
+            action_id=action_id,
+            source_layer_id=source_layer_id,
+            completed_action_ids=completed_action_ids,
+        )
+        if target_layer_id is None:
+            continue
         try:
             shell.run_object_action(
                 action_id,
-                object_id=source_layer_id,
+                object_id=target_layer_id,
                 object_type="layer",
             )
+            completed_action_ids.add(action_id)
         except Exception as exc:
             logger.warning(
                 "Import pipeline action '%s' failed: %s",

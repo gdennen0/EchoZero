@@ -7,6 +7,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from echozero.application.settings import AppSettingsService
+from echozero.application.timeline.object_action_scoped_config import (
+    ProjectPipelineDefaultsSyncResult,
+    apply_app_defaults_to_project,
+)
 from echozero.application.timeline.object_action_settings_session_mixin import (
     ObjectActionSettingsSessionMixin,
 )
@@ -67,6 +72,7 @@ class ObjectActionExecutionService(
         presentation_getter: Callable[[], TimelinePresentation],
         require_layer: Callable[[object], LayerPresentation],
         analysis_service: Orchestrator,
+        app_settings_service: AppSettingsService | None = None,
         active_run_lookup: (
             Callable[[str, object | None, str | None], OperationProgressState | None] | None
         ) = None,
@@ -76,6 +82,7 @@ class ObjectActionExecutionService(
         self._presentation_getter = presentation_getter
         self._require_layer = require_layer
         self._analysis_service = analysis_service
+        self._app_settings_service = app_settings_service
         self._active_run_lookup = active_run_lookup
         self._settings_sessions: dict[str, ObjectActionSettingsSession] = {}
 
@@ -117,6 +124,7 @@ class ObjectActionExecutionService(
         scope: str = "version",
     ) -> ObjectActionSettingsPlan:
         with self.project_storage.locked():
+            scope = self._normalize_edit_scope(scope)
             workflow, pipeline_template_id = self._require_workflow(action_id)
             resolved_params = self._resolve_params(
                 action_id, params, object_id=object_id, object_type=object_type
@@ -153,7 +161,7 @@ class ObjectActionExecutionService(
                 params,
                 object_id=object_id,
                 object_type=object_type,
-                scope=scope,
+                scope=self._normalize_edit_scope(scope),
             )
 
     @property
@@ -259,6 +267,47 @@ class ObjectActionExecutionService(
             analysis_result=unwrap(result),
             source_layer_id=layer_id,
         )
+
+    def _normalize_edit_scope(self, scope: str) -> str:
+        if (
+            scope == "version"
+            and self.session.active_song_version_id is None
+            and self.session.active_song_id is not None
+        ):
+            return "song_default"
+        if (
+            scope == "version"
+            and self.session.active_song_version_id is None
+            and self.session.active_song_id is None
+            and self._app_settings_service is not None
+        ):
+            return "app_default"
+        return scope
+
+    def _can_edit_app_defaults(self) -> bool:
+        return self._app_settings_service is not None
+
+    def _load_app_pipeline_defaults(self, template_id: str) -> dict[str, object]:
+        if self._app_settings_service is None:
+            return {}
+        return self._app_settings_service.pipeline_defaults_for_template(template_id)
+
+    def _store_app_pipeline_defaults(
+        self,
+        template_id: str,
+        values: dict[str, object],
+    ) -> None:
+        if self._app_settings_service is None:
+            raise RuntimeError("Application defaults are unavailable in this runtime.")
+        self._app_settings_service.replace_pipeline_defaults(template_id, values)
+
+    def apply_app_defaults_to_project(
+        self,
+        *,
+        template_ids: tuple[str, ...] | None = None,
+    ) -> ProjectPipelineDefaultsSyncResult:
+        with self.project_storage.locked():
+            return apply_app_defaults_to_project(self, template_ids=template_ids)
 
 
 ObjectActionSettingsService = ObjectActionExecutionService

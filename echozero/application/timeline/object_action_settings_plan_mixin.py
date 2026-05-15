@@ -177,7 +177,15 @@ class ObjectActionSettingsPlanMixin:
             settings_label="Open Settings",
             requires_settings_confirmation=workflow.requires_settings_confirmation,
             rerun_hint=rerun_hint,
-            summary=f"{summary} · {'Song Default' if scope == 'song_default' else 'This Version'}",
+            summary=(
+                f"{summary} · Application Default"
+                if scope == "app_default"
+                else (
+                    f"{summary} · Song Default"
+                    if scope == "song_default"
+                    else f"{summary} · This Version"
+                )
+            ),
             warnings=warnings,
             operation_id=active_operation.operation_id if active_operation is not None else None,
             is_running=is_running,

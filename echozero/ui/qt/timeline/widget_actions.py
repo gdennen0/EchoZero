@@ -81,6 +81,7 @@ class _ObjectActionSettingsRuntimeShell(_TimelineRuntimeShell, Protocol):
         *,
         object_id: LayerId | None = None,
         object_type: str | None = None,
+        scope: str = "version",
     ) -> ObjectActionSettingsSession: ...
 
     def dispatch_object_action_command(
@@ -1769,6 +1770,11 @@ class TimelineWidgetActionRouter(
         sessions: list[ObjectActionSettingsSession] = []
         seen_action_ids: set[str] = set()
         first_error: str | None = None
+        default_scope = (
+            "app_default"
+            if not str(runtime.presentation().active_song_id).strip()
+            else "version"
+        )
 
         for descriptor in ordered_descriptors:
             if descriptor.action_id in seen_action_ids:
@@ -1798,6 +1804,7 @@ class TimelineWidgetActionRouter(
                     params,
                     object_id=object_id,
                     object_type=object_type,
+                    scope=default_scope,
                 )
             except Exception as exc:
                 if first_error is None:

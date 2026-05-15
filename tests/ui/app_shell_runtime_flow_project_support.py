@@ -3,13 +3,60 @@ Exists to keep project-open, song-switching, and shell contract coverage separat
 Connects the compatibility wrapper to the bounded project support slice.
 """
 
+from pathlib import Path
+
+from PyQt6.QtWidgets import QApplication
+
 import echozero.ui.qt.app_shell_project_lifecycle as project_lifecycle
 from echozero.application.timeline.intents import ReorderLayer
 from echozero.application.timeline.ma3_push_intents import SetLayerMA3Route
 from echozero.application.timeline.object_content_persistence import object_id_for_layer
 from echozero.persistence.audio import AudioMetadata, PreparedAudioSource, compute_audio_hash
+from echozero.ui.qt.timeline.widget import TimelineWidget
 
 from tests.ui.app_shell_runtime_flow_shared_support import *  # noqa: F401,F403
+
+
+def _force_import_split_ltc(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    temp_root: Path,
+    source_path: Path,
+) -> tuple[Path, Path]:
+    """Force one import path to behave like a stereo source with LTC on the left."""
+
+    staged_program = Path(write_test_wav(temp_root / "fixtures" / "split-program.wav"))
+    staged_ltc = Path(write_test_wav(temp_root / "fixtures" / "split-timecode.wav"))
+
+    monkeypatch.setattr(
+        "echozero.persistence.audio.detect_ltc_channel",
+        lambda _path, mode="strict": "left",
+    )
+    monkeypatch.setattr(
+        "echozero.persistence.audio.compute_audio_hash",
+        lambda _path: "a" * 64,
+    )
+
+    def _fake_write(_path: Path, *, working_dir: Path, channel_index: int) -> Path:
+        del working_dir
+        return staged_program if channel_index == 1 else staged_ltc
+
+    monkeypatch.setattr(
+        "echozero.persistence.audio._write_import_channel_copy",
+        _fake_write,
+    )
+
+    def _scan(path: Path, scan_fn=None) -> AudioMetadata:
+        del scan_fn
+        if path == source_path:
+            return AudioMetadata(duration_seconds=180.0, sample_rate=48000, channel_count=2)
+        return AudioMetadata(duration_seconds=180.0, sample_rate=48000, channel_count=1)
+
+    monkeypatch.setattr(
+        "echozero.persistence.audio.scan_audio_metadata",
+        _scan,
+    )
+    return staged_program, staged_ltc
 
 
 def test_app_shell_runtime_new_save_open_reopen_flow():
@@ -729,6 +776,73 @@ def test_app_shell_runtime_add_song_from_path_updates_presentation():
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_add_song_from_path_surfaces_imported_timecode_layer(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(working_dir_root=temp_root / "working")
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        source_path = Path(write_test_wav(temp_root / "fixtures" / "import-split.wav"))
+        _force_import_split_ltc(
+            monkeypatch,
+            temp_root=temp_root,
+            source_path=source_path,
+        )
+
+        presentation = runtime.add_song_from_path("Imported Split Song", source_path)
+
+        assert [layer.title for layer in presentation.layers] == [
+            "Imported Split Song",
+            "Timecode",
+        ]
+        assert [layer.output_bus for layer in presentation.layers] == [None, "outputs_3_4"]
+        assert all(layer.source_audio_path for layer in presentation.layers)
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_widget_drop_surfaces_imported_timecode_layer(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    app = QApplication.instance() or QApplication([])
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(working_dir_root=temp_root / "working")
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        source_path = Path(write_test_wav(temp_root / "fixtures" / "drop-import-split.wav"))
+        _force_import_split_ltc(
+            monkeypatch,
+            temp_root=temp_root,
+            source_path=source_path,
+        )
+
+        widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
+        widget._resolve_runtime_shell = lambda: runtime
+
+        handled = widget._handle_song_drop((str(source_path),))
+
+        assert handled is True
+        assert [layer.title for layer in widget.presentation.layers] == [
+            "drop-import-split",
+            "Timecode",
+        ]
+        assert [layer.output_bus for layer in widget.presentation.layers] == [
+            None,
+            "outputs_3_4",
+        ]
+        assert all(layer.source_audio_path for layer in widget.presentation.layers)
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+        _ = app
 
 
 def test_app_shell_runtime_import_song_creates_default_pipeline_configs():

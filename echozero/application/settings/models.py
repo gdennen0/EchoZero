@@ -155,6 +155,7 @@ class AppPreferences:
     audio_output: AudioOutputPreferences = field(default_factory=AudioOutputPreferences)
     ma3_osc: MA3OscPreferences = field(default_factory=MA3OscPreferences)
     song_import: SongImportPreferences = field(default_factory=SongImportPreferences)
+    pipeline_defaults_by_template: dict[str, dict[str, Any]] = field(default_factory=dict)
     recent_project_paths: tuple[str, ...] = ()
 
 
@@ -276,6 +277,9 @@ def app_preferences_from_dict(payload: dict[str, Any] | None) -> AppPreferences:
             strip_ltc_timecode=bool(song_import.get("strip_ltc_timecode", True)),
             pipeline_action_ids=pipeline_action_ids,
         ),
+        pipeline_defaults_by_template=_coerce_pipeline_defaults_by_template(
+            data.get("pipeline_defaults_by_template")
+        ),
         recent_project_paths=_coerce_recent_project_paths(data.get("recent_project_paths")),
     )
 
@@ -335,6 +339,23 @@ def _coerce_pipeline_action_ids(value: object) -> tuple[str, ...]:
                 resolved.append(text)
         return tuple(resolved)
     return ()
+
+
+def _coerce_pipeline_defaults_by_template(value: object) -> dict[str, dict[str, Any]]:
+    if not isinstance(value, dict):
+        return {}
+    resolved: dict[str, dict[str, Any]] = {}
+    for raw_template_id, raw_defaults in value.items():
+        template_id = str(raw_template_id).strip()
+        if not template_id or not isinstance(raw_defaults, dict):
+            continue
+        normalized = {
+            str(raw_key).strip(): raw_value
+            for raw_key, raw_value in raw_defaults.items()
+            if str(raw_key).strip()
+        }
+        resolved[template_id] = normalized
+    return resolved
 
 
 def _coerce_recent_project_paths(value: object) -> tuple[str, ...]:

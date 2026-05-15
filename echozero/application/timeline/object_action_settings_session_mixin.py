@@ -128,6 +128,9 @@ class ObjectActionSettingsSessionMixin(ObjectActionSettingsCopyMixin):
     ) -> None:
         raise NotImplementedError
 
+    def _can_edit_app_defaults(self) -> bool:
+        raise NotImplementedError
+
     @staticmethod
     def _require_workflow(action_id: str) -> tuple[ActionDescriptor, str]:
         raise NotImplementedError
@@ -294,6 +297,8 @@ class ObjectActionSettingsSessionMixin(ObjectActionSettingsCopyMixin):
             plan=current_plan,
             scope_states=tuple(scope_states),
             copy_policy=copy_policy,
+            default_save_scope=self._default_save_scope(),
+            default_save_label=self._scope_label(self._default_save_scope() or "song_default"),
             can_save=True,
             can_save_and_run=current_scope_state.can_run and not run_is_active,
             run_disabled_reason=(
@@ -392,6 +397,11 @@ class ObjectActionSettingsSessionMixin(ObjectActionSettingsCopyMixin):
         scope: str,
         plan: ObjectActionSettingsPlan,
     ) -> str:
+        if scope == "app_default":
+            return (
+                "Application defaults are the reusable baseline for future songs. "
+                "Open a song version when you want to run this stage."
+            )
         if scope != "version":
             return "Reruns use this version's effective settings. Switch to This Version to run."
         workflow = workflow_descriptor_for_action(action_id)
@@ -487,16 +497,24 @@ class ObjectActionSettingsSessionMixin(ObjectActionSettingsCopyMixin):
         self,
         settings_session: ObjectActionSettingsSession,
     ) -> ObjectActionSettingsSession:
-        if "song_default" not in settings_session.available_scopes:
-            raise ValueError("Saving to defaults requires an active song.")
+        target_scope = settings_session.default_save_scope
+        if target_scope is None:
+            raise ValueError("Saving to defaults requires application settings support.")
         self.save(
             settings_session.action_id,
             {**self._session_object_params(settings_session), **settings_session.values},
             object_id=settings_session.object_id,
             object_type=settings_session.object_type,
-            scope="song_default",
+            scope=target_scope,
         )
         return self._rebuild_session(settings_session)
+
+    def _default_save_scope(self) -> str | None:
+        if self._can_edit_app_defaults():
+            return "app_default"
+        if self.session.active_song_id is not None:
+            return "song_default"
+        return None
 
     def _save_and_run_session(
         self,

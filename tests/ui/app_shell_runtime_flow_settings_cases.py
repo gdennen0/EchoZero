@@ -1,9 +1,11 @@
 from tests.ui.app_shell_runtime_flow_support import (
     test_app_shell_runtime_copies_settings_from_song_default_to_version,
+    test_app_shell_runtime_app_default_session_persists_global_pipeline_defaults,
     test_app_shell_runtime_describes_stem_action_settings,
     test_app_shell_runtime_extract_classified_drums_settings_accept_custom_model_selection,
     test_app_shell_runtime_extract_classified_drums_settings_expose_model_fields,
     test_app_shell_runtime_extract_song_drum_events_settings_expose_model_fields,
+    test_app_shell_runtime_init_state_edits_fall_back_to_song_defaults_without_version,
     test_app_shell_runtime_marks_existing_outputs_on_rerun_settings_plan,
     test_app_shell_runtime_object_action_session_classify_uses_descriptor_bound_runtime_bindings,
     test_app_shell_runtime_object_action_session_commands_save_preview_copy_and_run,
@@ -15,5 +17,6 @@ from tests.ui.app_shell_runtime_flow_support import (
     test_app_shell_runtime_object_action_session_save_and_copy_do_not_refresh_presentation,
     test_app_shell_runtime_request_object_action_run_returns_immediately_and_refreshes_on_completion,
     test_app_shell_runtime_save_object_action_settings_persists_knobs,
+    test_app_shell_runtime_new_song_uses_saved_global_pipeline_defaults,
     test_app_shell_runtime_song_default_scope_edits_song_defaults_only,
 )

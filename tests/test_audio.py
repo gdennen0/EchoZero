@@ -12,6 +12,7 @@ import pytest
 from echozero.persistence.audio import (
     AudioImportOptions,
     compute_audio_hash,
+    detect_ltc_channel,
     import_audio,
     prepare_audio_for_import,
     resolve_audio_path,
@@ -251,6 +252,45 @@ class TestImportPreprocessing:
         assert prepared.program_artifact_path is not None
         assert prepared.ltc_artifact_path.name.endswith("_ltc_right.wav")
         assert prepared.program_artifact_path.name.endswith("_program_left.wav")
+
+
+class TestLtcDetection:
+    def test_detect_ltc_channel_finds_delayed_timecode_after_clean_intro(self, tmp_path):
+        """Detection samples beyond the intro so delayed-start LTC still splits on import."""
+
+        np = pytest.importorskip("numpy")
+        sf = pytest.importorskip("soundfile")
+
+        sample_rate = 8000
+        intro_seconds = 24
+        ltc_seconds = 24
+        intro_frames = sample_rate * intro_seconds
+        ltc_frames = sample_rate * ltc_seconds
+
+        intro_left = np.zeros(intro_frames, dtype=np.float32)
+        intro_right = np.sin(
+            2.0 * np.pi * 220.0 * np.arange(intro_frames, dtype=np.float32) / sample_rate
+        ).astype(np.float32) * 0.2
+
+        ltc_like_left = np.where(
+            np.arange(ltc_frames, dtype=np.int32) % 2 == 0,
+            0.95,
+            -0.95,
+        ).astype(np.float32)
+        program_right = np.sin(
+            2.0 * np.pi * 220.0 * np.arange(ltc_frames, dtype=np.float32) / sample_rate
+        ).astype(np.float32) * 0.2
+
+        stereo = np.column_stack(
+            (
+                np.concatenate((intro_left, ltc_like_left)),
+                np.concatenate((intro_right, program_right)),
+            )
+        )
+        source = tmp_path / "delayed-ltc.wav"
+        sf.write(str(source), stereo, sample_rate, subtype="PCM_16")
+
+        assert detect_ltc_channel(source, mode="strict") == "left"
 
 
 # ---------------------------------------------------------------------------
