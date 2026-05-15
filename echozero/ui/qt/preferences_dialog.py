@@ -43,18 +43,18 @@ class PreferencesDialog(QDialog):
         ensure_qt_theme_installed()
         self._settings_service = settings_service
         self._on_saved = on_saved
-        self.resize(720, 620)
+        self.resize(680, 560)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
 
         self._header = QFrame(self)
         self._header.setObjectName("preferencesDialogHeader")
         self._header.setProperty("section", True)
         header_layout = QVBoxLayout(self._header)
-        header_layout.setContentsMargins(14, 14, 14, 14)
-        header_layout.setSpacing(6)
+        header_layout.setContentsMargins(12, 12, 12, 12)
+        header_layout.setSpacing(4)
         self._eyebrow = QLabel("APPLICATION SETTINGS", self._header)
         self._eyebrow.setObjectName("preferencesDialogEyebrow")
         header_layout.addWidget(self._eyebrow)

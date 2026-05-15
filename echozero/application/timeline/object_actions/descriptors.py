@@ -178,6 +178,7 @@ _CANONICAL_NON_OBJECT_ACTION_IDS: set[str] = {
     "selection.renumber_cues_from_one",
     "selection.select_every_other",
     "song.delete",
+    "song.rename",
     "song.select",
     "song.version.add",
     "song.version.delete",

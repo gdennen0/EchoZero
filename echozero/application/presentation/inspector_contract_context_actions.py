@@ -530,6 +530,14 @@ def song_context_actions(
     if presentation.active_song_id:
         actions.append(
             InspectorAction(
+                action_id="song.rename",
+                label="Rename Song",
+                group="song",
+                params={"song_id": presentation.active_song_id},
+            )
+        )
+        actions.append(
+            InspectorAction(
                 action_id="song.version.switch",
                 label="Switch Version",
                 group="song",

@@ -5,16 +5,16 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ShellScales:
-    panel_padding: int = 12
-    section_padding: int = 8
-    section_gap: int = 6
-    layout_gap: int = 8
-    inline_gap: int = 6
-    compact_gap: int = 4
-    field_padding_v: int = 6
-    field_padding_h: int = 10
-    button_radius: int = 6
-    panel_radius: int = 8
+    panel_padding: int = 8
+    section_padding: int = 5
+    section_gap: int = 4
+    layout_gap: int = 5
+    inline_gap: int = 4
+    compact_gap: int = 2
+    field_padding_v: int = 3
+    field_padding_h: int = 6
+    button_radius: int = 3
+    panel_radius: int = 3
     slider_groove_height: int = 4
     slider_handle_width: int = 12
     slider_handle_margin: int = -5

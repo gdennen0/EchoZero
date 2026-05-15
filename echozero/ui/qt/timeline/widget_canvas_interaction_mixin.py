@@ -8,7 +8,13 @@ from __future__ import annotations
 from typing import Any
 
 from PyQt6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QTimer
-from PyQt6.QtGui import QContextMenuEvent, QKeyEvent, QMouseEvent, QWheelEvent
+from PyQt6.QtGui import (
+    QContextMenuEvent,
+    QKeyEvent,
+    QMouseEvent,
+    QNativeGestureEvent,
+    QWheelEvent,
+)
 from PyQt6.QtWidgets import QMenu, QToolTip
 
 from echozero.application.presentation.inspector_contract import (
@@ -47,6 +53,16 @@ from echozero.ui.qt.timeline.widget_canvas_types import (
 
 
 class _TimelineCanvasInteractionMixin:
+    def event(self: Any, event: QEvent | None) -> bool:
+        if (
+            event is not None
+            and event.type() == QEvent.Type.NativeGesture
+            and isinstance(event, QNativeGestureEvent)
+            and self._handle_native_gesture_event(event)
+        ):
+            return True
+        return super().event(event)
+
     def mouseMoveEvent(self: Any, event: QMouseEvent | None) -> None:
         if event is None:
             return
@@ -726,6 +742,17 @@ class _TimelineCanvasInteractionMixin:
             return float(-angle_delta.x())
         return 0.0
 
+    def _handle_native_gesture_event(self: Any, event: QNativeGestureEvent) -> bool:
+        if event.gestureType() != Qt.NativeGestureType.ZoomNativeGesture:
+            return False
+        zoom_factor = 1.0 + float(event.value())
+        if zoom_factor <= 0.0:
+            event.accept()
+            return True
+        self.zoom_factor_requested.emit(zoom_factor, float(event.position().x()))
+        event.accept()
+        return True
+
     def keyPressEvent(self: Any, event: QKeyEvent | None) -> None:
         if event is None:
             return
@@ -805,12 +832,15 @@ class _TimelineCanvasInteractionMixin:
             self.preview_selected_event_clip_requested.emit()
             event.accept()
             return
-        if not has_primary and not has_shift and event.key() == Qt.Key.Key_V:
+        if not has_primary and not has_shift and event.key() == Qt.Key.Key_X:
             self.edit_mode_requested.emit("select")
             event.accept()
             return
-        if not has_primary and not has_shift and event.key() == Qt.Key.Key_B:
-            self.edit_mode_requested.emit("draw")
+        if not has_primary and not has_shift and event.key() == Qt.Key.Key_A:
+            if self._edit_mode == "draw":
+                self.add_event_at_playhead_requested.emit()
+            else:
+                self.edit_mode_requested.emit("draw")
             event.accept()
             return
         if not has_primary and not has_shift and event.key() == Qt.Key.Key_E:
@@ -826,25 +856,15 @@ class _TimelineCanvasInteractionMixin:
             event.accept()
             return
         if (
-            not has_primary
-            and not has_shift
-            and self._edit_mode == "draw"
-            and event.key() == Qt.Key.Key_A
-        ):
-            self.add_event_at_playhead_requested.emit()
-            event.accept()
-            return
-        if (
             self._edit_mode == "fix"
             and not has_primary
             and has_shift
             and event.key() == Qt.Key.Key_Z
         ):
+            self.fix_action_requested.emit("remove")
             selected_events = self._selected_event_shortcut_payload()
             if selected_events:
                 self.fix_demote_selected_requested.emit(selected_events)
-            else:
-                self.fix_action_requested.emit("remove")
             event.accept()
             return
         if (
@@ -853,23 +873,10 @@ class _TimelineCanvasInteractionMixin:
             and has_shift
             and event.key() == Qt.Key.Key_C
         ):
+            self.fix_action_requested.emit("promote")
             selected_events = self._selected_event_shortcut_payload()
             if selected_events:
                 self.fix_promote_selected_requested.emit(selected_events)
-            else:
-                self.fix_action_requested.emit("promote")
-            event.accept()
-            return
-        if self._edit_mode == "fix" and not has_primary and event.key() == Qt.Key.Key_Z:
-            self.fix_action_requested.emit("remove")
-            event.accept()
-            return
-        if self._edit_mode == "fix" and not has_primary and event.key() == Qt.Key.Key_X:
-            self.fix_action_requested.emit("select")
-            event.accept()
-            return
-        if self._edit_mode == "fix" and not has_primary and event.key() == Qt.Key.Key_C:
-            self.fix_action_requested.emit("promote")
             event.accept()
             return
         if self._edit_mode == "fix" and not has_primary and event.key() == Qt.Key.Key_D:

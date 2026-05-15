@@ -57,10 +57,10 @@ from echozero.ui.qt.timeline.widget_canvas_types import (
 _FIX_CURSOR_SIZE_PX: Final[int] = 24
 _FIX_CURSOR_HOTSPOT_PX: Final[int] = 12
 _FIX_CURSOR_STROKE_PX: Final[int] = 2
-_FIX_CURSOR_BG_STROKE_HEX: Final[str] = "#d8dde5"
-_FIX_CURSOR_PLUS_HEX: Final[str] = "#59d080"
-_FIX_CURSOR_MINUS_HEX: Final[str] = "#f07373"
-_FIX_CURSOR_SELECT_HEX: Final[str] = "#67b5ff"
+_FIX_CURSOR_BG_STROKE_HEX: Final[str] = "#d8d2cb"
+_FIX_CURSOR_PLUS_HEX: Final[str] = "#7fd1ae"
+_FIX_CURSOR_MINUS_HEX: Final[str] = "#8f3a2f"
+_FIX_CURSOR_SELECT_HEX: Final[str] = "#CC8844"
 _FIX_CURSOR_CACHE: dict[str, QCursor] = {}
 
 
@@ -125,7 +125,8 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
     take_action_selected = pyqtSignal(object, object, str)
     contract_action_selected = pyqtSignal(object)
     horizontal_scroll_requested = pyqtSignal(float)
-    zoom_requested = pyqtSignal(int, float)
+    zoom_requested = pyqtSignal(float, float)
+    zoom_factor_requested = pyqtSignal(float, float)
     playhead_drag_requested = pyqtSignal(float)
     clear_selection_requested = pyqtSignal()
     select_all_requested = pyqtSignal()

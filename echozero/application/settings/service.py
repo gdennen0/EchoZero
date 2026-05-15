@@ -23,6 +23,7 @@ from echozero.application.settings.models import (
     OscReceiveRuntimeConfig,
     OscSendPreferences,
     OscSendRuntimeConfig,
+    SongImportNameMode,
     SongImportPreferences,
     canonical_import_pipeline_action_ids,
     import_safe_pipeline_action_descriptors,
@@ -398,8 +399,19 @@ class AppSettingsService:
             strip_ltc_timecode=bool(
                 updates.get("import.strip_ltc_timecode", current.strip_ltc_timecode)
             ),
+            name_mode=AppSettingsService._song_import_name_mode(
+                updates.get("import.name_mode", current.name_mode)
+            ),
             pipeline_action_ids=pipeline_action_ids,
         )
+
+    @staticmethod
+    def _song_import_name_mode(value: object) -> SongImportNameMode:
+        try:
+            raw_value = getattr(value, "value", value) or SongImportNameMode.FILENAME.value
+            return SongImportNameMode(str(raw_value).strip())
+        except ValueError:
+            return SongImportNameMode.FILENAME
 
     @staticmethod
     def _updated_song_import_pipeline_action_ids(
@@ -523,6 +535,7 @@ class AppSettingsService:
             "osc_send.enabled": preferences.ma3_osc.send.enabled,
             "osc_send.host": preferences.ma3_osc.send.host,
             "osc_send.port": preferences.ma3_osc.send.port or 0,
+            "import.name_mode": preferences.song_import.name_mode.value,
             "import.strip_ltc_timecode": preferences.song_import.strip_ltc_timecode,
             "import.pipeline_action_ids": preferences.song_import.pipeline_action_ids,
         }

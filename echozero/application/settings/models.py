@@ -94,6 +94,13 @@ class AudioLatencyProfile(str, Enum):
     HIGH = "high"
 
 
+class SongImportNameMode(str, Enum):
+    """User-facing policy for deriving imported song titles from filenames."""
+
+    FILENAME = "filename"
+    EXTRACT_TITLE = "extract_title"
+
+
 @dataclass(slots=True, frozen=True)
 class AudioOutputPreferences:
     """Machine-local audio output preferences for the runtime engine."""
@@ -138,9 +145,15 @@ class SongImportPreferences:
     """Machine-local defaults for song/version import behavior."""
 
     strip_ltc_timecode: bool = True
+    name_mode: SongImportNameMode = SongImportNameMode.FILENAME
     pipeline_action_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "name_mode",
+            _coerce_song_import_name_mode(self.name_mode),
+        )
         object.__setattr__(
             self,
             "pipeline_action_ids",
@@ -275,6 +288,9 @@ def app_preferences_from_dict(payload: dict[str, Any] | None) -> AppPreferences:
         ),
         song_import=SongImportPreferences(
             strip_ltc_timecode=bool(song_import.get("strip_ltc_timecode", True)),
+            name_mode=_coerce_song_import_name_mode(
+                song_import.get("name_mode", song_import.get("title_mode"))
+            ),
             pipeline_action_ids=pipeline_action_ids,
         ),
         pipeline_defaults_by_template=_coerce_pipeline_defaults_by_template(
@@ -300,6 +316,14 @@ def _coerce_latency_profile(value: object) -> AudioLatencyProfile:
         return AudioLatencyProfile(str(value or AudioLatencyProfile.AUTO.value).strip().lower())
     except ValueError:
         return AudioLatencyProfile.AUTO
+
+
+def _coerce_song_import_name_mode(value: object) -> SongImportNameMode:
+    try:
+        raw_value = getattr(value, "value", value) or SongImportNameMode.FILENAME.value
+        return SongImportNameMode(str(raw_value).strip().lower())
+    except ValueError:
+        return SongImportNameMode.FILENAME
 
 
 def _coerce_optional_text(value: object) -> str | None:

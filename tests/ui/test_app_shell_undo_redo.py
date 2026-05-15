@@ -132,6 +132,42 @@ def test_app_shell_runtime_undo_redo_restores_take_switch_selection():
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
+def test_app_shell_runtime_copy_selected_events_uses_canonical_mutator_selection():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(working_dir_root=temp_root / "working")
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        audio_path = write_test_wav(temp_root / "fixtures" / "copy-selection.wav")
+        runtime.add_song_from_path("Copy Selection", audio_path)
+
+        added_layer = runtime.add_layer(LayerKind.EVENT, "Clipboard Events")
+        manual_layer = next(
+            layer for layer in added_layer.layers if layer.title == "Clipboard Events"
+        )
+
+        created = runtime.dispatch(
+            CreateEvent(
+                layer_id=manual_layer.layer_id,
+                take_id=None,
+                time_range=TimeRange(1.0, 1.5),
+            )
+        )
+        created_layer = next(layer for layer in created.layers if layer.title == "Clipboard Events")
+        selected_event = created_layer.events[0]
+
+        copied_count = runtime.copy_selected_events_to_clipboard()
+
+        assert copied_count == 1
+        assert runtime.has_copied_events() is True
+        assert len(runtime._event_clipboard) == 1
+        assert runtime._event_clipboard[0].event.id == selected_event.event_id
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
 def test_app_flow_harness_launcher_undo_redo_actions_use_canonical_runtime_history():
     temp_root = _repo_local_temp_root()
     harness = AppFlowHarness(working_dir_root=temp_root / "working")

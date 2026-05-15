@@ -1181,29 +1181,30 @@ def test_demoted_events_render_only_in_fix_mode() -> None:
         app.processEvents()
 
 
-def test_fix_mode_shortcuts_switch_fix_tools() -> None:
+def test_global_mode_shortcuts_switch_canvas_modes() -> None:
     app = QApplication.instance() or QApplication([])
     presentation = _fix_mode_test_presentation()
     widget = TimelineWidget(presentation, on_intent=lambda intent: presentation)
     try:
         _render_for_hit_testing(widget)
-        widget._editor_bar._mode_buttons["fix"].click()
         QApplication.processEvents()
 
-        QTest.keyClick(widget._canvas, Qt.Key.Key_Z, Qt.KeyboardModifier.NoModifier)
+        QTest.keyClick(widget._canvas, Qt.Key.Key_A, Qt.KeyboardModifier.NoModifier)
         QApplication.processEvents()
-        assert widget._canvas._fix_action == "remove"
-        assert widget._editor_bar._fix_action_buttons["remove"].isChecked() is True
+        assert widget._canvas._edit_mode == "draw"
+        assert widget._editor_bar._mode_buttons["draw"].isChecked() is True
 
         QTest.keyClick(widget._canvas, Qt.Key.Key_X, Qt.KeyboardModifier.NoModifier)
         QApplication.processEvents()
-        assert widget._canvas._fix_action == "select"
-        assert widget._editor_bar._fix_action_buttons["select"].isChecked() is True
+        assert widget._canvas._edit_mode == "select"
+        assert widget._editor_bar._mode_buttons["select"].isChecked() is True
 
-        QTest.keyClick(widget._canvas, Qt.Key.Key_C, Qt.KeyboardModifier.NoModifier)
+        QTest.keyClick(widget._canvas, Qt.Key.Key_F, Qt.KeyboardModifier.NoModifier)
         QApplication.processEvents()
-        assert widget._canvas._fix_action == "promote"
-        assert widget._editor_bar._fix_action_buttons["promote"].isChecked() is True
+        assert widget._canvas._edit_mode == "fix"
+        assert widget._canvas._fix_action == "select"
+        assert widget._editor_bar._mode_buttons["fix"].isChecked() is True
+        assert widget._editor_bar._fix_action_buttons["select"].isChecked() is True
     finally:
         widget.close()
         app.processEvents()
@@ -1403,7 +1404,8 @@ def test_fix_mode_shift_z_demotes_selected_event() -> None:
                 ],
             )
         ]
-        assert widget._canvas._fix_action == "select"
+        assert widget._canvas._fix_action == "remove"
+        assert widget._editor_bar._fix_action_buttons["remove"].isChecked() is True
     finally:
         widget.close()
         app.processEvents()
@@ -1447,7 +1449,8 @@ def test_fix_mode_shift_c_promotes_selected_event() -> None:
                 ],
             )
         ]
-        assert widget._canvas._fix_action == "select"
+        assert widget._canvas._fix_action == "promote"
+        assert widget._editor_bar._fix_action_buttons["promote"].isChecked() is True
     finally:
         widget.close()
         app.processEvents()
@@ -2544,36 +2547,18 @@ def test_draw_mode_drag_dispatches_create_event_intent() -> None:
         app.processEvents()
 
 
-def test_draw_mode_shortcut_a_dispatches_create_event_at_playhead() -> None:
+def test_a_key_switches_canvas_to_draw_mode() -> None:
     app = QApplication.instance() or QApplication([])
-    intents: list[object] = []
-    base = _selection_test_presentation()
-    presentation = replace(
-        base,
-        playhead=2.25,
-        selected_layer_id=LayerId("layer_kick"),
-        selected_layer_ids=[LayerId("layer_kick")],
-        selected_take_id=TakeId("take_main"),
-    )
-    widget = TimelineWidget(
-        presentation, on_intent=lambda intent: intents.append(intent) or presentation
-    )
+    presentation = _selection_test_presentation()
+    widget = TimelineWidget(presentation, on_intent=lambda intent: presentation)
     try:
         _render_for_hit_testing(widget)
-        widget._editor_bar._mode_buttons["draw"].click()
-        QApplication.processEvents()
 
         QTest.keyClick(widget._canvas, Qt.Key.Key_A, Qt.KeyboardModifier.NoModifier)
         QApplication.processEvents()
 
-        assert len(intents) == 1
-        assert isinstance(intents[0], CreateEvent)
-        assert intents[0].layer_id == LayerId("layer_kick")
-        assert intents[0].take_id == TakeId("take_main")
-        assert intents[0].time_range.start == 2.25
-        assert intents[0].time_range.end == (
-            2.25 + TIMELINE_ADD_MODE_DEFAULT_EVENT_DURATION_SECONDS
-        )
+        assert widget._canvas._edit_mode == "draw"
+        assert widget._editor_bar._mode_buttons["draw"].isChecked() is True
     finally:
         widget.close()
         app.processEvents()
@@ -2610,6 +2595,42 @@ def test_draw_mode_toolbar_add_at_playhead_dispatches_create_event() -> None:
         assert intents[0].time_range.end == (
             1.5 + TIMELINE_ADD_MODE_DEFAULT_EVENT_DURATION_SECONDS
         )
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_draw_mode_shortcut_a_dispatches_create_event_at_playhead() -> None:
+    app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
+    base = _selection_test_presentation()
+    presentation = replace(
+        base,
+        playhead=1.5,
+        selected_layer_id=LayerId("layer_kick"),
+        selected_layer_ids=[LayerId("layer_kick")],
+        selected_take_id=TakeId("take_main"),
+    )
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
+    try:
+        _render_for_hit_testing(widget)
+        widget._editor_bar._mode_buttons["draw"].click()
+        QApplication.processEvents()
+
+        QTest.keyClick(widget._canvas, Qt.Key.Key_A, Qt.KeyboardModifier.NoModifier)
+        QApplication.processEvents()
+
+        assert len(intents) == 1
+        assert isinstance(intents[0], CreateEvent)
+        assert intents[0].layer_id == LayerId("layer_kick")
+        assert intents[0].take_id == TakeId("take_main")
+        assert intents[0].time_range.start == 1.5
+        assert intents[0].time_range.end == (
+            1.5 + TIMELINE_ADD_MODE_DEFAULT_EVENT_DURATION_SECONDS
+        )
+        assert widget._canvas._edit_mode == "draw"
     finally:
         widget.close()
         app.processEvents()
@@ -2656,7 +2677,7 @@ def test_fix_mode_plus_click_promotes_missing_correlated_onset() -> None:
     try:
         _render_for_hit_testing(widget)
         widget._editor_bar._mode_buttons["fix"].click()
-        QTest.keyClick(widget._canvas, Qt.Key.Key_C, Qt.KeyboardModifier.NoModifier)
+        widget._editor_bar._fix_action_buttons["promote"].click()
         QApplication.processEvents()
 
         missing_rect = next(
@@ -2691,7 +2712,7 @@ def test_fix_mode_plus_click_promotes_existing_event() -> None:
     try:
         _render_for_hit_testing(widget)
         widget._editor_bar._mode_buttons["fix"].click()
-        QTest.keyClick(widget._canvas, Qt.Key.Key_C, Qt.KeyboardModifier.NoModifier)
+        widget._editor_bar._fix_action_buttons["promote"].click()
         QApplication.processEvents()
         _click_event_rect(widget, "kick_evt")
 
@@ -2758,7 +2779,7 @@ def test_fix_mode_overlay_shows_unmatched_onsets_only_in_promote_tool() -> None:
             for layer_id, source_event_id, _matched in select_mode_rects
         )
 
-        QTest.keyClick(widget._canvas, Qt.Key.Key_C, Qt.KeyboardModifier.NoModifier)
+        widget._editor_bar._fix_action_buttons["promote"].click()
         QApplication.processEvents()
         widget._canvas.repaint()
         QApplication.processEvents()
@@ -2897,7 +2918,7 @@ def test_fix_mode_selecting_source_onset_updates_selection_and_preview(monkeypat
         )
         _render_for_hit_testing(widget)
         widget._editor_bar._mode_buttons["fix"].click()
-        QTest.keyClick(widget._canvas, Qt.Key.Key_X, Qt.KeyboardModifier.NoModifier)
+        widget._editor_bar._fix_action_buttons["select"].click()
         QApplication.processEvents()
 
         source_rect = next(
@@ -2955,7 +2976,7 @@ def test_fix_mode_minus_click_removes_existing_event() -> None:
     try:
         _render_for_hit_testing(widget)
         widget._editor_bar._mode_buttons["fix"].click()
-        QTest.keyClick(widget._canvas, Qt.Key.Key_Z, Qt.KeyboardModifier.NoModifier)
+        widget._editor_bar._fix_action_buttons["remove"].click()
         QApplication.processEvents()
         _click_event_rect(widget, "kick_evt")
 
@@ -3022,7 +3043,7 @@ def test_fix_mode_minus_click_rejects_only_clicked_lane_when_event_ids_collide()
     try:
         _render_for_hit_testing(widget)
         widget._editor_bar._mode_buttons["fix"].click()
-        QTest.keyClick(widget._canvas, Qt.Key.Key_Z, Qt.KeyboardModifier.NoModifier)
+        widget._editor_bar._fix_action_buttons["remove"].click()
         QApplication.processEvents()
 
         primary_rect = next(
@@ -3056,7 +3077,7 @@ def test_fix_mode_select_drag_dispatches_batch_event_selection_intent() -> None:
     try:
         _render_for_hit_testing(widget)
         widget._editor_bar._mode_buttons["fix"].click()
-        QTest.keyClick(widget._canvas, Qt.Key.Key_X, Qt.KeyboardModifier.NoModifier)
+        widget._editor_bar._fix_action_buttons["select"].click()
         QApplication.processEvents()
 
         main_rect = next(
@@ -3112,7 +3133,7 @@ def test_fix_mode_select_drag_from_event_dispatches_batch_event_selection_intent
     try:
         _render_for_hit_testing(widget)
         widget._editor_bar._mode_buttons["fix"].click()
-        QTest.keyClick(widget._canvas, Qt.Key.Key_X, Qt.KeyboardModifier.NoModifier)
+        widget._editor_bar._fix_action_buttons["select"].click()
         QApplication.processEvents()
 
         main_rect = next(
@@ -3168,7 +3189,7 @@ def test_fix_mode_minus_drag_removes_intersected_events() -> None:
     try:
         _render_for_hit_testing(widget)
         widget._editor_bar._mode_buttons["fix"].click()
-        QTest.keyClick(widget._canvas, Qt.Key.Key_Z, Qt.KeyboardModifier.NoModifier)
+        widget._editor_bar._fix_action_buttons["remove"].click()
         QApplication.processEvents()
 
         lane_rect = next(
@@ -3219,7 +3240,7 @@ def test_fix_mode_plus_drag_promotes_intersected_missing_events() -> None:
     try:
         _render_for_hit_testing(widget)
         widget._editor_bar._mode_buttons["fix"].click()
-        QTest.keyClick(widget._canvas, Qt.Key.Key_C, Qt.KeyboardModifier.NoModifier)
+        widget._editor_bar._fix_action_buttons["promote"].click()
         QApplication.processEvents()
 
         lane_rect = next(
@@ -3271,7 +3292,7 @@ def test_fix_mode_plus_drag_promotes_intersected_existing_events_in_batch() -> N
     try:
         _render_for_hit_testing(widget)
         widget._editor_bar._mode_buttons["fix"].click()
-        QTest.keyClick(widget._canvas, Qt.Key.Key_C, Qt.KeyboardModifier.NoModifier)
+        widget._editor_bar._fix_action_buttons["promote"].click()
         QApplication.processEvents()
 
         main_rect = next(
@@ -3323,7 +3344,7 @@ def test_fix_mode_minus_drag_demotes_intersected_existing_events_in_batch() -> N
     try:
         _render_for_hit_testing(widget)
         widget._editor_bar._mode_buttons["fix"].click()
-        QTest.keyClick(widget._canvas, Qt.Key.Key_Z, Qt.KeyboardModifier.NoModifier)
+        widget._editor_bar._fix_action_buttons["remove"].click()
         QApplication.processEvents()
 
         main_rect = next(
@@ -3475,7 +3496,7 @@ def test_delete_key_dispatches_rejected_review_in_fix_remove_mode():
     try:
         _render_for_hit_testing(widget)
         widget._editor_bar._mode_buttons["fix"].click()
-        QTest.keyClick(widget._canvas, Qt.Key.Key_Z, Qt.KeyboardModifier.NoModifier)
+        widget._editor_bar._fix_action_buttons["remove"].click()
         QApplication.processEvents()
 
         QTest.keyClick(widget._canvas, Qt.Key.Key_Delete)

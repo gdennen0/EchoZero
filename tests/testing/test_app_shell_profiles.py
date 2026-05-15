@@ -58,6 +58,15 @@ def test_launcher_surface_builds_canonical_runtime_surface(monkeypatch):
         def setWindowTitle(self, _title: str) -> None:
             pass
 
+        def setWindowModified(self, _modified: bool) -> None:
+            pass
+
+        def setWindowFilePath(self, _path: str) -> None:
+            pass
+
+        def set_window_title_sync_callback(self, _callback) -> None:
+            pass
+
         def addAction(self, _action) -> None:
             pass
 

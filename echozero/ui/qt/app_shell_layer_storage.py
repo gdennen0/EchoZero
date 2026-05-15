@@ -306,4 +306,6 @@ def _normalized_ma3_channel_no(layer: Layer) -> int | None:
 
 
 def _normalized_output_bus(layer: Layer) -> str | None:
+    if layer.mixer.output_bus is None:
+        return None
     return canonical_layer_output_bus(layer.mixer.output_bus)

@@ -858,6 +858,41 @@ class TestMapsToSetting:
         assert "kick_audio_in" not in classify_inputs
         assert "snare_audio_in" not in classify_inputs
 
+    def test_extract_song_drum_events_defaults_enable_all_stem_layers_and_use_point_one_five(
+        self, session, song_version
+    ):
+        orch = Orchestrator(get_registry(), _executors())
+        config = unwrap(orch.create_config(session, song_version.id, "extract_song_drum_events"))
+
+        assert config.knob_values["include_drums_stem_layer"] is True
+        assert config.knob_values["include_bass_stem_layer"] is True
+        assert config.knob_values["include_vocals_stem_layer"] is True
+        assert config.knob_values["include_other_stem_layer"] is True
+        assert config.knob_values["kick_filter_enabled"] is False
+        assert config.knob_values["snare_filter_enabled"] is False
+        assert config.knob_values["clap_filter_enabled"] is False
+        assert config.knob_values["cymbal_filter_enabled"] is False
+        assert config.knob_values["kick_onset_threshold"] == pytest.approx(0.15)
+        assert config.knob_values["snare_onset_threshold"] == pytest.approx(0.15)
+        assert config.knob_values["clap_onset_threshold"] == pytest.approx(0.15)
+        assert config.knob_values["cymbal_onset_threshold"] == pytest.approx(0.15)
+
+        pipeline = config.to_pipeline()
+        output_project_as_layer = {
+            output.name: output.spec.persistence.project_as_layer for output in pipeline.outputs
+        }
+        assert output_project_as_layer["drums"] is True
+        assert output_project_as_layer["bass"] is True
+        assert output_project_as_layer["vocals"] is True
+        assert output_project_as_layer["other"] is True
+
+        for block_id in ("kick_filter", "snare_filter", "clap_filter", "cymbal_filter"):
+            assert pipeline.graph.blocks[block_id].settings.get("enabled") is False
+        for block_id in ("kick_onsets", "snare_onsets", "clap_onsets", "cymbal_onsets"):
+            assert pipeline.graph.blocks[block_id].settings.get("threshold") == pytest.approx(
+                0.15
+            )
+
     def test_extract_song_drum_events_can_select_clap_and_cymbal_outputs(
         self, session, song_version
     ):

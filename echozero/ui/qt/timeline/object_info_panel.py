@@ -225,16 +225,24 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         self._actions_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         details_layout.addWidget(self._actions_scroll, 1)
 
-        self._action_sections = QWidget(self._actions_scroll)
+        self._scroll_content = QWidget(self._actions_scroll)
+        self._scroll_content_layout = QVBoxLayout(self._scroll_content)
+        self._scroll_content_layout.setContentsMargins(0, 4, 0, 0)
+        self._scroll_content_layout.setSpacing(max(4, style.section_spacing_px))
+        self._scroll_content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self._scroll_content_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+        self._actions_scroll.setWidget(self._scroll_content)
+
+        self._action_sections = QWidget(self._scroll_content)
         self._action_sections.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding
         )
         self._action_sections_layout = QVBoxLayout(self._action_sections)
-        self._action_sections_layout.setContentsMargins(0, 4, 0, 0)
+        self._action_sections_layout.setContentsMargins(0, 0, 0, 0)
         self._action_sections_layout.setSpacing(max(4, style.section_spacing_px))
         self._action_sections_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self._action_sections_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
-        self._actions_scroll.setWidget(self._action_sections)
+        self._scroll_content_layout.addWidget(self._action_sections)
 
         self._layer_controls = QFrame(self)
         self._layer_controls.setObjectName("timeline_object_info_layer_controls")
@@ -280,21 +288,31 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         routing_title = QLabel("OUTPUT ROUTING", self._layer_controls)
         routing_title.setProperty("sectionTitle", True)
         layer_controls_layout.addWidget(routing_title)
-        routing_hint = QLabel(
-            "Send this layer to the master mix and optional hardware outputs.",
-            self._layer_controls,
+
+        routing_outputs_card = QFrame(self._layer_controls)
+        routing_outputs_card.setObjectName("timeline_object_info_routing_outputs")
+        routing_outputs_card.setProperty("section", True)
+        routing_outputs_layout = QVBoxLayout(routing_outputs_card)
+        routing_outputs_layout.setContentsMargins(6, 6, 6, 6)
+        routing_outputs_layout.setSpacing(4)
+        routing_outputs_header = QHBoxLayout()
+        routing_outputs_header.setContentsMargins(0, 0, 0, 0)
+        routing_outputs_header.setSpacing(4)
+        routing_outputs_label = QLabel("Additional outputs", routing_outputs_card)
+        routing_outputs_label.setObjectName("selectionSecondaryLabel")
+        routing_outputs_header.addWidget(routing_outputs_label)
+        routing_outputs_header.addStretch(1)
+        self._route_to_master_checkbox = QCheckBox(
+            "Send to master mix", routing_outputs_card
         )
-        routing_hint.setObjectName("selectionSecondaryLabel")
-        routing_hint.setWordWrap(True)
-        layer_controls_layout.addWidget(routing_hint)
-
-        self._route_to_master_checkbox = QCheckBox("Send to master mix", self._layer_controls)
         self._route_to_master_checkbox.setObjectName("inspectorRouteToMasterCheckbox")
-        layer_controls_layout.addWidget(self._route_to_master_checkbox)
+        routing_outputs_header.addWidget(self._route_to_master_checkbox)
+        routing_outputs_layout.addLayout(routing_outputs_header)
 
-        self._routing_table = QTableWidget(0, 1, self._layer_controls)
+        self._routing_table = QTableWidget(0, 1, routing_outputs_card)
         self._routing_table.setObjectName("inspectorRoutingTable")
         self._routing_table.setHorizontalHeaderLabels(["Additional outputs"])
+        self._routing_table.horizontalHeader().setVisible(False)
         self._routing_table.verticalHeader().setVisible(False)
         self._routing_table.horizontalHeader().setStretchLastSection(True)
         self._routing_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -303,7 +321,8 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         self._routing_table.setShowGrid(False)
         self._routing_table.setMinimumHeight(56)
         self._routing_table.setMaximumHeight(96)
-        layer_controls_layout.addWidget(self._routing_table)
+        routing_outputs_layout.addWidget(self._routing_table)
+        layer_controls_layout.addWidget(routing_outputs_card)
 
         routing_edit_row = QHBoxLayout()
         routing_edit_row.setContentsMargins(0, 0, 0, 0)
@@ -354,7 +373,7 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         gain_custom_row.addWidget(self._gain_spin, 1, 0)
         gain_custom_row.addWidget(self._gain_apply_btn, 1, 1)
         layer_controls_layout.addLayout(gain_custom_row)
-        details_layout.addWidget(self._layer_controls)
+        self._scroll_content_layout.addWidget(self._layer_controls)
 
         self._panel_mute_btn.clicked.connect(self._emit_toggle_mute_from_panel)
         self._panel_solo_btn.clicked.connect(self._emit_toggle_solo_from_panel)
@@ -634,7 +653,7 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         self._routing_output_channels = max(
             1, min(16, int(presentation.playback_output_channels or 2))
         )
-        show_audio_controls = self._has_lightweight_audio_controls()
+        show_audio_controls = self._has_lightweight_audio_controls(selected_layer=selected_layer)
         self._set_controls_enabled(has_layer=show_audio_controls)
         self._layer_controls.setVisible(show_audio_controls)
         self._sync_mute_solo_controls(selected_layer=selected_layer)

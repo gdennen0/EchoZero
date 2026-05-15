@@ -572,7 +572,7 @@ sdist = { url = "https://files.pythonhosted.org/packages/d5/9d/9a13947db23737548
 
 [[package]]
 name = "echozero"
-version = "2.0.0.dev0"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "librosa" },

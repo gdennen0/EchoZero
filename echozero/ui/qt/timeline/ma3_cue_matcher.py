@@ -51,6 +51,8 @@ class EventCueMatchResult:
     cue_ref: str
     cue_name: str | None = None
 
+from echozero.ui.style.qt import ensure_qt_theme_installed
+
 
 class MA3CueMatcherDialog(QDialog):
     _COL_START = 0
@@ -69,6 +71,7 @@ class MA3CueMatcherDialog(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        ensure_qt_theme_installed()
         self.setWindowTitle(title)
         self.resize(980, 620)
         self._rows = list(rows)

@@ -146,12 +146,13 @@ class MA3ConnectionHUD(QDialog):
             self._send_port.setValue(10_000)
 
     def _set_message(self, message: str, *, severity: str = "neutral") -> None:
-        colors = {
-            "success": "#0f7f3a",
-            "error": "#8f1f1f",
-            "neutral": "#0c3a7d",
-        }
-        self._message.setStyleSheet(f"color: {colors.get(severity, colors['neutral'])};")
+        tone = "ok" if severity == "success" else severity
+        self._message.setProperty("tone", tone if tone in {"ok", "error", "neutral"} else "neutral")
+        style = self._message.style()
+        if style is not None:
+            style.unpolish(self._message)
+            style.polish(self._message)
+        self._message.update()
         self._message.setText(message)
 
     def _message_payload(self) -> dict[str, object]:

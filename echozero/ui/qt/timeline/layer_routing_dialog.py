@@ -19,6 +19,8 @@ from echozero.output_routing import (
     output_bus_options,
 )
 
+from echozero.ui.style.qt import ensure_qt_theme_installed
+
 
 class LayerRoutingSettingsDialog(QDialog):
     """Dialog that configures one layer output route."""
@@ -32,6 +34,7 @@ class LayerRoutingSettingsDialog(QDialog):
         parent=None,
     ) -> None:
         super().__init__(parent)
+        ensure_qt_theme_installed()
         self._channel_count = max(1, min(16, int(playback_output_channels or 2)))
         self._route_buttons: list[tuple[str, QRadioButton]] = []
         self.setWindowTitle("Layer Routing Settings")

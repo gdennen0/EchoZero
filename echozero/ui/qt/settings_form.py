@@ -52,6 +52,7 @@ def _page_from_action_plan(plan: ObjectActionSettingsPlan) -> SettingsPage:
                 key=f"{plan.action_id}.stage",
                 title="Stage Settings",
                 fields=tuple(fields),
+                preferred_columns=2 if len(fields) >= 4 else 1,
             ),
         ),
         warnings=plan.warnings,
@@ -274,5 +275,9 @@ def _widget_for_action_field(field: ObjectActionSettingField) -> SettingsFieldWi
     if widget_name == "toggle":
         return SettingsFieldWidget.TOGGLE
     if widget_name == "number":
+        return SettingsFieldWidget.NUMBER
+    if isinstance(field.value, bool):
+        return SettingsFieldWidget.TOGGLE
+    if isinstance(field.value, (int, float)) and not isinstance(field.value, bool):
         return SettingsFieldWidget.NUMBER
     return SettingsFieldWidget.TEXT

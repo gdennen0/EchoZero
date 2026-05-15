@@ -132,6 +132,109 @@ def test_contract_add_song_action_passes_import_pipeline_kwargs_when_runtime_sup
         app.processEvents()
 
 
+def test_contract_add_song_action_uses_extract_title_import_name_mode(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    from echozero.application.settings import (
+        AppPreferences,
+        AppSettingsService,
+        SongImportNameMode,
+        SongImportPreferences,
+    )
+
+    class _MemorySettingsStore:
+        path = Path("/tmp/echozero-test-contract-add-song-extract-title.json")
+
+        def __init__(self) -> None:
+            self._preferences = AppPreferences(
+                song_import=SongImportPreferences(name_mode=SongImportNameMode.EXTRACT_TITLE)
+            )
+
+        def load(self) -> AppPreferences:
+            return self._preferences
+
+        def save(self, preferences: AppPreferences) -> None:
+            self._preferences = preferences
+
+    class _Runtime:
+        def __init__(self):
+            self.calls: list[tuple[str, str]] = []
+            self._presentation = _audio_pipeline_presentation()
+            self.runtime_audio = None
+            self.app_settings_service = AppSettingsService(_MemorySettingsStore())
+
+        def presentation(self):
+            return self._presentation
+
+        def dispatch(self, intent):
+            return self._presentation
+
+        def add_song_from_path(self, title: str, audio_path: str):
+            self.calls.append((title, audio_path))
+            return self._presentation
+
+    runtime = _Runtime()
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QFileDialog.getOpenFileName",
+        lambda *args, **kwargs: (
+            "C:/audio/NoahKahan_PaidTimeOff_87bpm_SMPTE_v01.wav",
+            "Audio Files",
+        ),
+    )
+    widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
+    try:
+        widget._trigger_contract_action(InspectorAction(action_id="song.add", label="Add Song"))
+
+        assert runtime.calls == [
+            (
+                "Paid Time Off",
+                "C:/audio/NoahKahan_PaidTimeOff_87bpm_SMPTE_v01.wav",
+            )
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_contract_rename_song_action_calls_runtime(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+
+    class _Runtime:
+        def __init__(self):
+            self.calls: list[tuple[str, str]] = []
+            self._presentation = _song_switching_presentation()
+            self.runtime_audio = None
+
+        def presentation(self):
+            return self._presentation
+
+        def dispatch(self, intent):
+            return self._presentation
+
+        def rename_song(self, song_id: str, title: str):
+            self.calls.append((song_id, title))
+            return self._presentation
+
+    runtime = _Runtime()
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QInputDialog.getText",
+        lambda *args, **kwargs: ("Paid Time Off", True),
+    )
+    widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
+    try:
+        widget._trigger_contract_action(
+            InspectorAction(
+                action_id="song.rename",
+                label="Rename Song",
+                params={"song_id": "song_alpha"},
+            )
+        )
+
+        assert runtime.calls == [("song_alpha", "Paid Time Off")]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_contract_add_song_action_queues_import_pipeline_actions_when_request_path_is_available(
     monkeypatch,
 ):

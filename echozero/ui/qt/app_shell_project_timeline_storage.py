@@ -308,6 +308,8 @@ def _state_flag_ma3_track_coord(state_flags: dict[str, object]) -> str | None:
 
 
 def _state_flag_output_bus(state_flags: dict[str, object]) -> str | None:
+    if STATE_FLAG_OUTPUT_BUS not in state_flags:
+        return None
     return canonical_layer_output_bus(state_flags.get(STATE_FLAG_OUTPUT_BUS))
 
 

@@ -64,6 +64,8 @@ class FakeWidget:
         self.runtime_audio = runtime_audio
         self.resize_calls: list[tuple[int, int]] = []
         self.window_titles: list[str] = []
+        self.window_modified_states: list[bool] = []
+        self.window_file_paths: list[str] = []
         self.show_calls = 0
         self.close_calls = 0
         self.presentation_updates: list[object] = []
@@ -77,6 +79,12 @@ class FakeWidget:
 
     def setWindowTitle(self, title: str) -> None:
         self.window_titles.append(title)
+
+    def setWindowModified(self, modified: bool) -> None:
+        self.window_modified_states.append(bool(modified))
+
+    def setWindowFilePath(self, path: str) -> None:
+        self.window_file_paths.append(path)
 
     def show(self) -> None:
         self.show_calls += 1
@@ -95,6 +103,9 @@ class FakeWidget:
 
     def addAction(self, action) -> None:
         self.actions.append(action)
+
+    def set_window_title_sync_callback(self, callback) -> None:
+        self._window_title_sync_callback = callback
 
     def set_runtime_audio_controller(self, runtime_audio) -> None:
         self.runtime_audio = runtime_audio
@@ -677,6 +688,7 @@ def test_launcher_sets_window_title_from_project_name(monkeypatch):
         runtime_audio=FakeRuntimeAudio(),
         project_storage=SimpleNamespace(project=SimpleNamespace(name="Night Set")),
         is_dirty=False,
+        project_path=None,
         presentation=lambda: "presentation",
         dispatch=lambda intent: intent,
     )
@@ -695,7 +707,40 @@ def test_launcher_sets_window_title_from_project_name(monkeypatch):
     launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
     launcher.install()
 
-    assert widget.window_titles[-1] == "EchoZero - Night Set"
+    assert widget.window_titles[-1] == "EchoZero - Night Set[*]"
+    assert widget.window_modified_states[-1] is False
+    assert widget.window_file_paths[-1] == ""
+
+
+def test_launcher_syncs_native_modified_title_state(monkeypatch):
+    runtime = SimpleNamespace(
+        runtime_audio=FakeRuntimeAudio(),
+        project_storage=SimpleNamespace(project=SimpleNamespace(name="Night Set")),
+        is_dirty=False,
+        project_path=Path("C:/projects/night-set.ez"),
+        presentation=lambda: "presentation",
+        dispatch=lambda intent: intent,
+    )
+    runtime.new_project = lambda: None
+    runtime.open_project = lambda _path: None
+    runtime.save_project = lambda: None
+    runtime.save_project_as = lambda _path: None
+    runtime.undo = lambda: None
+    runtime.redo = lambda: None
+
+    monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
+
+    widget = FakeWidget(
+        runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+    )
+    launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
+    launcher.install()
+    runtime.is_dirty = True
+    widget._window_title_sync_callback()
+
+    assert widget.window_titles[-1] == "EchoZero - Night Set[*]"
+    assert widget.window_modified_states[-1] is True
+    assert widget.window_file_paths[-1] == "C:/projects/night-set.ez"
 
 
 def test_launcher_exposes_enable_phone_review_service_when_runtime_supports_it(monkeypatch):

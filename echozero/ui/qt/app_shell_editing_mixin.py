@@ -171,10 +171,11 @@ class AppShellEditingMixin:
         self: AppShellEditingShell,
     ) -> int:
         timeline = self._app.timeline
-        selected_refs = self._app.orchestrator._selected_event_refs(timeline)
+        timeline_mutator = self._app.timeline_mutator
+        selected_refs = timeline_mutator._selected_event_refs(timeline)
         if not selected_refs:
             return 0
-        records = self._app.orchestrator._selected_event_records(timeline, selected_refs)
+        records = timeline_mutator._selected_event_records(timeline, selected_refs)
         if not records:
             return 0
         self._event_clipboard = [

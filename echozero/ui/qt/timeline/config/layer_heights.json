@@ -1,16 +1,16 @@
 {
-  "default_main_row_height_px": 60,
+  "default_main_row_height_px": 40,
   "take_row_height_px": 44,
   "min_main_row_height_px": 40,
   "max_main_row_height_px": 220,
   "resize_handle_hit_padding_px": 5,
   "layer_kind_main_row_height_px": {
-    "audio": 64,
-    "event": 56,
-    "section": 56,
-    "automation": 52,
-    "reference": 56,
-    "group": 60,
-    "sync": 56
+    "audio": 40,
+    "event": 40,
+    "section": 40,
+    "automation": 40,
+    "reference": 40,
+    "group": 40,
+    "sync": 40
   }
 }

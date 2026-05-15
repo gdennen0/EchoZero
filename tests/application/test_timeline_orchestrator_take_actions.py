@@ -1245,7 +1245,10 @@ def test_timbre_mini_model_registry_lists_loads_and_deletes_without_collisions(t
     assert first.artifact_path != second.artifact_path
     entries = list_timbre_mini_models(models_dir=tmp_path)
     assert {entry.model_id for entry in entries} == {first.model_id, second.model_id}
-    assert load_timbre_mini_model_by_id(first.model_id, models_dir=tmp_path)["model_id"] == first.model_id
+    assert (
+        load_timbre_mini_model_by_id(first.model_id, models_dir=tmp_path)["model_id"]
+        == first.model_id
+    )
     assert delete_timbre_mini_model(first.model_id, models_dir=tmp_path) is True
     remaining = list_timbre_mini_models(models_dir=tmp_path)
     assert [entry.model_id for entry in remaining] == [second.model_id]
@@ -1910,15 +1913,26 @@ def test_set_layer_output_bus_updates_layer_and_mixer_session_state():
     assert mixer_state.layer_states[layer.id].output_bus is None
 
 
-def test_set_layer_output_bus_collapses_legacy_comma_value_to_one_route():
+def test_set_layer_output_bus_preserves_multiple_explicit_routes():
     orchestrator, timeline, layer, _main_take, _alt_take = _build_orchestrator_and_timeline()
     layer.kind = LayerKind.AUDIO
 
     orchestrator.handle(timeline, SetLayerOutputBus(layer.id, "outputs_1_1,outputs_3_3"))
 
-    assert layer.mixer.output_bus == "outputs_1_1"
+    assert layer.mixer.output_bus == "outputs_1_1,outputs_3_3"
     mixer_state = orchestrator.mixer_service.get_state()
-    assert mixer_state.layer_states[layer.id].output_bus == "outputs_1_1"
+    assert mixer_state.layer_states[layer.id].output_bus == "outputs_1_1,outputs_3_3"
+
+
+def test_set_layer_output_bus_can_disable_all_layer_routes():
+    orchestrator, timeline, layer, _main_take, _alt_take = _build_orchestrator_and_timeline()
+    layer.kind = LayerKind.AUDIO
+
+    orchestrator.handle(timeline, SetLayerOutputBus(layer.id, "none"))
+
+    assert layer.mixer.output_bus == "none"
+    mixer_state = orchestrator.mixer_service.get_state()
+    assert mixer_state.layer_states[layer.id].output_bus == "none"
 
 
 def test_set_gain_is_stubbed_for_event_layers():

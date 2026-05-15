@@ -46,12 +46,12 @@ _VERSION_SONG_ID_ROLE = Qt.ItemDataRole.UserRole + 4
 _ROW_NUMBER_COLUMN = 0
 _SONG_TITLE_COLUMN = 1
 _ROW_NUMBER_COLUMN_WIDTH = 40
-_PANEL_COLLAPSED_WIDTH = 28
-_PANEL_DEFAULT_EXPANDED_WIDTH = 280
-_PANEL_MIN_EXPANDED_WIDTH = 240
-_PANEL_MAX_EXPANDED_WIDTH = 460
-_PANEL_COLLAPSED_GLYPH = ">"
-_PANEL_EXPANDED_GLYPH = "<"
+_PANEL_COLLAPSED_WIDTH = 24
+_PANEL_DEFAULT_EXPANDED_WIDTH = 230
+_PANEL_MIN_EXPANDED_WIDTH = 200
+_PANEL_MAX_EXPANDED_WIDTH = 340
+_PANEL_COLLAPSED_GLYPH = "▶"
+_PANEL_EXPANDED_GLYPH = "◀"
 
 
 class SongBrowserPanel(QWidget):
@@ -62,6 +62,7 @@ class SongBrowserPanel(QWidget):
     song_version_selected = pyqtSignal(str)
     add_song_requested = pyqtSignal()
     add_song_version_requested = pyqtSignal(str)
+    rename_song_requested = pyqtSignal(str)
     move_song_up_requested = pyqtSignal(str)
     move_song_down_requested = pyqtSignal(str)
     delete_song_requested = pyqtSignal(str)
@@ -92,14 +93,14 @@ class SongBrowserPanel(QWidget):
         self.setProperty("collapsed", False)
 
         self._root_layout = QVBoxLayout(self)
-        self._root_layout.setContentsMargins(10, 10, 10, 10)
-        self._root_layout.setSpacing(10)
+        self._root_layout.setContentsMargins(6, 6, 6, 6)
+        self._root_layout.setSpacing(5)
 
         header = QWidget(self)
         header.setObjectName("songBrowserHeader")
         self._header_layout = QHBoxLayout(header)
         self._header_layout.setContentsMargins(0, 0, 0, 0)
-        self._header_layout.setSpacing(6)
+        self._header_layout.setSpacing(4)
 
         self._title = QLabel("Setlist", header)
         self._title.setObjectName("songBrowserTitle")
@@ -130,7 +131,7 @@ class SongBrowserPanel(QWidget):
         self._browser_page.setObjectName("songBrowserPage")
         browser_layout = QVBoxLayout(self._browser_page)
         browser_layout.setContentsMargins(0, 0, 0, 0)
-        browser_layout.setSpacing(10)
+        browser_layout.setSpacing(5)
 
         self._active_card = QWidget(self._browser_page)
         self._active_card.setObjectName("songBrowserActiveCard")
@@ -154,7 +155,7 @@ class SongBrowserPanel(QWidget):
         songs_header.setObjectName("songBrowserSongsHeader")
         songs_header_layout = QHBoxLayout(songs_header)
         songs_header_layout.setContentsMargins(0, 0, 0, 0)
-        songs_header_layout.setSpacing(6)
+        songs_header_layout.setSpacing(4)
         self._songs_title = QLabel("Songs", songs_header)
         self._songs_title.setObjectName("songBrowserSectionTitle")
         songs_header_layout.addWidget(self._songs_title)
@@ -203,7 +204,7 @@ class SongBrowserPanel(QWidget):
         version_header.setObjectName("songBrowserVersionsHeader")
         version_header_layout = QHBoxLayout(version_header)
         version_header_layout.setContentsMargins(0, 0, 0, 0)
-        version_header_layout.setSpacing(6)
+        version_header_layout.setSpacing(4)
         self._versions_title = QLabel("Versions", version_header)
         self._versions_title.setObjectName("songBrowserSectionTitle")
         version_header_layout.addWidget(self._versions_title)
@@ -227,41 +228,41 @@ class SongBrowserPanel(QWidget):
         self._batch_bar.setObjectName("songBrowserBatchBar")
         batch_layout = QHBoxLayout(self._batch_bar)
         batch_layout.setContentsMargins(0, 0, 0, 0)
-        batch_layout.setSpacing(6)
+        batch_layout.setSpacing(4)
 
         self._batch_meta = QLabel("No songs selected", self._batch_bar)
         self._batch_meta.setObjectName("songBrowserBatchMeta")
         batch_layout.addWidget(self._batch_meta, 1)
 
-        self._select_all_button = QPushButton("[*]", self._batch_bar)
+        self._select_all_button = QPushButton("ALL", self._batch_bar)
         self._select_all_button.setObjectName("songBrowserBatchSelectAll")
         self._select_all_button.setProperty("appearance", "subtle")
         self._select_all_button.setToolTip("Select all songs")
         self._select_all_button.clicked.connect(self._select_all_songs)
         batch_layout.addWidget(self._select_all_button)
 
-        self._clear_selection_button = QPushButton("[ ]", self._batch_bar)
+        self._clear_selection_button = QPushButton("CLR", self._batch_bar)
         self._clear_selection_button.setObjectName("songBrowserBatchClear")
         self._clear_selection_button.setProperty("appearance", "subtle")
         self._clear_selection_button.setToolTip("Clear song selection")
         self._clear_selection_button.clicked.connect(self._clear_song_selection)
         batch_layout.addWidget(self._clear_selection_button)
 
-        self._batch_top_button = QPushButton("^^", self._batch_bar)
+        self._batch_top_button = QPushButton("TOP", self._batch_bar)
         self._batch_top_button.setObjectName("songBrowserBatchMoveTop")
         self._batch_top_button.setProperty("appearance", "subtle")
         self._batch_top_button.setToolTip("Move selected songs to top")
         self._batch_top_button.clicked.connect(self._emit_batch_move_songs_to_top)
         batch_layout.addWidget(self._batch_top_button)
 
-        self._batch_bottom_button = QPushButton("vv", self._batch_bar)
+        self._batch_bottom_button = QPushButton("BOT", self._batch_bar)
         self._batch_bottom_button.setObjectName("songBrowserBatchMoveBottom")
         self._batch_bottom_button.setProperty("appearance", "subtle")
         self._batch_bottom_button.setToolTip("Move selected songs to bottom")
         self._batch_bottom_button.clicked.connect(self._emit_batch_move_songs_to_bottom)
         batch_layout.addWidget(self._batch_bottom_button)
 
-        self._batch_delete_button = QPushButton("X", self._batch_bar)
+        self._batch_delete_button = QPushButton("DEL", self._batch_bar)
         self._batch_delete_button.setObjectName("songBrowserBatchDelete")
         self._batch_delete_button.setProperty("appearance", "danger")
         self._batch_delete_button.setToolTip("Delete selected songs")
@@ -406,7 +407,7 @@ class SongBrowserPanel(QWidget):
         song_count = max(1, self._songs_tree.topLevelItemCount())
         digits = len(str(song_count))
         digit_width = self._songs_tree.fontMetrics().horizontalAdvance("9")
-        dynamic_width = 24 + (digit_width * max(2, digits))
+        dynamic_width = 6 + (digit_width * digits)
         self._songs_tree.setColumnWidth(
             _ROW_NUMBER_COLUMN,
             max(_ROW_NUMBER_COLUMN_WIDTH, dynamic_width),
@@ -488,9 +489,9 @@ class SongBrowserPanel(QWidget):
             self.setMinimumWidth(_PANEL_COLLAPSED_WIDTH)
             self.setMaximumWidth(_PANEL_COLLAPSED_WIDTH)
         else:
-            self._root_layout.setContentsMargins(10, 10, 10, 10)
-            self._root_layout.setSpacing(10)
-            self._header_layout.setSpacing(6)
+            self._root_layout.setContentsMargins(6, 6, 6, 6)
+            self._root_layout.setSpacing(5)
+            self._header_layout.setSpacing(4)
             self.setMinimumWidth(_PANEL_MIN_EXPANDED_WIDTH)
             self.setMaximumWidth(_PANEL_MAX_EXPANDED_WIDTH)
             self.resize(self._expanded_width, self.height())
@@ -766,6 +767,7 @@ class SongBrowserPanel(QWidget):
             return
 
         menu.addAction("Select Song", lambda: self.song_selected.emit(song_id))
+        menu.addAction("Rename Song...", lambda: self.rename_song_requested.emit(song_id))
         menu.addAction("Add Version...", lambda: self.add_song_version_requested.emit(song_id))
         menu.addSeparator()
         menu.addAction("Move Up", lambda: self.move_song_up_requested.emit(song_id))

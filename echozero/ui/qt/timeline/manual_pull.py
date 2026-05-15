@@ -60,6 +60,8 @@ def _pull_import_mode_for_target(
         return "main"
     return "main" if target_kind is LayerKind.SECTION else "new_take"
 
+from echozero.ui.style.qt import ensure_qt_theme_installed
+
 
 class ManualPullTimelineCanvas(QWidget):
     """Scrollable event-selection canvas used inside the manual pull workspace."""
@@ -69,6 +71,7 @@ class ManualPullTimelineCanvas(QWidget):
 
     def __init__(self, events, selected_event_ids: list[str] | None = None, parent=None):
         super().__init__(parent)
+        ensure_qt_theme_installed()
         self._events = list(events)
         self._selected_event_ids = list(selected_event_ids or [])
         self._anchor_index: int | None = (
@@ -197,9 +200,9 @@ class ManualPullTimelineCanvas(QWidget):
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.fillRect(self.rect(), QColor("#11161b"))
+        painter.fillRect(self.rect(), QColor("#101010"))
 
-        track_pen = QPen(QColor("#2b3642"))
+        track_pen = QPen(QColor("#1b222d"))
         track_pen.setWidth(1)
         painter.setPen(track_pen)
         baseline_y = self.height() * 0.5
@@ -214,8 +217,8 @@ class ManualPullTimelineCanvas(QWidget):
         metrics = painter.fontMetrics()
         for index, (event_model, rect) in enumerate(zip(self._events, self._rects)):
             is_selected = event_model.event_id in self._selected_event_ids
-            fill = QColor("#5cb2ff" if is_selected else "#475569")
-            stroke = QColor("#d7ebff" if is_selected else "#90a2b5")
+            fill = QColor("#8f8a84" if is_selected else "#77716b")
+            stroke = QColor("#d8d2cb" if is_selected else "#90a2b5")
             painter.setPen(QPen(stroke, 1.5))
             painter.setBrush(fill)
             painter.drawPolygon(self._diamond_polygon(rect))
@@ -233,7 +236,7 @@ class ManualPullTimelineCanvas(QWidget):
                 max(0.0, min(label_width, (self.width() - self._right_padding) - label_left)),
                 rect.height() + 4.0,
             )
-            painter.setPen(QColor("#08111a" if is_selected else "#eef4ff"))
+            painter.setPen(QColor("#101010" if is_selected else "#e8e2dc"))
             painter.drawText(
                 label_rect,
                 Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
@@ -243,7 +246,7 @@ class ManualPullTimelineCanvas(QWidget):
             )
 
             if event_model.start is not None:
-                painter.setPen(QColor("#c9d6e2"))
+                painter.setPen(QColor("#c0bab4"))
                 footer = format_manual_pull_seconds(event_model.start)
                 if event_model.end is not None:
                     footer = f"{footer}-{format_manual_pull_seconds(event_model.end)}"
@@ -412,6 +415,7 @@ class ManualPullWorkspaceDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        ensure_qt_theme_installed()
         self.setWindowTitle("Import from MA3")
         self.resize(1120, 560)
         self._syncing = False

@@ -661,7 +661,7 @@ class TimelineWidgetRuntimeMixin:
 
     def _zoom_from_input(
         self: _TimelineWidgetRuntimeHost,
-        delta: int,
+        delta: float,
         anchor_x: float,
     ) -> None:
         if delta == 0:
@@ -669,6 +669,15 @@ class TimelineWidgetRuntimeMixin:
         zoom_steps = float(delta) / 120.0
         factor = float(pow(TIMELINE_ZOOM_STEP_FACTOR, zoom_steps))
         self._apply_zoom_factor(factor, anchor_x=anchor_x)
+
+    def _zoom_from_native_factor(
+        self: _TimelineWidgetRuntimeHost,
+        factor: float,
+        anchor_x: float,
+    ) -> None:
+        if factor <= 0.0:
+            return
+        self._apply_zoom_factor(float(factor), anchor_x=anchor_x)
 
     def _zoom_to_fit_all(self: _TimelineWidgetRuntimeHost) -> None:
         viewport_widget = self._scroll.viewport()

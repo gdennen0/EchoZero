@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import ceil, floor
 
-from PyQt6.QtCore import QPointF, QRectF
+from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
 
 from echozero.application.presentation.models import TimelinePresentation
@@ -29,20 +29,38 @@ class RulerBlock:
         self.playhead_color_hex = playhead_color_hex
 
     def paint(
-        self, painter: QPainter, layout: RulerLayout, presentation: TimelinePresentation
+        self,
+        painter: QPainter,
+        layout: RulerLayout,
+        presentation: TimelinePresentation,
+        *,
+        grid_mode: TimelineGridMode | str = TimelineGridMode.AUTO,
     ) -> None:
         rect = layout.rect
         painter.fillRect(rect, QColor(self.style.background_hex))
         painter.fillRect(
-            QRectF(rect.left(), rect.bottom() - 1, rect.width(), 1), QColor(self.style.divider_hex)
-        )
-        painter.fillRect(
             QRectF(rect.left(), rect.top(), layout.header_width, rect.height()),
             QColor(self.style.header_background_hex),
         )
+        painter.fillRect(
+            QRectF(rect.left(), rect.bottom() - 1, rect.width(), 1), QColor(self.style.divider_hex)
+        )
+        painter.fillRect(
+            QRectF(layout.header_width - 1, rect.top(), 2, rect.height()),
+            QColor(self.style.split_divider_hex),
+        )
+        base_font = QFont(painter.font())
+        header_font = QFont(base_font)
+        header_font.setPointSize(max(7, int(RULER_FONT_SIZE) - 1))
+        header_font.setBold(True)
+        painter.setFont(header_font)
         painter.setPen(QColor(self.style.title_hex))
-        painter.drawText(14, int(rect.top()) + 18, _ruler_title(presentation))
-        label_font = QFont(painter.font())
+        painter.drawText(
+            QRectF(rect.left() + 8.0, rect.top(), max(1.0, layout.header_width - 16.0), rect.height() - 1.0),
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            "LAYERS",
+        )
+        label_font = QFont(base_font)
         label_font.setPointSize(max(7, int(RULER_FONT_SIZE)))
         painter.setFont(label_font)
 
@@ -52,6 +70,7 @@ class RulerBlock:
             presentation=presentation,
             content_width=content_width,
             content_start_x=layout.header_width,
+            mode=grid_mode,
         ):
             if x < layout.header_width or x > rect.right():
                 continue
@@ -104,8 +123,27 @@ def visible_ruler_marks(
     presentation: TimelinePresentation,
     content_width: float,
     content_start_x: float,
+    mode: TimelineGridMode | str = TimelineGridMode.AUTO,
 ) -> list[tuple[str, float]]:
     """Return visible ruler labels for either musical bars or plain seconds."""
+
+    if isinstance(mode, TimelineGridMode):
+        normalized_mode = mode
+    else:
+        try:
+            normalized_mode = TimelineGridMode(str(mode).strip().lower())
+        except ValueError:
+            normalized_mode = TimelineGridMode.AUTO
+    if normalized_mode is not TimelineGridMode.BEAT:
+        return [
+            (str(second), x)
+            for second, x in visible_ruler_seconds(
+                scroll_x=presentation.scroll_x,
+                pixels_per_second=presentation.pixels_per_second,
+                content_width=content_width,
+                content_start_x=content_start_x,
+            )
+        ]
 
     bpm = presentation.bpm
     if bpm is None or float(bpm) <= 0.0:

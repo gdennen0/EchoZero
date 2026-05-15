@@ -633,7 +633,7 @@ class TimelineWidgetActionRouter(
                 return False
             return True
 
-        title = Path(resolved_path).stem.strip() or "Imported Song"
+        title = self._resolved_import_song_title(runtime, resolved_path)
         if not self._invoke_add_song_from_path(
             runtime,
             title,
@@ -708,6 +708,14 @@ class TimelineWidgetActionRouter(
             pipeline_action_ids=pipeline_action_ids,
         )
         imported_targets: list[tuple[str, str]] = []
+        resolved_titles = {
+            audio_path: self._resolved_import_song_title(
+                runtime,
+                audio_path,
+                batch_audio_paths=audio_paths,
+            )
+            for audio_path in audio_paths
+        }
         imported_count, canceled = self._run_import_steps(
             audio_paths=audio_paths,
             title="Import Songs",
@@ -716,6 +724,7 @@ class TimelineWidgetActionRouter(
             import_one=lambda audio_path: self._import_one_as_new_song(
                 runtime=runtime,
                 audio_path=audio_path,
+                title=resolved_titles.get(audio_path, Path(audio_path).stem.strip() or "Imported Song"),
                 run_pipeline_actions=run_pipeline_actions and not queue_pipeline_runs,
                 pipeline_action_ids=(pipeline_action_ids if not queue_pipeline_runs else ()),
                 initial_song_order=initial_song_order,
@@ -751,6 +760,7 @@ class TimelineWidgetActionRouter(
         *,
         runtime: _TimelineRuntimeShell,
         audio_path: str,
+        title: str,
         run_pipeline_actions: bool,
         pipeline_action_ids: tuple[str, ...],
         initial_song_order: list[str],
@@ -758,7 +768,6 @@ class TimelineWidgetActionRouter(
         imported_targets: list[tuple[str, str]],
         collect_pipeline_target: bool,
     ) -> bool:
-        title = Path(audio_path).stem.strip() or "Imported Song"
         if not self._invoke_add_song_from_path(
             runtime,
             title,
@@ -1304,6 +1313,8 @@ class TimelineWidgetActionRouter(
         for layer in runtime_presentation.layers:
             if layer.kind is LayerKind.AUDIO:
                 return cast(LayerId, layer.layer_id)
+        if presentation.active_song_version_id.strip() or runtime_presentation.active_song_version_id.strip():
+            return LayerId("source_audio")
         return None
 
     def _configured_import_pipeline_actions(

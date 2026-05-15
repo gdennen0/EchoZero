@@ -95,6 +95,7 @@ from echozero.ui.qt.app_shell_project_lifecycle import recover_project as _recov
 from echozero.ui.qt.app_shell_project_lifecycle import (
     refresh_from_storage as _refresh_from_storage,
 )
+from echozero.ui.qt.app_shell_project_lifecycle import rename_song as _rename_song
 from echozero.ui.qt.app_shell_project_lifecycle import reorder_songs as _reorder_songs
 from echozero.ui.qt.app_shell_project_lifecycle import save_project as _save_project
 from echozero.ui.qt.app_shell_project_lifecycle import save_project_as as _save_project_as
@@ -453,6 +454,9 @@ class StageZeroRuntimeController(
 
     def select_song(self, song_id: str | SongId) -> TimelinePresentation:
         return _select_song(self, song_id)
+
+    def rename_song(self, song_id: str | SongId, title: str) -> TimelinePresentation:
+        return _rename_song(self, song_id, title)
 
     def switch_song_version(self, song_version_id: str | SongVersionId) -> TimelinePresentation:
         return _switch_song_version(self, song_version_id)

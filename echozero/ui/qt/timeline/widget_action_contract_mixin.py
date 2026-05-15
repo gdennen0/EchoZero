@@ -13,12 +13,14 @@ from typing import Protocol, cast
 
 from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMessageBox, QWidget
 
+from echozero.application.song.title_extraction import resolve_import_song_titles
 from echozero.application.presentation.inspector_contract import InspectorAction
 from echozero.application.presentation.models import (
     SongOptionPresentation,
     SongVersionOptionPresentation,
     TimelinePresentation,
 )
+from echozero.application.settings.models import SongImportNameMode
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId
 from echozero.application.shared.ranges import TimeRange
@@ -95,6 +97,10 @@ class _AddSongRuntimeShell(_TimelineRuntimeShell, Protocol):
 
 class _SelectSongRuntimeShell(_TimelineRuntimeShell, Protocol):
     def select_song(self, song_id: str) -> TimelinePresentation | None: ...
+
+
+class _RenameSongRuntimeShell(_TimelineRuntimeShell, Protocol):
+    def rename_song(self, song_id: str, title: str) -> TimelinePresentation | None: ...
 
 
 class _SwitchSongVersionRuntimeShell(_TimelineRuntimeShell, Protocol):
@@ -266,6 +272,35 @@ class TimelineWidgetContractActionMixin:
     def _default_song_title_from_audio_path(self, audio_path: str) -> str:
         stem = Path(audio_path).stem.strip()
         return stem or "Imported Song"
+
+    def _resolved_import_song_title(
+        self,
+        runtime: _TimelineRuntimeShell,
+        audio_path: str,
+        *,
+        batch_audio_paths: tuple[str, ...] = (),
+    ) -> str:
+        paths = batch_audio_paths or (audio_path,)
+        return resolve_import_song_titles(
+            paths,
+            name_mode=self._song_import_name_mode(runtime),
+        ).get(audio_path, self._default_song_title_from_audio_path(audio_path))
+
+    @staticmethod
+    def _song_import_name_mode(runtime: _TimelineRuntimeShell) -> SongImportNameMode:
+        service = getattr(runtime, "app_settings_service", None)
+        if service is None or not callable(getattr(service, "preferences", None)):
+            return SongImportNameMode.FILENAME
+        try:
+            preferences = service.preferences()
+        except Exception:
+            return SongImportNameMode.FILENAME
+        configured = getattr(preferences, "song_import", None)
+        value = getattr(configured, "name_mode", SongImportNameMode.FILENAME)
+        try:
+            return SongImportNameMode(str(getattr(value, "value", value)).strip())
+        except ValueError:
+            return SongImportNameMode.FILENAME
 
     def _resolve_audio_picker_start_directory(self) -> str:
         configured_value = getattr(self, "_last_audio_picker_directory", "")
@@ -516,6 +551,9 @@ class TimelineWidgetContractActionMixin:
             return
         if action_id == "song.select":
             self._run_select_song_action(params)
+            return
+        if action_id == "song.rename":
+            self._run_rename_song_action(params)
             return
         if action_id == "song.version.switch":
             self._run_switch_song_version_action(params)
@@ -879,7 +917,7 @@ class TimelineWidgetContractActionMixin:
         if isinstance(requested_title, str) and requested_title.strip():
             title = requested_title.strip()
         else:
-            title = self._default_song_title_from_audio_path(audio_path)
+            title = self._resolved_import_song_title(runtime, audio_path)
         configured_action_ids = self._configured_import_pipeline_action_ids(runtime)
         canonical_import = getattr(self, "_invoke_add_song_from_path", None)
         if callable(canonical_import) and configured_action_ids is not None:
@@ -982,6 +1020,52 @@ class TimelineWidgetContractActionMixin:
 
     def select_song(self, song_id: str) -> None:
         self._run_select_song_action({"song_id": song_id})
+
+    def _run_rename_song_action(self, params: dict[str, object]) -> None:
+        host = cast(_ContractActionHost, self)
+        runtime = cast(_RenameSongRuntimeShell | None, host._resolve_runtime_shell())
+        if runtime is None or not callable(getattr(runtime, "rename_song", None)):
+            host._message_box.warning(
+                host._widget,
+                "Rename Song",
+                "This runtime does not support renaming songs.",
+            )
+            return
+        song_id = params.get("song_id")
+        if not isinstance(song_id, str) or not song_id.strip():
+            song_id = host._get_presentation().active_song_id
+        if not isinstance(song_id, str) or not song_id.strip():
+            host._message_box.warning(
+                host._widget,
+                "Rename Song",
+                "Select a song before renaming it.",
+            )
+            return
+        current_title = self._resolve_song_title(song_id)
+        requested_title = params.get("title")
+        if isinstance(requested_title, str) and requested_title.strip():
+            next_title = requested_title.strip()
+        else:
+            next_value, accepted = host._input_dialog.getText(
+                host._widget,
+                "Rename Song",
+                "Song name",
+                text=current_title,
+            )
+            if not accepted:
+                return
+            next_title = str(next_value or "").strip()
+        if not next_title or next_title == current_title:
+            return
+        try:
+            updated = runtime.rename_song(song_id.strip(), next_title)
+        except Exception as exc:
+            host._message_box.warning(host._widget, "Rename Song", str(exc))
+            return
+        host._set_presentation(updated if updated is not None else runtime.presentation())
+
+    def rename_song(self, song_id: str) -> None:
+        self._run_rename_song_action({"song_id": song_id})
 
     def _run_switch_song_version_action(self, params: dict[str, object]) -> None:
         host = cast(_ContractActionHost, self)

@@ -822,8 +822,10 @@ def test_app_shell_runtime_extract_song_drum_events_adds_selected_stem_layers(mo
             "timeline.extract_song_drum_events",
             {
                 "layer_id": "source_audio",
+                "include_drums_stem_layer": False,
                 "include_bass_stem_layer": True,
                 "include_vocals_stem_layer": True,
+                "include_other_stem_layer": False,
             },
             object_id="source_audio",
             object_type="layer",

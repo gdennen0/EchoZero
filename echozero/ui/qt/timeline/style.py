@@ -107,6 +107,7 @@ class TimelineCanvasStyle:
     selected_row_fill_hex: str
     dimmed_row_fill_hex: str
     row_divider_hex: str
+    split_divider_hex: str
     no_takes_hint_hex: str
     no_takes_hint_dimmed_hex: str
     section_even_hex: str
@@ -206,6 +207,7 @@ class WaveformLaneStyle:
 class RulerStyle:
     background_hex: str
     divider_hex: str
+    split_divider_hex: str
     header_background_hex: str
     title_hex: str
     tick_hex: str
@@ -250,51 +252,52 @@ class TimelineShellStyle:
 TIMELINE_STYLE = TimelineShellStyle(
     window_title="EchoZero Timeline Preview",
     canvas=TimelineCanvasStyle(
-        background_hex="#12151b",
-        row_fill_hex="#161b22",
-        selected_row_fill_hex="#1a212b",
-        dimmed_row_fill_hex="#12161c",
-        row_divider_hex="#252c38",
-        no_takes_hint_hex="#8b97a8",
-        no_takes_hint_dimmed_hex="#5f6977",
-        section_even_hex="#f0b74f",
-        section_odd_hex="#6fc5c6",
-        section_alpha=28,
-        section_boundary_hex="#f6d37a",
-        region_even_hex="#d9dee6",
-        region_odd_hex="#c9d0da",
+        background_hex="#101010",
+        row_fill_hex="#171719",
+        selected_row_fill_hex="#202022",
+        dimmed_row_fill_hex="#121214",
+        row_divider_hex="#3a383a",
+        split_divider_hex="#5a565a",
+        no_takes_hint_hex="#aaa49e",
+        no_takes_hint_dimmed_hex="#685f67",
+        section_even_hex="#885A2D",
+        section_odd_hex="#8f8a84",
+        section_alpha=22,
+        section_boundary_hex="#d8d2cb",
+        region_even_hex="#28262a",
+        region_odd_hex="#242224",
         region_alpha=16,
-        region_selected_outline_hex="#9fc3ff",
+        region_selected_outline_hex="#d8d2cb",
     ),
     playhead=TimelinePlayheadStyle(
-        color_hex="#93A0B1",
+        color_hex="#CC8844",
         line_width_px=1,
         head_outline_width_px=1,
     ),
-    scroll_area_background_hex="#12151b",
+    scroll_area_background_hex="#101010",
     object_palette=ObjectPaletteStyle(
         frame_object_name="objectInfoPanel",
         title_object_name="objectPaletteHeader",
         section_object_name="timeline_object_info_section",
         kind_object_name="timeline_object_info_kind",
         body_object_name="selectionSecondaryLabel",
-        background_hex="#171d26",
-        border_hex="#252c38",
-        title_hex="#f0f3f8",
-        section_hex="#8da1b9",
-        kind_fg_hex="#d6e3f6",
-        kind_bg_hex="#223347",
-        kind_border_hex="#35506d",
-        body_hex="#c2cad6",
-        button_bg_hex="#223041",
-        button_fg_hex="#dbe8f8",
-        button_border_hex="#32455d",
-        button_disabled_fg_hex="#6b7481",
-        button_disabled_bg_hex="#1a212b",
-        button_disabled_border_hex="#263142",
-        spin_fg_hex="#dce8fb",
-        spin_bg_hex="#1e2a38",
-        spin_border_hex="#344a65",
+        background_hex="#171719",
+        border_hex="#3a383a",
+        title_hex="#f6f3ee",
+        section_hex="#aaa49e",
+        kind_fg_hex="#f6f3ee",
+        kind_bg_hex="#202022",
+        kind_border_hex="#8f8a84",
+        body_hex="#aaa49e",
+        button_bg_hex="#202022",
+        button_fg_hex="#e8e2dc",
+        button_border_hex="#4a4749",
+        button_disabled_fg_hex="#685f67",
+        button_disabled_bg_hex="#18181a",
+        button_disabled_border_hex="#3a383a",
+        spin_fg_hex="#e8e2dc",
+        spin_bg_hex="#202022",
+        spin_border_hex="#4a4749",
         title_font_px=12,
         section_font_px=9,
         body_font_px=10,
@@ -303,94 +306,94 @@ TIMELINE_STYLE = TimelineShellStyle(
         section_font_weight=700,
         kind_font_weight=600,
         button_font_weight=600,
-        button_min_height_px=26,
-        spin_min_height_px=24,
-        min_width_px=272,
-        max_width_px=420,
-        content_padding=BoxInsets(left=10, top=10, right=10, bottom=10),
-        section_spacing_px=10,
+        button_min_height_px=22,
+        spin_min_height_px=22,
+        min_width_px=244,
+        max_width_px=360,
+        content_padding=BoxInsets(left=6, top=6, right=6, bottom=6),
+        section_spacing_px=4,
     ),
     transport_bar=TransportBarStyle(
-        background_hex="#0e1217",
-        title_hex="#f0f3f8",
-        time_hex="#f6f8fb",
-        meta_hex="#93a0b1",
+        background_hex="#101010",
+        title_hex="#e8e2dc",
+        time_hex="#f6f3ee",
+        meta_hex="#aaa49e",
         button=PaintButtonStyle(
-            fill_hex="#1b2330",
-            border_hex="#334055",
-            text_hex="#ffffff",
-            corner_radius=6,
+            fill_hex="#202022",
+            border_hex="#4a4749",
+            text_hex="#f6f3ee",
+            corner_radius=3,
             font=FontStyle(point_size=9, bold=True),
         ),
     ),
     layer_header=LayerHeaderStyle(
-        background_hex="#1b212a",
-        selected_background_hex="#202833",
-        dimmed_background_hex="#151922",
-        title_hex="#f0f3f8",
-        dimmed_title_hex="#cbd3df",
+        background_hex="#18181a",
+        selected_background_hex="#202022",
+        dimmed_background_hex="#121214",
+        title_hex="#f6f3ee",
+        dimmed_title_hex="#807a74",
         title_font=FontStyle(point_size=10, bold=True),
-        toggle_fill_hex="#141922",
-        toggle_border_hex="#445065",
-        toggle_text_hex="#d7dce4",
-        toggle_corner_radius=6,
+        toggle_fill_hex="#18181a",
+        toggle_border_hex="#4a4749",
+        toggle_text_hex="#d8d2cb",
+        toggle_corner_radius=3,
         toggle_font=FontStyle(point_size=9, bold=True),
         status=LayerHeaderStatusStyles(
             stale=StatusChipStyle(
-                fill_hex="#7a5b16",
-                text_hex="#f8c555",
-                corner_radius=5,
+                fill_hex="#2e2d31",
+                text_hex="#d8d2cb",
+                corner_radius=2,
                 font=FontStyle(point_size=8, bold=True),
             ),
             edited=StatusChipStyle(
-                fill_hex="#184c39",
+                fill_hex="#1c3428",
                 text_hex="#7fd1ae",
-                corner_radius=5,
+                corner_radius=2,
                 font=FontStyle(point_size=8, bold=True),
             ),
         ),
         mute_solo=MuteSoloButtonStyle(
-            active=ToggleButtonStateStyle(fill_hex="#2b6bf0", text_hex="#ffffff"),
-            inactive=ToggleButtonStateStyle(fill_hex="#18202a", text_hex="#b8c0cc"),
-            dimmed_inactive_fill_hex="#10151b",
-            border_hex="#4b5669",
-            corner_radius=5,
+            active=ToggleButtonStateStyle(fill_hex="#28262a", text_hex="#f6f3ee"),
+            inactive=ToggleButtonStateStyle(fill_hex="#121018", text_hex="#aaa49e"),
+            dimmed_inactive_fill_hex="#121214",
+            border_hex="#4a4749",
+            corner_radius=2,
             font=FontStyle(point_size=8, bold=True),
         ),
     ),
     take_row=TakeRowStyle(
-        row_fill_hex="#121821",
-        selected_row_fill_hex="#1a212b",
-        dimmed_row_fill_hex="#0f141b",
-        header_fill_hex="#171d26",
-        selected_header_fill_hex="#202833",
-        dimmed_header_fill_hex="#141922",
-        divider_hex="#222936",
-        label_hex="#aeb8c6",
-        dimmed_label_hex="#8e98a6",
-        options_button_open_fill_hex="#263244",
-        options_button_closed_fill_hex="#1f2938",
-        options_button_dimmed_fill_hex="#1a2230",
-        options_button_open_text_hex="#9fcbff",
-        options_button_closed_text_hex="#8ea4bf",
+        row_fill_hex="#171719",
+        selected_row_fill_hex="#202022",
+        dimmed_row_fill_hex="#121214",
+        header_fill_hex="#171719",
+        selected_header_fill_hex="#202022",
+        dimmed_header_fill_hex="#101010",
+        divider_hex="#3a383a",
+        label_hex="#aaa49e",
+        dimmed_label_hex="#685f67",
+        options_button_open_fill_hex="#2e2d31",
+        options_button_closed_fill_hex="#202022",
+        options_button_dimmed_fill_hex="#18181a",
+        options_button_open_text_hex="#e8e2dc",
+        options_button_closed_text_hex="#aaa49e",
         options_button_font=FontStyle(point_size=8, bold=True),
-        options_area_fill_hex="#101822",
+        options_area_fill_hex="#101010",
         action_chip=TakeActionChipStyle(
-            fill_hex="#22364f",
-            text_hex="#d0e4ff",
+            fill_hex="#202022",
+            text_hex="#d8d2cb",
             font=FontStyle(point_size=8),
         ),
     ),
     event_lane=EventLaneStyle(
-        default_fill_hex="#57a0ff",
-        demoted_fill_hex="#7f8a99",
+        default_fill_hex="#885A2D",
+        demoted_fill_hex="#685f67",
         dimmed_alpha=120,
         selection_lighten_factor=130,
         border_darkness_factor=160,
         normal_border_width_px=1,
         selected_border_width_px=2,
-        text_hex="#0b1220",
-        corner_radius=5,
+        text_hex="#101010",
+        corner_radius=3,
     ),
     waveform_lane=WaveformLaneStyle(
         dimmed_alpha=120,
@@ -400,40 +403,41 @@ TIMELINE_STYLE = TimelineShellStyle(
         cached_amp_row_factor=0.38,
     ),
     ruler=RulerStyle(
-        background_hex="#0f1318",
-        divider_hex="#2a303c",
-        header_background_hex="#171c23",
-        title_hex="#9aa4b2",
-        tick_hex="#3b4352",
-        grid_hex="#b8c0cc",
-        label_hex="#b8c0cc",
-        section_even_hex="#f0b74f",
-        section_odd_hex="#6fc5c6",
-        section_alpha=38,
-        section_boundary_hex="#f6d37a",
-        section_label_hex="#0f141b",
-        region_even_hex="#d9dee6",
-        region_odd_hex="#c9d0da",
+        background_hex="#101010",
+        divider_hex="#3a383a",
+        split_divider_hex="#5a565a",
+        header_background_hex="#101010",
+        title_hex="#8f8a84",
+        tick_hex="#3d3b3d",
+        grid_hex="#242224",
+        label_hex="#685f67",
+        section_even_hex="#885A2D",
+        section_odd_hex="#8f8a84",
+        section_alpha=24,
+        section_boundary_hex="#d8d2cb",
+        section_label_hex="#101010",
+        region_even_hex="#28262a",
+        region_odd_hex="#242224",
         region_alpha=28,
-        region_border_hex="#9ea9b7",
-        region_label_hex="#d7dee8",
+        region_border_hex="#8f8a84",
+        region_label_hex="#c0bab4",
     ),
     fixture=TimelineFixtureStyle(
         default_sync_label="No sync",
-        fallback_audio_lane_hex="#9b87f5",
+        fallback_audio_lane_hex="#8f8a84",
         layer_color_tokens=MappingProxyType(
             {
-                "song": "#4da3ff",
-                "drums": "#9b87f5",
-                "bass": "#d68cff",
-                "vocals": "#7dd3fc",
-                "other": "#94a3b8",
-                "kick": "#66a3ff",
-                "snare": "#7fd1ae",
-                "hihat": "#f8c555",
-                "clap": "#ff8c78",
-                "sync": "#ff8c78",
-                "event_preview": "#7fd1ae",
+                "song": "#86a0ad",
+                "drums": "#8d7ea5",
+                "bass": "#7f9a72",
+                "vocals": "#b56f61",
+                "other": "#8f8a84",
+                "kick": "#a6533e",
+                "snare": "#91a19a",
+                "hihat": "#b49a63",
+                "clap": "#9a8f83",
+                "sync": "#7f9a8f",
+                "event_preview": "#91a19a",
             }
         ),
         take_action_labels=MappingProxyType(
@@ -478,7 +482,7 @@ def build_object_palette_stylesheet(
             color: {style.kind_fg_hex};
             background: {style.kind_bg_hex};
             border: 1px solid {style.kind_border_hex};
-            border-radius: 10px;
+            border-radius: 2px;
             padding: 2px 8px;
             font-size: {style.kind_font_px}px;
             font-weight: {style.kind_font_weight};
@@ -496,14 +500,14 @@ def build_object_palette_stylesheet(
         }}
         QSplitter#timeline_object_info_splitter::handle:vertical {{
             background: {style.border_hex};
-            border-radius: 3px;
+            border-radius: 2px;
             margin: 1px 120px;
         }}
         QPushButton {{
             background: {style.button_bg_hex};
             color: {style.button_fg_hex};
             border: 1px solid {style.button_border_hex};
-            border-radius: 4px;
+            border-radius: 2px;
             padding: 5px 8px;
             min-height: {style.button_min_height_px}px;
             font-size: 10px;
@@ -518,7 +522,7 @@ def build_object_palette_stylesheet(
             color: {style.spin_fg_hex};
             background: {style.spin_bg_hex};
             border: 1px solid {style.spin_border_hex};
-            border-radius: 4px;
+            border-radius: 2px;
             padding: 3px 6px;
             min-height: {style.spin_min_height_px}px;
         }}

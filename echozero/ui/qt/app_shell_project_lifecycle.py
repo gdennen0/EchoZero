@@ -297,6 +297,41 @@ def select_song(
     return shell.presentation()
 
 
+def rename_song(
+    shell: ProjectLifecycleShell,
+    song_id: str | SongId,
+    title: str,
+) -> TimelinePresentation:
+    song_record = shell.project_storage.songs.get(str(song_id))
+    if song_record is None:
+        raise ValueError(f"SongRecord not found: {song_id}")
+    next_title = str(title or "").strip()
+    if not next_title:
+        raise ValueError("Song title cannot be empty.")
+    if next_title == song_record.title:
+        return shell.presentation()
+
+    shell.project_storage.songs.update(replace(song_record, title=next_title))
+    shell.project_storage.commit()
+    shell.project_storage.dirty_tracker.mark_dirty(song_record.id)
+    shell._is_dirty = True
+
+    current = shell.presentation()
+    active_song_id = SongId(current.active_song_id) if current.active_song_id else None
+    active_song_version_id = (
+        SongVersionId(current.active_song_version_id)
+        if current.active_song_version_id
+        else None
+    )
+    refresh_from_storage(
+        shell,
+        active_song_id=active_song_id,
+        active_song_version_id=active_song_version_id,
+    )
+    shell._clear_history()
+    return shell.presentation()
+
+
 def switch_song_version(
     shell: ProjectLifecycleShell,
     song_version_id: str | SongVersionId,

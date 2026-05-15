@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QRectF, Qt
+from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QBrush, QColor, QFont, QFontMetrics, QGuiApplication, QPainter, QPen
 
 from echozero.application.shared.enums import FollowMode
@@ -21,28 +21,27 @@ class TransportBarBlock:
     ) -> dict[str, object]:
         painter.fillRect(layout.rect, QColor(self.style.background_hex))
 
-        panel_rect = layout.rect.adjusted(3.0, 1.5, -3.0, -1.5)
-        panel_fill = QColor(self.style.background_hex).lighter(108)
-        panel_border = QColor(self.style.button.border_hex)
-        panel_border.setAlpha(170)
+        panel_rect = layout.rect.adjusted(1.0, 0.5, -1.0, -0.5)
+        panel_fill = QColor(self.style.background_hex).lighter(104)
+        panel_border = QColor("#1b222d")
         painter.setPen(QPen(panel_border, 1))
         painter.setBrush(QBrush(panel_fill))
-        painter.drawRoundedRect(panel_rect, 8, 8)
+        painter.drawRoundedRect(panel_rect, 3.0, 3.0)
 
         play_rect, stop_rect, follow_rect = self._button_rects(layout.controls_rect)
         self._draw_button(
             painter,
             play_rect,
-            "⏸" if presentation.is_playing else "▶",
+            "pause" if presentation.is_playing else "play",
             primary=True,
             active=presentation.is_playing,
         )
-        self._draw_button(painter, stop_rect, "■", primary=False, active=False)
+        self._draw_button(painter, stop_rect, "stop", primary=False, active=False)
         follow_enabled = presentation.follow_mode != FollowMode.OFF
         self._draw_button(
             painter,
             follow_rect,
-            "◉" if follow_enabled else "◎",
+            "latch_on" if follow_enabled else "latch_off",
             primary=False,
             active=follow_enabled,
         )
@@ -55,7 +54,7 @@ class TransportBarBlock:
 
         if layout.meta_rect.width() > 1.0 and QGuiApplication.instance() is not None:
             status_color = (
-                QColor("#7fd1ae") if presentation.is_playing else QColor(self.style.meta_hex)
+                QColor("#d8d2cb") if presentation.is_playing else QColor(self.style.meta_hex)
             )
             painter.setPen(status_color)
             prior_font = painter.font()
@@ -126,7 +125,7 @@ class TransportBarBlock:
         )
 
     def _button_rects(self, controls_rect: QRectF) -> tuple[QRectF, QRectF, QRectF]:
-        button_gap = 10.0
+        button_gap = 6.0
         button_width = max(0.0, (controls_rect.width() - (button_gap * 2.0)) / 3.0)
         play_rect = QRectF(
             controls_rect.left(),
@@ -152,17 +151,17 @@ class TransportBarBlock:
         if rect.width() <= 1.0:
             return
         badge_rect = rect.adjusted(0.5, 0.5, -0.5, -0.5)
-        badge_fill = QColor(self.style.background_hex).lighter(132)
-        badge_border = QColor(self.style.button.border_hex).lighter(120)
+        badge_fill = QColor(self.style.background_hex).lighter(118)
+        badge_border = QColor("#4a4749")
         painter.setPen(QPen(badge_border, 1))
         painter.setBrush(QBrush(badge_fill))
-        painter.drawRoundedRect(badge_rect, 8, 8)
+        painter.drawRoundedRect(badge_rect, 3.0, 3.0)
 
         if QGuiApplication.instance() is None:
             return
         prior_font = painter.font()
         clock_font = QFont(prior_font)
-        clock_font.setPointSize(max(10, prior_font.pointSize() + 2))
+        clock_font.setPointSize(max(9, prior_font.pointSize() + 1))
         clock_font.setBold(True)
         painter.setFont(clock_font)
         painter.setPen(QColor(self.style.time_hex))
@@ -189,30 +188,65 @@ class TransportBarBlock:
         border_color = QColor(button_style.border_hex)
         text_color = QColor(button_style.text_hex)
         if active:
-            fill_color = QColor("#2a6a45")
-            border_color = QColor("#57a678")
+            fill_color = QColor("#28262a")
+            border_color = QColor("#8f8a84")
+            text_color = QColor("#f6f3ee")
         elif primary:
-            fill_color = fill_color.lighter(122)
-            border_color = border_color.lighter(132)
+            fill_color = fill_color.lighter(112)
+            border_color = QColor("#4a4749")
         else:
-            fill_color = fill_color.darker(108)
+            fill_color = fill_color.darker(106)
+            border_color = QColor("#3a383a")
+        radius = float(max(1, button_style.corner_radius))
         painter.setPen(QPen(border_color, 1))
         painter.setBrush(QBrush(fill_color))
-        painter.drawRoundedRect(rect, button_style.corner_radius, button_style.corner_radius)
+        painter.drawRoundedRect(rect, radius, radius)
         if QGuiApplication.instance() is None:
             return
-        painter.setPen(text_color)
-        prior_font = painter.font()
-        button_font = QFont(prior_font)
-        button_font.setPointSize(max(12, int(rect.height() * 0.5)))
-        button_font.setBold(button_style.font.bold)
-        painter.setFont(button_font)
-        painter.drawText(
-            rect.adjusted(0, -1, 0, -1),
-            Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextSingleLine,
-            label,
-        )
-        painter.setFont(prior_font)
+        self._draw_transport_icon(painter, rect, label, text_color)
+
+    def _draw_transport_icon(
+        self,
+        painter: QPainter,
+        rect: QRectF,
+        icon: str,
+        color: QColor,
+    ) -> None:
+        center = rect.center()
+        size = max(6.0, min(rect.width(), rect.height()) * 0.44)
+        painter.save()
+        painter.setPen(QPen(color, 1))
+        painter.setBrush(QBrush(color))
+        if icon == "play":
+            half_h = size * 0.55
+            painter.drawPolygon(
+                QPointF(center.x() - size * 0.36, center.y() - half_h),
+                QPointF(center.x() - size * 0.36, center.y() + half_h),
+                QPointF(center.x() + size * 0.48, center.y()),
+            )
+        elif icon == "pause":
+            bar_w = max(2.0, size * 0.20)
+            gap = max(2.0, size * 0.18)
+            bar_h = size * 1.08
+            top = center.y() - (bar_h * 0.5)
+            painter.drawRect(QRectF(center.x() - gap * 0.5 - bar_w, top, bar_w, bar_h))
+            painter.drawRect(QRectF(center.x() + gap * 0.5, top, bar_w, bar_h))
+        elif icon == "stop":
+            side = size * 0.78
+            painter.drawRect(QRectF(center.x() - side * 0.5, center.y() - side * 0.5, side, side))
+        elif icon in {"latch_on", "latch_off"}:
+            radius = size * 0.36
+            latch_rect = QRectF(
+                center.x() - radius,
+                center.y() - radius,
+                radius * 2.0,
+                radius * 2.0,
+            )
+            if icon == "latch_off":
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.setPen(QPen(color, 1.4))
+            painter.drawEllipse(latch_rect)
+        painter.restore()
 
 
 def _format_bpm_text(*, bpm: float | None, bpm_confidence: float | None) -> str:

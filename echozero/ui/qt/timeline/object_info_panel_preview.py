@@ -76,7 +76,7 @@ class EventPreviewWaveform(QFrame):
         background_painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         background_painter.setPen(Qt.PenStyle.NoPen)
         background_painter.setBrush(QColor(panel_style.button_bg_hex))
-        background_painter.drawRoundedRect(rect, 8.0, 8.0)
+        background_painter.drawRoundedRect(rect, 2.0, 2.0)
         background_painter.end()
 
         painter = QPainter(self)

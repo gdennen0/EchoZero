@@ -23,6 +23,7 @@ from echozero.application.settings.models import (
     OscReceivePreferences,
     OscSendPreferences,
     SongImportPreferences,
+    SongImportNameMode,
     import_safe_pipeline_action_descriptors,
 )
 from echozero.output_routing import output_bus_options
@@ -385,6 +386,27 @@ def _song_import_section(
         title="Song Import",
         description="Default behavior when adding songs or versions from audio files.",
         fields=(
+            SettingsField(
+                key="import.name_mode",
+                label="Imported Song Title",
+                value=song_import.name_mode.value,
+                default_value=SongImportNameMode.FILENAME.value,
+                widget=SettingsFieldWidget.DROPDOWN,
+                description=(
+                    "Keep the full filename or auto-extract a cleaner song title from common "
+                    "timecode/reference naming patterns."
+                ),
+                options=(
+                    SettingsOption(
+                        value=SongImportNameMode.FILENAME.value,
+                        label="Use full filename",
+                    ),
+                    SettingsOption(
+                        value=SongImportNameMode.EXTRACT_TITLE.value,
+                        label="Auto-extract song title",
+                    ),
+                ),
+            ),
             SettingsField(
                 key="import.strip_ltc_timecode",
                 label="Auto Strip LTC Channel",

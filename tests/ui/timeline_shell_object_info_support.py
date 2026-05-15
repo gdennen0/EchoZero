@@ -334,6 +334,32 @@ def test_object_info_panel_event_layer_hides_mix_buttons():
         app.processEvents()
 
 
+def test_object_info_panel_section_layer_hides_audio_settings_panel():
+    app = QApplication.instance() or QApplication([])
+    base = _selection_test_presentation()
+    section_layer = replace(
+        base.layers[0],
+        kind=LayerKind.SECTION,
+        title="Sections",
+    )
+    presentation = replace(
+        base,
+        layers=[section_layer],
+        selected_layer_id=LayerId("layer_kick"),
+        selected_layer_ids=[LayerId("layer_kick")],
+    )
+    widget = TimelineWidget(presentation, on_intent=lambda intent: presentation)
+    try:
+        _render_for_hit_testing(widget)
+        assert widget._object_info._layer_controls.isHidden() is True
+        assert "set_layer_mute_on" not in widget._object_info._action_buttons
+        assert "set_layer_solo_on" not in widget._object_info._action_buttons
+        assert "gain_up" not in widget._object_info._action_buttons
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_object_info_panel_expand_button_dispatches_toggle_layer_expanded():
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []

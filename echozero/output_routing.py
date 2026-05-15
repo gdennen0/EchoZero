@@ -14,6 +14,8 @@ from typing import Iterable
 MAX_OUTPUT_CHANNELS = 16
 DEFAULT_STEREO_OUTPUT_BUS = "outputs_1_2"
 DEFAULT_MASTER_OUTPUT_BUS = "outputs_1_1"
+MASTER_OUTPUT_BUS_TOKEN = "master"
+NO_OUTPUT_BUS = "none"
 
 _OUTPUT_BUS_RE = re.compile(r"^outputs_(\d+)_(\d+)$", re.IGNORECASE)
 
@@ -48,7 +50,9 @@ def parse_output_bus_token(value: object) -> OutputBusRoute | None:
     )
 
 
-def parse_output_bus_spans(value: object, *, reject_invalid: bool = False) -> tuple[tuple[int, int], ...]:
+def parse_output_bus_spans(
+    value: object, *, reject_invalid: bool = False
+) -> tuple[tuple[int, int], ...]:
     """Return 1-based inclusive channel spans parsed from a comma-separated route list."""
 
     routes = _parse_routes(value, reject_invalid=reject_invalid)
@@ -63,18 +67,40 @@ def canonical_layer_output_bus(
     clamp_to_channels: bool = False,
     reject_invalid: bool = False,
 ) -> str | None:
-    """Canonicalize one explicit layer route token.
+    """Canonicalize explicit layer route tokens.
 
-    Layer routes are intentionally single-token. If a comma-separated value is supplied,
-    the first valid token is used so older multi-route payloads degrade safely.
+    ``None`` keeps the caller's default behavior. ``"master"`` mirrors to the
+    current master output buses, while ``"none"`` is an explicit no-output route.
+    Comma-separated route payloads are preserved so one layer can fan out to multiple
+    physical outputs.
     """
 
-    routes = _parse_routes(value, reject_invalid=reject_invalid)
+    raw_tokens = _raw_tokens(value)
+    master_requested = any(_is_master_output_bus(token) for token in raw_tokens)
+    no_output_requested = any(_is_no_output_bus(token) for token in raw_tokens)
+    route_tokens = [
+        token
+        for token in raw_tokens
+        if not _is_master_output_bus(token) and not _is_no_output_bus(token)
+    ]
+
+    routes = _parse_routes(route_tokens, reject_invalid=reject_invalid)
+    tokens: list[str] = []
+    seen: set[str] = set()
     for route in routes:
         if _route_fits(route, max_channel=max_channel):
-            return route.token
+            if route.token not in seen:
+                tokens.append(route.token)
+                seen.add(route.token)
+            continue
         if reject_invalid and not clamp_to_channels:
             raise ValueError(f"Output bus exceeds available channels: {route.token}")
+    if master_requested and tokens:
+        return ",".join((MASTER_OUTPUT_BUS_TOKEN, *tokens))
+    if tokens:
+        return ",".join(tokens)
+    if no_output_requested and not master_requested:
+        return NO_OUTPUT_BUS
     if reject_invalid:
         return None
     return default
@@ -128,12 +154,19 @@ def output_bus_options(channel_count: int) -> tuple[OutputBusRoute, ...]:
 def output_bus_label(value: object) -> str:
     """Return a compact user-facing label for one or more output routes."""
 
-    routes = _parse_routes(value, reject_invalid=False)
-    if not routes:
+    raw_tokens = _raw_tokens(value)
+    if any(_is_no_output_bus(token) for token in raw_tokens):
+        return "No Output"
+    labels: list[str] = []
+    if any(_is_master_output_bus(token) for token in raw_tokens):
+        labels.append("Master Output")
+    route_tokens = [token for token in raw_tokens if not _is_master_output_bus(token)]
+    routes = _parse_routes(route_tokens, reject_invalid=False)
+    if not routes and not labels:
         return "Master Output"
-    labels = [
+    labels.extend(
         _format_output_bus_label(route.start_channel, route.end_channel) for route in routes
-    ]
+    )
     return ", ".join(labels)
 
 
@@ -152,33 +185,60 @@ def output_bus_channel_spans(
     """Convert route tokens to zero-based `(start, width)` spans clipped to output width."""
 
     resolved_channels = max(1, int(output_channels or 0))
-    routes = _parse_routes(value, reject_invalid=False)
-    if not routes:
-        default_tokens = tuple(default_output_buses or ())
-        routes = _parse_routes(
-            ",".join(default_tokens) if default_tokens else DEFAULT_STEREO_OUTPUT_BUS,
-            reject_invalid=False,
+    raw_tokens = _raw_tokens(value)
+    if any(_is_no_output_bus(token) for token in raw_tokens):
+        return ()
+    default_tokens = tuple(default_output_buses or ())
+    include_default = not raw_tokens or any(_is_master_output_bus(token) for token in raw_tokens)
+    route_tokens = [token for token in raw_tokens if not _is_master_output_bus(token)]
+    routes = _parse_routes(route_tokens, reject_invalid=False)
+    if include_default:
+        routes = (
+            *_parse_routes(
+                ",".join(default_tokens) if default_tokens else DEFAULT_STEREO_OUTPUT_BUS,
+                reject_invalid=False,
+            ),
+            *routes,
         )
     spans: list[tuple[int, int]] = []
+    seen: set[tuple[int, int]] = set()
     for route in routes:
         if route.start_channel > resolved_channels:
             continue
         end_channel = min(route.end_channel, resolved_channels)
         width = max(0, end_channel - route.start_channel + 1)
-        if width > 0:
-            spans.append((route.start_channel - 1, width))
+        span = (route.start_channel - 1, width)
+        if width > 0 and span not in seen:
+            spans.append(span)
+            seen.add(span)
     return tuple(spans)
 
 
-def _parse_routes(value: object, *, reject_invalid: bool) -> tuple[OutputBusRoute, ...]:
+def _is_master_output_bus(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    return value.strip().lower() in {MASTER_OUTPUT_BUS_TOKEN, "default"}
+
+
+def _is_no_output_bus(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    return value.strip().lower() in {NO_OUTPUT_BUS, "no_output", "off"}
+
+
+def _raw_tokens(value: object) -> list[str]:
     if value is None:
-        return ()
+        return []
     if isinstance(value, str):
-        raw_tokens = value.split(",")
-    elif isinstance(value, Iterable):
-        raw_tokens = [str(item) for item in value]
-    else:
-        raw_tokens = [str(value)]
+        return [str(token or "").strip() for token in value.split(",") if str(token or "").strip()]
+    if isinstance(value, Iterable):
+        return [str(item or "").strip() for item in value if str(item or "").strip()]
+    text = str(value).strip()
+    return [text] if text else []
+
+
+def _parse_routes(value: object, *, reject_invalid: bool) -> tuple[OutputBusRoute, ...]:
+    raw_tokens = _raw_tokens(value)
     routes: list[OutputBusRoute] = []
     for raw_token in raw_tokens:
         text = str(raw_token or "").strip()
@@ -202,7 +262,9 @@ def _route_fits(route: OutputBusRoute, *, max_channel: int | None) -> bool:
 __all__ = [
     "DEFAULT_MASTER_OUTPUT_BUS",
     "DEFAULT_STEREO_OUTPUT_BUS",
+    "MASTER_OUTPUT_BUS_TOKEN",
     "MAX_OUTPUT_CHANNELS",
+    "NO_OUTPUT_BUS",
     "OutputBusRoute",
     "canonical_layer_output_bus",
     "canonical_master_output_buses",

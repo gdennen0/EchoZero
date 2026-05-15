@@ -33,6 +33,36 @@ class _SectionLabel:
     confidence: float
 
 
+def _build_generic_part_label(index: int) -> str:
+    """Return the operator-facing generic label for a detected song part."""
+
+    return f"Part {index}"
+
+
+def _build_generic_part_ref(index: int) -> str:
+    """Return the stable cue ref for a detected generic song part."""
+
+    return f"part_{index:02d}"
+
+
+def _normalize_generic_part_labels(
+    section_labels: tuple[_SectionLabel, ...],
+) -> tuple[_SectionLabel, ...]:
+    """Relabel detections as generic parts instead of semantic section types."""
+
+    generic_parts: list[_SectionLabel] = []
+    for index, section in enumerate(section_labels, start=1):
+        generic_parts.append(
+            _SectionLabel(
+                start_seconds=float(section.start_seconds),
+                cue_ref=_build_generic_part_ref(index),
+                label=_build_generic_part_label(index),
+                confidence=float(section.confidence),
+            )
+        )
+    return tuple(generic_parts)
+
+
 SegmentSongSectionsFn = Callable[
     [
         str,
@@ -446,6 +476,8 @@ class SongSectionsProcessor:
                     f"Section auto-generation failed for block '{block_id}': {type(exc).__name__}: {exc}"
                 )
             )
+
+        section_labels = _normalize_generic_part_labels(section_labels)
 
         context.progress_bus.publish(
             ProgressReport(

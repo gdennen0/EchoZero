@@ -45,9 +45,8 @@ class ManualPullTimecodePicker(QWidget):
             button.setChecked(number == selected_timecode_no)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.setObjectName(f"manualPullTimecodeButton{number}")
-            button.setStyleSheet(
-                "QPushButton { padding: 7px 12px; border-radius: 14px; text-align: center; }"
-            )
+            button.setProperty("compact", True)
+            button.setProperty("manualPullRole", "timecode")
             button.clicked.connect(
                 lambda _checked=False, timecode_no=number: self.timecode_selected.emit(
                     int(timecode_no)
@@ -135,18 +134,17 @@ class ManualPullSourceBrowser(QWidget):
             section = QFrame(self)
             section.setFrameShape(QFrame.Shape.StyledPanel)
             section.setObjectName(f"manualPullGroupSection{group_no}")
+            section.setProperty("section", True)
             section_layout = QVBoxLayout(section)
-            section_layout.setContentsMargins(12, 12, 12, 12)
-            section_layout.setSpacing(8)
+            section_layout.setContentsMargins(8, 8, 8, 8)
+            section_layout.setSpacing(6)
 
             header_button = QPushButton(self._group_label(group), section)
             header_button.setCheckable(True)
             header_button.setChecked(group_no == selected_track_group_no)
             header_button.setCursor(Qt.CursorShape.PointingHandCursor)
             header_button.setObjectName(f"manualPullGroupButton{group_no}")
-            header_button.setStyleSheet(
-                "QPushButton { padding: 8px 10px; border-radius: 12px; text-align: left; font-weight: 600; }"
-            )
+            header_button.setProperty("manualPullRole", "group")
             header_button.clicked.connect(
                 lambda _checked=False, next_group_no=group_no: self.track_group_selected.emit(
                     int(next_group_no)
@@ -178,15 +176,13 @@ class ManualPullSourceBrowser(QWidget):
                 track_button.setCheckable(True)
                 track_button.setChecked(track.coord == active_track_coord)
                 track_button.setCursor(Qt.CursorShape.PointingHandCursor)
-                track_button.setMinimumHeight(54)
+                track_button.setMinimumHeight(44)
                 track_button.setSizePolicy(
                     QSizePolicy.Policy.Expanding,
                     QSizePolicy.Policy.Fixed,
                 )
                 track_button.setObjectName("manualPullTrackButton_" + self._safe_name(track.coord))
-                track_button.setStyleSheet(
-                    "QPushButton { padding: 10px 12px; border-radius: 12px; text-align: left; }"
-                )
+                track_button.setProperty("manualPullRole", "track")
                 track_button.clicked.connect(
                     lambda _checked=False, coord=str(track.coord): self.track_selected.emit(coord)
                 )

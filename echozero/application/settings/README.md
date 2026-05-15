@@ -48,6 +48,7 @@ The `Song Import` settings section is machine-local and affects both song and ve
 
 Current controls:
 
+- `import.name_mode`: keep the full filename or auto-extract a cleaner song title from common reference/timecode naming patterns.
 - `import.strip_ltc_timecode`: auto-detect one LTC channel in stereo audio and import the program channel.
 - `import.pipeline_action.<action_id>` toggles: run configured import-safe pipeline actions after each import.
 

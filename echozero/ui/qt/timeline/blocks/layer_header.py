@@ -102,9 +102,10 @@ class LayerHeaderBlock:
     ) -> list[tuple[str, QRectF]]:
         del active_rect
         control_rects: list[tuple[str, QRectF]] = []
+        control_gap = 4.0
         total_controls_width = (
             sum(self._control_width(control) for control in controls)
-            + max(0, len(controls) - 1) * 6.0
+            + max(0, len(controls) - 1) * control_gap
         )
         x = max(controls_rect.left(), controls_rect.right() - total_controls_width)
         for control in controls:
@@ -113,7 +114,7 @@ class LayerHeaderBlock:
                 width = max(0.0, controls_rect.right() - x)
             if width <= 0.0:
                 break
-            rect = QRectF(x, controls_rect.top(), width, 18)
+            rect = QRectF(x, controls_rect.top(), width, 16)
             if control.kind == "toggle":
                 self._draw_active_button(
                     painter,
@@ -130,7 +131,7 @@ class LayerHeaderBlock:
                     dimmed=dimmed or not control.enabled,
                 )
             control_rects.append((control.control_id, rect))
-            x += width + 6
+            x += width + control_gap
         return control_rects
 
     @staticmethod
@@ -139,7 +140,27 @@ class LayerHeaderBlock:
             if control.control_id in {"set_layer_mute", "set_layer_solo"}:
                 return 24.0
             return 52.0
-        return max(40.0, 10.0 + (len(control.label) * 7.0))
+        label = str(control.label or "")
+        compact = LayerHeaderBlock._compact_action_label(label)
+        if control.control_id == "layer_pipeline_actions" or compact == "⋯":
+            return 18.0
+        return max(26.0, 10.0 + (len(compact) * 6.0))
+
+    @staticmethod
+    def _compact_action_label(label: str) -> str:
+        normalized = str(label or "").strip().lower()
+        mapping = {
+            "pipelines": "⋯",
+            "pipeline": "⋯",
+            "push": "PUSH",
+            "pull": "PULL",
+            "sections": "SEC",
+            "section": "SEC",
+            "settings": "CFG",
+        }
+        if normalized in mapping:
+            return mapping[normalized]
+        return str(label or "").strip().upper()[:4]
 
     def _draw_status_chips(
         self, painter: QPainter, rect: QRectF, layer: LayerPresentation
@@ -244,7 +265,7 @@ class LayerHeaderBlock:
             fill_hex = button_style.dimmed_inactive_fill_hex
         painter.setPen(QColor(button_style.border_hex))
         painter.setBrush(QBrush(QColor(fill_hex)))
-        painter.drawRoundedRect(rect, button_style.corner_radius, button_style.corner_radius)
+        painter.drawRect(rect)
         painter.setPen(QColor(state_style.text_hex))
         prior_font = painter.font()
         button_font = QFont(prior_font)
@@ -261,13 +282,14 @@ class LayerHeaderBlock:
     def _draw_action_button(
         self, painter: QPainter, rect: QRectF, label: str, *, dimmed: bool
     ) -> None:
+        label = self._compact_action_label(label)
         button_style = self.style.mute_solo
         fill_hex = button_style.inactive.fill_hex
         if dimmed:
             fill_hex = button_style.dimmed_inactive_fill_hex
         painter.setPen(QColor(button_style.border_hex))
         painter.setBrush(QBrush(QColor(fill_hex)))
-        painter.drawRoundedRect(rect, button_style.corner_radius, button_style.corner_radius)
+        painter.drawRect(rect)
         painter.setPen(QColor(button_style.inactive.text_hex))
         prior_font = painter.font()
         button_font = QFont(prior_font)

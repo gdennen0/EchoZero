@@ -1,9 +1,19 @@
 from PyQt6.QtGui import QImage, QPainter
+from PyQt6.QtWidgets import QApplication
 
 from echozero.application.presentation.models import EventPresentation
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId
+from echozero.ui.FEEL import EVENT_MIN_HIT_WIDTH_PX, EVENT_MIN_VISIBLE_WIDTH_PX
 from echozero.ui.qt.timeline.blocks.event_lane import EventLaneBlock, EventLanePresentation
+from echozero.ui.qt.timeline.style import TIMELINE_STYLE
+from echozero.ui.qt.timeline.waveform_cache import (
+    CachedWaveform,
+    clear_waveform_cache,
+    _put_cached_waveform,
+)
+
+import numpy as np
 
 
 def _event(idx: int, start: float, end: float) -> EventPresentation:
@@ -43,6 +53,73 @@ def test_event_lane_culls_offscreen_events_by_time_window():
     assert min(starts) >= 300
 
 
+def test_event_lane_zooms_out_tiny_events_with_clickable_hit_width():
+    tiny = _event(1, 1.0, 1.01)
+    presentation = EventLanePresentation(
+        layer_id="layer_1",
+        take_id=None,
+        events=[tiny],
+        pixels_per_second=100.0,
+        scroll_x=0.0,
+        header_width=320,
+        event_height=22,
+        viewport_width=800,
+    )
+
+    image = QImage(800, 120, QImage.Format.Format_ARGB32)
+    image.fill(0)
+    painter = QPainter(image)
+    try:
+        rects = EventLaneBlock().paint(painter, 20, presentation)
+    finally:
+        painter.end()
+
+    assert len(rects) == 1
+    assert rects[0][0].width() >= float(EVENT_MIN_HIT_WIDTH_PX)
+    assert image.pixelColor(421, 31).alpha() > 0
+
+
+def test_event_lane_uses_event_audio_waveform_duration_for_visual_width():
+    app = QApplication.instance() or QApplication([])
+    clear_waveform_cache()
+    _put_cached_waveform(
+        "event-hit",
+        CachedWaveform(
+            sample_rate=10,
+            window_size=1,
+            peaks=np.array([[-0.4, 0.6]] * 5, dtype=np.float32),
+            duration_seconds=0.5,
+        ),
+    )
+    tiny = _event(1, 1.0, 1.01)
+    presentation = EventLanePresentation(
+        layer_id="layer_1",
+        take_id=None,
+        events=[tiny],
+        pixels_per_second=100.0,
+        scroll_x=0.0,
+        header_width=320,
+        event_height=22,
+        viewport_width=800,
+        waveform_key="event-hit",
+        render_audio_shape=True,
+    )
+
+    image = QImage(800, 120, QImage.Format.Format_ARGB32)
+    image.fill(0)
+    painter = QPainter(image)
+    try:
+        rects = EventLaneBlock().paint(painter, 20, presentation)
+    finally:
+        painter.end()
+        clear_waveform_cache()
+        app.processEvents()
+
+    assert len(rects) == 1
+    assert rects[0][0].width() >= 50.0
+    assert image.pixelColor(465, 31).alpha() > 0
+
+
 def test_event_lane_hides_labels_when_event_is_too_narrow():
     tiny = _event(1, 1.0, 1.01)
     presentation = EventLanePresentation(
@@ -65,7 +142,7 @@ def test_event_lane_hides_labels_when_event_is_too_narrow():
         painter.end()
 
     assert len(rects) == 1
-    assert rects[0][0].width() >= 2.0
+    assert rects[0][0].width() >= float(EVENT_MIN_VISIBLE_WIDTH_PX)
 
 
 def test_event_lane_uses_presented_default_fill_when_event_has_no_color():
@@ -131,9 +208,8 @@ def test_event_lane_renders_demoted_badge_with_gray_fill():
         painter.end()
 
     sample = image.pixelColor(430, 31)
-    assert sample.red() == 0x7F
-    assert sample.green() == 0x8A
-    assert sample.blue() == 0x99
+    expected = TIMELINE_STYLE.event_lane.demoted_fill_hex
+    assert sample.name().lower() == expected.lower()
 
 
 def test_selected_tiny_demoted_event_has_stronger_outer_outline():
@@ -216,7 +292,7 @@ def test_section_lane_renders_zero_width_section_cues_as_minimum_event_width():
         painter.end()
 
     assert len(rects) == 1
-    assert rects[0][0].width() >= 2.0
+    assert rects[0][0].width() >= float(EVENT_MIN_VISIBLE_WIDTH_PX)
     sample = image.pixelColor(421, 28)
     assert sample.red() > 0
 

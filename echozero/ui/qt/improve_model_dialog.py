@@ -15,10 +15,13 @@ from echozero.foundry.services.selection_model_improvement_service import (
 class ImproveModelDialogPayload:
     request: ImproveModelTrainingRequest
 
+from echozero.ui.style.qt import ensure_qt_theme_installed
+
 
 class ImproveModelDialog(QDialog):
     def __init__(self, summary: object, *, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        ensure_qt_theme_installed()
         self._summary = summary
         self.setWindowTitle("Improve Model From Selection")
         layout = QVBoxLayout(self)

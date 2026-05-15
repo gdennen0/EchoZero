@@ -17,6 +17,8 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from echozero.ui.style.qt import ensure_qt_theme_installed
+
 
 class ManualPushRouteDialog(QDialog):
     """Popup for selecting MA3 timecode, track group, and track for push routing."""
@@ -39,6 +41,7 @@ class ManualPushRouteDialog(QDialog):
 
     def __init__(self, *, title: str, prompt: str, parent=None) -> None:
         super().__init__(parent)
+        ensure_qt_theme_installed()
         self._syncing = False
         self._show_sequence_controls = False
         self._show_apply_mode_controls = False

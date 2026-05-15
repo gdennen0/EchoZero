@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from echozero.ui.FEEL import (
     TIMELINE_EDITOR_BUTTON_MIN_HEIGHT_PX,
     TIMELINE_LAUNCHER_SUBMENU_ARROW_RIGHT_PADDING_PX,
@@ -7,14 +9,20 @@ from echozero.ui.FEEL import (
 )
 from echozero.ui.style.tokens import SHELL_TOKENS, ShellTokens
 
+COMBOBOX_CHEVRONS_ICON_PATH = (
+    Path(__file__).resolve().parent / "assets" / "combobox_chevrons.svg"
+).as_posix()
+
 
 def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
     scales = tokens.scales
     root = "QWidget#objectInfoPanel"
-    compact_field_padding_h = max(6, scales.field_padding_h - 2)
-    compact_field_padding_v = max(4, scales.field_padding_v - 1)
-    compact_action_padding_h = max(5, compact_field_padding_h - 1)
-    compact_action_padding_v = max(1, compact_field_padding_v - 3)
+    compact_field_padding_h = max(4, scales.field_padding_h - 1)
+    compact_field_padding_v = max(2, scales.field_padding_v - 1)
+    compact_action_padding_h = max(3, compact_field_padding_h - 1)
+    compact_action_padding_v = max(1, compact_field_padding_v - 1)
+    compact_combo_padding_left = compact_field_padding_h + 4
+    compact_combo_padding_right = max(18, compact_field_padding_h + 14)
     splitter_handle_margin_h = max(56, scales.panel_padding * 4)
     return f"""
         {root} {{
@@ -34,7 +42,7 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         {root} QFrame#timeline_object_info_layer_controls[section='true'] {{
             background: {tokens.panel_alt_bg};
             border: {scales.border_width}px solid {tokens.panel_border};
-            border-radius: {max(4, scales.panel_radius - 2)}px;
+            border-radius: {max(2, scales.panel_radius - 1)}px;
         }}
         {root} QFrame#timeline_object_info_action_row {{
             background: transparent;
@@ -58,13 +66,13 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         }}
         {root} QScrollBar:vertical {{
             background: transparent;
-            width: 10px;
-            margin: 2px 0 2px 0;
+            width: 8px;
+            margin: 1px 0 1px 0;
         }}
         {root} QScrollBar::handle:vertical {{
             background: {tokens.control_border};
-            min-height: 24px;
-            border-radius: 5px;
+            min-height: 20px;
+            border-radius: 1px;
         }}
         {root} QScrollBar::add-line:vertical,
         {root} QScrollBar::sub-line:vertical,
@@ -76,21 +84,25 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         }}
         {root} QLabel#objectPaletteHeader {{
             color: {tokens.text_primary};
-            font-size: 15px;
+            font-size: 13px;
             font-weight: 700;
             padding: 0 0 2px 0;
         }}
         {root} QToolButton#objectInfoCollapseButton {{
-            background: {tokens.control_bg};
-            border: {scales.border_width}px solid {tokens.control_border};
-            border-radius: {scales.button_radius}px;
-            color: {tokens.control_text};
-            min-width: 24px;
-            max-width: 24px;
-            min-height: 24px;
-            font-size: 12px;
-            font-weight: 700;
+            background: transparent;
+            border: none;
+            border-radius: 0;
+            color: {tokens.text_primary};
+            min-width: 18px;
+            max-width: 18px;
+            min-height: 18px;
+            max-height: 18px;
+            font-size: 9px;
+            font-weight: 900;
             padding: 0;
+        }}
+        {root} QToolButton#objectInfoCollapseButton:hover {{
+            color: {tokens.control_text};
         }}
         {root}[collapsed=true] QToolButton#objectInfoCollapseButton {{
             background: transparent;
@@ -109,9 +121,10 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             border: none;
             color: {tokens.text_secondary};
             font-size: 10px;
-            font-weight: 600;
+            font-weight: 700;
             text-align: left;
-            padding: 1px 0;
+            padding: 2px 0;
+            min-height: 22px;
         }}
         {root} QToolButton#timeline_object_info_section_toggle:hover {{
             color: {tokens.text_primary};
@@ -126,15 +139,16 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         {root} QLabel#timeline_object_info_kind {{
             color: {tokens.text_primary};
             background: {tokens.control_bg};
-            border: {scales.border_width}px solid {tokens.control_border_active};
-            border-radius: 11px;
+            border: {scales.border_width}px solid {tokens.control_border};
+            border-left: 2px solid #CC8844;
+            border-radius: 1px;
             padding: 2px {compact_field_padding_h}px;
             font-size: 11px;
             font-weight: 600;
         }}
         {root} QLabel#selectionPrimaryLabel {{
             color: {tokens.text_primary};
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 600;
         }}
         {root} QLabel#timeline_object_info_action_label {{
@@ -145,6 +159,26 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         {root} QLabel#selectionSecondaryLabel, {root} QLabel#selectionMetaLabel, {root} QLabel#gainLabel {{
             color: {tokens.text_secondary};
             font-size: 11px;
+        }}
+        {root} QLabel#inspectorBusState {{
+            color: {tokens.text_secondary};
+            background: {tokens.window_bg};
+            border: {scales.border_width}px solid {tokens.panel_border};
+            border-radius: {scales.button_radius}px;
+            padding: 1px 5px;
+            min-height: 18px;
+            font-size: 10px;
+            font-weight: 700;
+        }}
+        {root} QLabel#inspectorBusState[tone='mute'] {{
+            color: #e5aa9e;
+            border-color: {tokens.danger_border};
+            background: {tokens.danger_bg};
+        }}
+        {root} QLabel#inspectorBusState[tone='solo'] {{
+            color: {tokens.text_primary};
+            border-color: {tokens.control_border_active};
+            background: {tokens.control_bg_active};
         }}
         {root} QPlainTextEdit#selectionSecondaryLabel {{
             background: transparent;
@@ -158,31 +192,37 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             border: {scales.border_width}px solid {tokens.control_border};
             border-radius: {scales.button_radius}px;
             color: {tokens.control_text};
-            padding: {compact_field_padding_v}px {compact_field_padding_h}px;
-            min-height: 26px;
-            font-weight: 600;
+            padding: 1px 5px;
+            min-height: 20px;
+            font-weight: 700;
+            font-size: 10px;
         }}
         {root} QPushButton[compact='true'] {{
-            padding: {compact_action_padding_v}px {compact_action_padding_h}px;
-            min-height: 20px;
+            padding: 1px 4px;
+            min-height: 22px;
+        }}
+        {root} QPushButton[statusButton='true'] {{
+            min-width: 26px;
+            max-width: 26px;
+            min-height: 22px;
+            padding: 0;
+            font-size: 10px;
+            font-weight: 800;
         }}
         {root} QComboBox {{
-            min-height: 24px;
-            padding-right: {max(10, compact_field_padding_h + 4)}px;
+            min-height: 20px;
+            padding: {compact_field_padding_v}px {compact_combo_padding_right}px {compact_field_padding_v}px {compact_combo_padding_left}px;
         }}
         {root} QComboBox::drop-down {{
             subcontrol-origin: padding;
             subcontrol-position: top right;
-            width: 12px;
+            width: 16px;
             border: none;
         }}
         {root} QComboBox::down-arrow {{
-            width: 0px;
-            height: 0px;
-            border-left: 4px solid transparent;
-            border-right: 4px solid transparent;
-            border-top: 6px solid {tokens.control_text};
-            margin-top: 1px;
+            image: url({COMBOBOX_CHEVRONS_ICON_PATH});
+            width: 10px;
+            height: 14px;
         }}
         {root} QPushButton:disabled {{
             color: {tokens.control_text_disabled};
@@ -191,7 +231,7 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         }}
         {root} QPushButton[appearance='primary'] {{
             background: {tokens.control_bg_active};
-            border-color: {tokens.control_border_active};
+            border-color: #CC8844;
             color: {tokens.text_primary};
         }}
         {root} QPushButton[appearance='subtle'] {{
@@ -207,6 +247,17 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         {root} QPushButton[active='true'] {{
             background: {tokens.control_bg_active};
             border-color: {tokens.control_border_active};
+            color: {tokens.text_primary};
+        }}
+        {root} QPushButton#inspectorMuteButton[active='true'] {{
+            background: {tokens.danger_bg};
+            border-color: {tokens.danger_border};
+            color: #e5aa9e;
+        }}
+        {root} QPushButton#inspectorSoloButton[active='true'] {{
+            background: {tokens.control_bg_active};
+            border-color: {tokens.control_border_active};
+            color: {tokens.text_primary};
         }}
         {root} QPushButton:focus, {root} QDoubleSpinBox:focus {{
             border-color: {tokens.control_border_active};
@@ -217,7 +268,7 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             border-radius: {scales.button_radius}px;
             color: {tokens.control_text};
             padding: {compact_field_padding_v}px {compact_field_padding_h}px;
-            min-height: 26px;
+            min-height: 22px;
         }}
         {root} QSlider::groove:horizontal {{
             background: {tokens.panel_border};
@@ -228,7 +279,7 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             background: {tokens.slider_handle};
             width: {scales.slider_handle_width}px;
             margin: {scales.slider_handle_margin}px 0;
-            border-radius: {scales.slider_handle_width // 2}px;
+            border-radius: {scales.button_radius}px;
         }}
     """
 
@@ -272,31 +323,31 @@ def build_timeline_editor_bar_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             border: {scales.border_width}px solid {tokens.control_border};
             border-radius: {scales.button_radius}px;
             color: {tokens.control_text};
-            padding: {compact_padding_v}px {scales.field_padding_h}px;
+            padding: 1px 4px;
             min-height: {TIMELINE_EDITOR_BUTTON_MIN_HEIGHT_PX}px;
-            font-weight: 600;
+            font-weight: 700;
             font-size: 10px;
         }}
         {root} QPushButton[timelineModeButton='true'] {{
-            min-width: 64px;
+            min-width: 38px;
         }}
         {root} QPushButton#timelineEditorGridButton {{
-            min-width: 86px;
+            min-width: 50px;
         }}
         {root} QPushButton#timelineEditorSettingsButton,
         {root} QPushButton#timelineEditorOscSettingsButton,
         {root} QPushButton#timelineEditorPipelineSettingsButton,
         {root} QPushButton#timelineEditorRegionsButton {{
-            min-width: 84px;
+            min-width: 38px;
         }}
         {root} QPushButton#timelineEditorFixRemoveButton,
         {root} QPushButton#timelineEditorFixPromoteButton {{
-            min-width: 30px;
-            padding-left: {max(4, scales.field_padding_h - 3)}px;
-            padding-right: {max(4, scales.field_padding_h - 3)}px;
+            min-width: 24px;
+            padding-left: 3px;
+            padding-right: 3px;
         }}
         {root} QPushButton#timelineEditorFixSelectButton {{
-            min-width: 34px;
+            min-width: 32px;
         }}
         {root} QPushButton[timelineModeButton='true']:checked,
         {root} QPushButton#timelineEditorSnapButton:checked,
@@ -392,7 +443,7 @@ def build_timeline_pipeline_status_qss(tokens: ShellTokens = SHELL_TOKENS) -> st
             color: {tokens.text_primary};
             background: transparent;
             border: {scales.border_width}px solid {tokens.panel_border};
-            border-radius: {max(3, scales.panel_radius - 1)}px;
+            border-radius: {max(2, scales.panel_radius - 1)}px;
             font-size: 10px;
             font-weight: 700;
             padding: 0;
@@ -419,8 +470,8 @@ def build_timeline_splitter_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         }}
         QSplitter#timelineShellSplitter::handle:horizontal,
         QSplitter#timelineMainSplitter::handle:horizontal {{
-            width: 6px;
-            margin: 0 1px;
+            width: 4px;
+            margin: 0;
             border-left: {scales.border_width}px solid {tokens.panel_border};
             border-right: {scales.border_width}px solid {tokens.panel_border};
         }}
@@ -430,9 +481,125 @@ def build_timeline_splitter_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
 def build_action_settings_dialog_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
     scales = tokens.scales
     root = "QDialog#actionSettingsDialog"
+    roots = "QDialog#actionSettingsDialog, QDialog#pipelineSettingsBrowserDialog"
     return f"""
-        {root} {{
+        {roots} {{
             background: {tokens.window_bg};
+        }}
+        QDialog#pipelineSettingsBrowserDialog QFrame#pipelineSettingsBrowserHeader[section='true'],
+        QDialog#pipelineSettingsBrowserDialog QFrame#pipelineSettingsBrowserLeft[section='true'],
+        QDialog#pipelineSettingsBrowserDialog QFrame#pipelineSettingsBrowserRight[section='true'] {{
+            background: {tokens.panel_bg};
+            border: {scales.border_width}px solid {tokens.panel_border};
+            border-radius: {scales.panel_radius}px;
+        }}
+        QDialog#pipelineSettingsBrowserDialog QLabel#pipelineSettingsBrowserTitle {{
+            color: {tokens.text_primary};
+            font-size: 13px;
+            font-weight: 800;
+        }}
+        QDialog#pipelineSettingsBrowserDialog QLabel#pipelineSettingsBrowserSummary,
+        QDialog#pipelineSettingsBrowserDialog QLabel#pipelineSettingsBrowserContext {{
+            color: {tokens.text_secondary};
+            font-size: 10px;
+        }}
+        QDialog#pipelineSettingsBrowserDialog QLabel#pipelineSettingsBrowserLeftLabel {{
+            color: {tokens.text_secondary};
+            font-size: 10px;
+            font-weight: 800;
+            padding: 0;
+        }}
+        QDialog#pipelineSettingsBrowserDialog QListWidget#pipelineSettingsBrowserActionList {{
+            background: {tokens.window_bg};
+            border: {scales.border_width}px solid {tokens.panel_border};
+            border-radius: {scales.button_radius}px;
+            padding: 1px;
+        }}
+        QDialog#pipelineSettingsBrowserDialog QListWidget#pipelineSettingsBrowserActionList::item {{
+            padding: 4px 6px;
+            margin: 1px;
+            border: {scales.border_width}px solid transparent;
+            border-radius: 1px;
+        }}
+        QDialog#pipelineSettingsBrowserDialog QListWidget#pipelineSettingsBrowserActionList::item:selected {{
+            background: {tokens.control_bg_active};
+            border-left: 2px solid #CC8844;
+            color: {tokens.text_primary};
+        }}
+        QDialog#pipelineSettingsBrowserDialog QLabel#pipelineSettingsBrowserCopyPreview {{
+            background: {tokens.window_bg};
+            border: {scales.border_width}px solid {tokens.panel_border};
+            border-radius: {scales.button_radius}px;
+            color: {tokens.text_secondary};
+            padding: 3px 5px;
+            font-size: 10px;
+        }}
+        QDialog#pipelineSettingsBrowserDialog QGroupBox[section='true'] {{
+            background: {tokens.panel_alt_bg};
+            border: {scales.border_width}px solid {tokens.section_border};
+            border-radius: {scales.button_radius}px;
+            margin-top: 5px;
+            padding: 4px;
+            color: {tokens.text_primary};
+            font-weight: 700;
+            font-size: 10px;
+        }}
+        QDialog#pipelineSettingsBrowserDialog QGroupBox[section='true']::title {{
+            subcontrol-origin: margin;
+            left: 5px;
+            padding: 0 1px;
+        }}
+        QDialog#pipelineSettingsBrowserDialog QDialogButtonBox#pipelineSettingsBrowserButtons {{
+            border-top: {scales.border_width}px solid {tokens.panel_border};
+            padding-top: 4px;
+        }}
+        QDialog#pipelineSettingsBrowserDialog QSplitter::handle {{
+            background: {tokens.panel_border};
+            margin: 28px 1px;
+        }}
+        {roots} QWidget#settingsPageForm QScrollArea,
+        {roots} QWidget#settingsPageForm QScrollArea > QWidget > QWidget {{
+            background: transparent;
+            border: none;
+        }}
+        {roots} QWidget#settingsPageForm QLineEdit,
+        {roots} QWidget#settingsPageForm QComboBox,
+        {roots} QWidget#settingsPageForm QSpinBox,
+        {roots} QWidget#settingsPageForm QDoubleSpinBox {{
+            min-height: 20px;
+            padding: 2px 4px;
+            font-size: 10px;
+        }}
+        {roots} QWidget#settingsPageForm QCheckBox {{
+            color: {tokens.text_secondary};
+            spacing: 4px;
+            min-height: 18px;
+            font-size: 10px;
+            font-weight: 600;
+        }}
+        {roots} QWidget#settingsPageForm QCheckBox::indicator {{
+            width: 10px;
+            height: 10px;
+            background: {tokens.control_bg};
+            border: {scales.border_width}px solid {tokens.control_border};
+            border-radius: 1px;
+        }}
+        {roots} QWidget#settingsPageForm QCheckBox::indicator:checked {{
+            background: #885A2D;
+            border-color: #CC8844;
+        }}
+        {roots} QWidget#settingsPageForm QCheckBox[settingsRole='advancedToggle'] {{
+            color: {tokens.control_text};
+            background: {tokens.panel_bg};
+            border: {scales.border_width}px solid {tokens.control_border};
+            border-radius: {scales.button_radius}px;
+            padding: 1px 5px;
+            max-width: 76px;
+        }}
+        {roots} QWidget#settingsPageForm QCheckBox[settingsRole='advancedToggle']::indicator {{
+            width: 0px;
+            height: 0px;
+            border: none;
         }}
         {root} QFrame#actionSettingsDialogHeader[section='true'] {{
             background: {tokens.panel_bg};
@@ -454,25 +621,25 @@ def build_action_settings_dialog_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             border: {scales.border_width}px solid {tokens.panel_border};
             border-radius: {scales.panel_radius}px;
             color: {tokens.text_secondary};
-            padding: 8px 10px;
+            padding: 5px 6px;
         }}
         {root} QGroupBox[section='true'] {{
             background: {tokens.panel_alt_bg};
             border: {scales.border_width}px solid {tokens.section_border};
             border-radius: {scales.panel_radius}px;
-            margin-top: 10px;
-            padding: 10px;
+            margin-top: 6px;
+            padding: 6px;
             color: {tokens.text_primary};
             font-weight: 600;
         }}
         {root} QGroupBox[section='true'][compact='true'] {{
-            margin-top: 8px;
-            padding: 8px;
+            margin-top: 5px;
+            padding: 5px;
         }}
         {root} QGroupBox[section='true']::title {{
             subcontrol-origin: margin;
-            left: 8px;
-            padding: 0 2px;
+            left: 6px;
+            padding: 0 1px;
         }}
         {root} QLabel {{
             color: {tokens.text_primary};
@@ -500,7 +667,7 @@ def build_action_settings_dialog_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         }}
         {root} QPushButton {{
             padding: {scales.field_padding_v}px {scales.field_padding_h}px;
-            min-height: 24px;
+            min-height: 20px;
             font-weight: 600;
         }}
         {root} QPushButton:disabled {{
@@ -510,7 +677,7 @@ def build_action_settings_dialog_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         }}
         {root} QPushButton[appearance='primary'] {{
             background: {tokens.control_bg_active};
-            border-color: {tokens.control_border_active};
+            border-color: #CC8844;
             color: {tokens.text_primary};
         }}
         {root} QPushButton[appearance='subtle'] {{
@@ -532,7 +699,7 @@ def build_action_settings_dialog_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             selection-background-color: {tokens.control_bg_active};
             selection-color: {tokens.text_primary};
             padding: {scales.field_padding_v}px {scales.field_padding_h}px;
-            min-height: 24px;
+            min-height: 20px;
         }}
         {root} QPushButton:focus,
         {root} QLineEdit:focus,
@@ -545,7 +712,7 @@ def build_action_settings_dialog_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         }}
         {root} QDialogButtonBox#actionSettingsButtons {{
             border-top: {scales.border_width}px solid {tokens.panel_border};
-            padding-top: 6px;
+            padding-top: 4px;
         }}
     """
 
@@ -575,29 +742,38 @@ def build_song_browser_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             background: {tokens.panel_alt_bg};
             border: {scales.border_width}px dashed {tokens.section_border};
             border-radius: {scales.panel_radius}px;
-            padding: 22px 16px;
-        }}
-        {root} QPushButton#songBrowserQuickAddButton,
-        {root} QToolButton#songBrowserCollapseButton {{
-            background: {tokens.control_bg};
-            border: {scales.border_width}px solid {tokens.control_border};
-            border-radius: {scales.button_radius}px;
-            color: {tokens.control_text};
-            font-weight: 600;
+            padding: 12px 8px;
         }}
         {root} QPushButton#songBrowserQuickAddButton {{
-            min-width: 28px;
-            max-width: 28px;
-            min-height: 28px;
+            background: transparent;
+            border: none;
+            border-radius: 0;
+            color: {tokens.text_primary};
+            font-weight: 700;
+            min-width: 22px;
+            max-width: 22px;
+            min-height: 22px;
+            max-height: 22px;
             padding: 0;
         }}
+        {root} QPushButton#songBrowserQuickAddButton:hover {{
+            color: {tokens.control_text};
+        }}
         {root} QToolButton#songBrowserCollapseButton {{
-            min-width: 24px;
-            max-width: 24px;
-            min-height: 24px;
-            font-size: 12px;
-            font-weight: 700;
+            background: transparent;
+            border: none;
+            border-radius: 0;
+            color: {tokens.text_primary};
+            min-width: 22px;
+            max-width: 22px;
+            min-height: 22px;
+            max-height: 22px;
+            font-size: 9px;
+            font-weight: 900;
             padding: 0;
+        }}
+        {root} QToolButton#songBrowserCollapseButton:hover {{
+            color: {tokens.control_text};
         }}
         {root}[collapsed=true] QToolButton#songBrowserCollapseButton {{
             background: transparent;
@@ -636,7 +812,7 @@ def build_song_browser_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             padding: 0;
         }}
         {root} QLabel#songBrowserBatchMeta {{
-            padding: 2px 0;
+            padding: 1px 0;
         }}
         {root} QLabel#songBrowserSectionTitle {{
             color: {tokens.text_primary};
@@ -656,8 +832,8 @@ def build_song_browser_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             color: {tokens.control_text};
             font-size: 11px;
             font-weight: 600;
-            min-height: 24px;
-            padding: 0 6px;
+            min-height: 20px;
+            padding: 0 4px;
         }}
         {root} QPushButton:focus,
         {root} QToolButton:focus,
@@ -665,22 +841,38 @@ def build_song_browser_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         {root} QListWidget:focus {{
             border-color: {tokens.control_border_active};
         }}
-        {root} QTreeWidget#songBrowserSongList,
+        {root} QTreeWidget#songBrowserSongList {{
+            background: {tokens.panel_alt_bg};
+            border: {scales.border_width}px solid {tokens.section_border};
+            border-radius: 0;
+            color: {tokens.text_primary};
+            outline: none;
+            padding: 0;
+        }}
         {root} QListWidget#songBrowserVersionList {{
             background: {tokens.panel_alt_bg};
             border: {scales.border_width}px solid {tokens.section_border};
             border-radius: {scales.panel_radius}px;
             color: {tokens.text_primary};
             outline: none;
+            padding: 1px 0;
+        }}
+        {root} QTreeWidget#songBrowserSongList::item {{
             padding: 2px 0;
+            border-radius: 0;
+            margin: 0;
+            border-bottom: {scales.border_width}px solid {tokens.section_border};
         }}
-        {root} QTreeWidget#songBrowserSongList::item,
         {root} QListWidget#songBrowserVersionList::item {{
-            padding: 5px 8px;
-            border-radius: {max(4, scales.button_radius - 2)}px;
-            margin: 1px 4px;
+            padding: 3px 6px;
+            border-radius: {scales.button_radius}px;
+            margin: 0 2px;
         }}
-        {root} QTreeWidget#songBrowserSongList::item:selected,
+        {root} QTreeWidget#songBrowserSongList::item:selected {{
+            background: {tokens.control_bg_active};
+            color: {tokens.text_primary};
+            border-left: 2px solid #CC8844;
+        }}
         {root} QListWidget#songBrowserVersionList::item:selected {{
             background: {tokens.control_bg_active};
             color: {tokens.text_primary};
@@ -716,6 +908,8 @@ def build_echozero_app_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
 
 def build_echozero_shell_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
     scales = tokens.scales
+    combo_padding_left = scales.field_padding_h + 4
+    combo_padding_right = max(18, scales.field_padding_h + 14)
     return f"""
         QMainWindow, QDialog {{
             background: {tokens.window_bg};
@@ -723,46 +917,200 @@ def build_echozero_shell_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         QLabel {{
             color: {tokens.text_primary};
         }}
+        QLabel[tone='ok'], QLabel[tone='success'] {{
+            color: #7fd1ae;
+        }}
+        QLabel[tone='warn'] {{
+            color: #ffb84d;
+        }}
+        QLabel[tone='error'] {{
+            color: #c86f5f;
+        }}
+        QLabel[tone='unknown'], QLabel[tone='neutral'] {{
+            color: {tokens.text_secondary};
+        }}
+        QLabel[statusLabel='true'] {{
+            font-weight: 700;
+        }}
         QGroupBox {{
             background: {tokens.panel_alt_bg};
             border: {scales.border_width}px solid {tokens.section_border};
             border-radius: {scales.panel_radius}px;
-            margin-top: 12px;
-            padding: 12px;
+            margin-top: 7px;
+            padding: 7px;
             color: {tokens.text_primary};
             font-weight: 600;
         }}
         QGroupBox::title {{
             subcontrol-origin: margin;
-            left: 10px;
-            padding: 0 4px;
+            left: 6px;
+            padding: 0 2px;
         }}
-        QPushButton, QLineEdit, QPlainTextEdit, QListWidget, QComboBox, QSpinBox, QDoubleSpinBox {{
+        QFrame[section='true'], QFrame[card='true'] {{
+            background: {tokens.panel_alt_bg};
+            border: {scales.border_width}px solid {tokens.section_border};
+            border-radius: {scales.panel_radius}px;
+        }}
+        QWidget#settingsPageForm QLabel[settingsRole='sectionTitle'] {{
+            color: {tokens.text_primary};
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            padding: 2px 0 0 0;
+        }}
+        QWidget#settingsPageForm QLabel[settingsRole='sectionDescription'] {{
+            color: {tokens.text_secondary};
+            font-size: 10px;
+            padding: 0;
+        }}
+        QWidget#settingsPageForm QLabel[settingsRole='fieldLabel'] {{
+            color: {tokens.text_secondary};
+            font-size: 10px;
+            font-weight: 600;
+            padding: 0;
+        }}
+        QWidget#settingsPageForm QLabel[settingsRole='worksheetHeader'] {{
+            color: {tokens.text_secondary};
+            font-size: 9px;
+            font-weight: 800;
+            text-transform: uppercase;
+        }}
+        QWidget#settingsPageForm QCheckBox[settingsRole='fieldToggle'],
+        QWidget#settingsPageForm QCheckBox[settingsRole='checkboxOption'],
+        QWidget#settingsPageForm QCheckBox[settingsRole='worksheetToggle'] {{
+            color: {tokens.control_text};
+            font-size: 10px;
+            font-weight: 700;
+            spacing: 4px;
+            min-height: 20px;
+        }}
+        QPushButton, QToolButton,
+        QLineEdit, QTextEdit, QPlainTextEdit,
+        QListWidget, QTreeWidget, QTableWidget,
+        QComboBox, QSpinBox, QDoubleSpinBox {{
             background: {tokens.control_bg};
             border: {scales.border_width}px solid {tokens.control_border};
             border-radius: {scales.button_radius}px;
             color: {tokens.control_text};
+            outline: none;
         }}
-        QPushButton {{
-            padding: {scales.field_padding_v}px {scales.field_padding_h}px;
+        QPushButton, QToolButton {{
+            padding: 1px 5px;
+            min-height: 20px;
+            font-weight: 700;
+            font-size: 10px;
         }}
-        QPushButton:disabled {{
+        QToolButton {{
+            min-width: 20px;
+        }}
+        QPushButton[compact='true'], QToolButton[compact='true'] {{
+            padding: 1px 4px;
+            min-height: 18px;
+        }}
+        QPushButton:checked, QToolButton:checked {{
+            background: {tokens.control_bg_active};
+            border-color: {tokens.control_border_active};
+            color: {tokens.text_primary};
+        }}
+        QPushButton:disabled, QToolButton:disabled {{
             color: {tokens.control_text_disabled};
             border-color: {tokens.panel_border};
             background: {tokens.control_bg_disabled};
         }}
-        QPushButton[appearance='danger'] {{
+        QPushButton[appearance='primary'], QToolButton[appearance='primary'] {{
+            background: {tokens.control_bg_active};
+            border-color: #CC8844;
+            color: {tokens.text_primary};
+        }}
+        QPushButton[appearance='subtle'], QToolButton[appearance='subtle'] {{
+            background: {tokens.panel_bg};
+            border-color: {tokens.control_border};
+            color: {tokens.control_text};
+        }}
+        QPushButton[appearance='danger'], QToolButton[appearance='danger'] {{
             background: {tokens.danger_bg};
             border-color: {tokens.danger_border};
             color: {tokens.text_primary};
         }}
-        QLineEdit, QPlainTextEdit, QListWidget, QComboBox, QSpinBox, QDoubleSpinBox {{
+        QLineEdit, QTextEdit, QPlainTextEdit,
+        QListWidget, QTreeWidget, QTableWidget,
+        QComboBox, QSpinBox, QDoubleSpinBox {{
             selection-background-color: {tokens.control_bg_active};
             selection-color: {tokens.text_primary};
             padding: {scales.field_padding_v}px {scales.field_padding_h}px;
         }}
-        QListWidget::item:selected {{
+        QComboBox {{
+            padding: {scales.field_padding_v}px {combo_padding_right}px {scales.field_padding_v}px {combo_padding_left}px;
+        }}
+        QComboBox::drop-down,
+        QSpinBox::up-button, QSpinBox::down-button,
+        QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{
+            background: {tokens.control_bg_disabled};
+            border-left: {scales.border_width}px solid {tokens.panel_border};
+            border-top-right-radius: {max(2, scales.button_radius - 1)}px;
+            border-bottom-right-radius: {max(2, scales.button_radius - 1)}px;
+        }}
+        QComboBox::drop-down {{
+            subcontrol-origin: padding;
+            subcontrol-position: top right;
+            width: 16px;
+        }}
+        QComboBox::down-arrow {{
+            image: url({COMBOBOX_CHEVRONS_ICON_PATH});
+            width: 10px;
+            height: 14px;
+        }}
+        QListWidget::item, QTreeWidget::item, QTableWidget::item {{
+            padding: 2px 5px;
+            border-radius: {max(2, scales.button_radius - 1)}px;
+        }}
+        QListWidget::item:selected, QTreeWidget::item:selected, QTableWidget::item:selected {{
             background: {tokens.control_bg_active};
+            color: {tokens.text_primary};
+        }}
+        QHeaderView::section {{
+            background: {tokens.panel_alt_bg};
+            color: {tokens.text_secondary};
+            border: {scales.border_width}px solid {tokens.panel_border};
+            padding: 2px 5px;
+            font-weight: 700;
+            font-size: 10px;
+        }}
+        QScrollArea {{
+            background: {tokens.window_bg};
+            border: {scales.border_width}px solid {tokens.panel_border};
+        }}
+        QScrollBar:vertical, QScrollBar:horizontal {{
+            background: transparent;
+            border: none;
+            margin: 0;
+        }}
+        QScrollBar:vertical {{ width: 8px; }}
+        QScrollBar:horizontal {{ height: 8px; }}
+        QScrollBar::handle:vertical, QScrollBar::handle:horizontal {{
+            background: {tokens.control_border};
+            border-radius: 1px;
+            min-height: 18px;
+            min-width: 18px;
+        }}
+        QScrollBar::add-line, QScrollBar::sub-line,
+        QScrollBar::add-page, QScrollBar::sub-page {{
+            background: transparent;
+            border: none;
+            width: 0;
+            height: 0;
+        }}
+        QPushButton[manualPullRole='timecode'] {{
+            padding: 1px 6px;
+            text-align: center;
+        }}
+        QPushButton[manualPullRole='group'],
+        QPushButton[manualPullRole='track'] {{
+            padding: 2px 6px;
+            text-align: left;
+        }}
+        QPushButton[manualPullRole='group'] {{
+            font-weight: 800;
         }}
         QTabWidget::pane {{
             background: {tokens.window_bg};
@@ -793,9 +1141,9 @@ def build_echozero_shell_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         QMenuBar#timelineLauncherMenuBar::item {{
             background: transparent;
             color: {tokens.text_secondary};
-            padding: 2px 8px;
+            padding: 1px 6px;
             margin: 0 1px;
-            border-radius: {max(3, scales.button_radius - 2)}px;
+            border-radius: {max(1, scales.button_radius - 1)}px;
         }}
         QMenuBar#timelineLauncherMenuBar::item:selected {{
             background: {tokens.control_bg_active};
@@ -811,8 +1159,8 @@ def build_echozero_shell_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             color: {tokens.text_primary};
         }}
         QMenu::item {{
-            padding: 4px 14px 4px 10px;
-            border-radius: {max(3, scales.button_radius - 2)}px;
+            padding: 3px 12px 3px 8px;
+            border-radius: {max(1, scales.button_radius - 1)}px;
         }}
         QMenu::item:selected {{
             background: {tokens.control_bg_active};

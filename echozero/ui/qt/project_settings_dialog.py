@@ -15,6 +15,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from echozero.ui.style.qt import ensure_qt_theme_installed
+
 
 class ProjectSettingsDialog(QDialog):
     """Modal editor for project-local settings."""
@@ -26,6 +28,7 @@ class ProjectSettingsDialog(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        ensure_qt_theme_installed()
         self.setObjectName("projectSettingsDialog")
         self.setWindowTitle("Project Settings")
         self.resize(560, 220)

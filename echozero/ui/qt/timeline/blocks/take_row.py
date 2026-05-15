@@ -62,12 +62,18 @@ class TakeRowBlock:
             QColor(self.style.divider_hex),
         )
 
+        prior_label_font = painter.font()
+        label_font = QFont(prior_label_font)
+        label_font.setPointSize(8)
+        label_font.setBold(True)
+        painter.setFont(label_font)
         painter.setPen(QColor(self.style.dimmed_label_hex if dimmed else self.style.label_hex))
         painter.drawText(
             layout.label_rect,
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
             take.name,
         )
+        painter.setFont(prior_label_font)
 
         button_bg_hex = (
             self.style.options_button_open_fill_hex
@@ -84,7 +90,7 @@ class TakeRowBlock:
                 else self.style.options_button_closed_text_hex
             )
         )
-        button_text = "Options \u25be" if options_open else "Options \u25b8"
+        button_text = "×" if options_open else "⋯"
         prior_font = painter.font()
         button_font = QFont(prior_font)
         button_font.setPointSize(self.style.options_button_font.point_size)
@@ -101,12 +107,12 @@ class TakeRowBlock:
         action_rects: list[tuple[QRectF, object, object, str]] = []
         if options_open and actions:
             painter.fillRect(layout.options_area_rect, QColor(self.style.options_area_fill_hex))
-            x = layout.options_area_rect.left() + 4
-            y = layout.options_area_rect.top() + 1
-            h = max(12.0, layout.options_area_rect.height() - 2)
+            x = layout.options_area_rect.left() + 2
+            y = layout.options_area_rect.top()
+            h = max(10.0, layout.options_area_rect.height() - 1)
             for action in actions:
                 chip_label = action.compact_label or action.label
-                chip_w = max(52.0, min(96.0, 12 + (len(chip_label) * 5.2)))
+                chip_w = max(42.0, min(82.0, 10 + (len(chip_label) * 4.8)))
                 rect = QRectF(x, y, chip_w, h)
                 if rect.right() > layout.options_area_rect.right() - 2:
                     break

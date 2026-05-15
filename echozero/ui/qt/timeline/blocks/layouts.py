@@ -81,13 +81,13 @@ class TakeRowLayout:
         row_rect = QRectF(0, top, width, row_height - 1)
         header_rect = QRectF(0, top, header_width, row_height - 1)
         content_rect = QRectF(header_width, top, width - header_width, row_height - 1)
-        options_button_rect = QRectF(header_width - 98, top + 4, 84, 16)
-        options_area_rect = QRectF(26, top + 24, header_width - 52, 16)
+        options_button_rect = QRectF(header_width - 31, top + 6, 18, 16)
+        options_area_rect = QRectF(22, top + 25, header_width - 44, 14)
         return TakeRowLayout(
             row_rect=row_rect,
             header_rect=header_rect,
             content_rect=content_rect,
-            label_rect=QRectF(26, top + 4, header_width - 132, 16),
+            label_rect=QRectF(22, top + 6, header_width - 60, 16),
             options_button_rect=options_button_rect,
             options_area_rect=options_area_rect,
         )

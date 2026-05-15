@@ -22,6 +22,7 @@ from echozero.application.settings import (
     SettingsFieldSurface,
     SettingsFieldWidget,
     SettingsOption,
+    SongImportNameMode,
 )
 from echozero.application.settings.models import (
     app_preferences_from_dict,
@@ -75,6 +76,7 @@ def test_app_settings_service_describe_surfaces_audio_osc_and_import_sections() 
     assert page.sections[0].always_show_advanced is True
     assert any(field.key == "osc_receive.port" for field in fields)
     assert any(field.key == "osc_send.port" for field in fields)
+    assert any(field.key == "import.name_mode" for field in fields)
     assert any(field.key == "import.strip_ltc_timecode" for field in fields)
     assert import_toggle_keys
     assert import_toggle_keys <= {field.key for field in fields}
@@ -143,6 +145,7 @@ def test_app_settings_service_apply_updates_persists_audio_osc_and_import_change
             "audio.output_channels": 2,
             "osc_send.enabled": True,
             "osc_send.port": 9000,
+            "import.name_mode": SongImportNameMode.EXTRACT_TITLE.value,
             "import.strip_ltc_timecode": True,
             "import.pipeline_action.timeline.extract_stems": True,
             "import.pipeline_action.timeline.extract_song_drum_events": True,
@@ -157,6 +160,7 @@ def test_app_settings_service_apply_updates_persists_audio_osc_and_import_change
     assert result.preferences.audio_output.sample_rate == 48000
     assert result.preferences.ma3_osc.send.enabled is True
     assert result.preferences.ma3_osc.send.port == 9000
+    assert result.preferences.song_import.name_mode is SongImportNameMode.EXTRACT_TITLE
     assert result.preferences.song_import.strip_ltc_timecode is True
     assert result.preferences.song_import.pipeline_action_ids == (
         "timeline.extract_stems",
@@ -379,6 +383,7 @@ def test_app_preferences_from_dict_parses_song_import_pipeline_actions() -> None
     preferences = app_preferences_from_dict(
         {
             "song_import": {
+                "name_mode": "extract_title",
                 "strip_ltc_timecode": False,
                 "pipeline_action_ids": [
                     "timeline.extract_stems",
@@ -388,6 +393,7 @@ def test_app_preferences_from_dict_parses_song_import_pipeline_actions() -> None
         }
     )
 
+    assert preferences.song_import.name_mode is SongImportNameMode.EXTRACT_TITLE
     assert preferences.song_import.strip_ltc_timecode is False
     assert preferences.song_import.pipeline_action_ids == (
         "timeline.extract_stems",

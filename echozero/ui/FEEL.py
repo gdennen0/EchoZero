@@ -50,8 +50,8 @@ PLAYHEAD_HEAD_WIDTH_PX = 8  # Triangle width at top of ruler
 
 WAVEFORM_LOD_SAMPLE_PX_THRESHOLD = 4.0  # Above this px/sample: render individual samples
 WAVEFORM_LOD_ENVELOPE_PX_THRESHOLD = 0.5  # Below this: render overview thumbnail
-WAVEFORM_COLOR = "#4488CC"  # Base waveform color
-WAVEFORM_RMS_COLOR = "#3366AA"  # RMS fill color (darker)
+WAVEFORM_COLOR = "#8f8a84"  # Base waveform color
+WAVEFORM_RMS_COLOR = "#454145"  # RMS fill color (darker)
 WAVEFORM_ANTIALIAS_OUTLINE = True  # Anti-alias envelope outline
 WAVEFORM_ANTIALIAS_FILL = False  # Don't anti-alias fill (performance)
 WAVEFORM_COLUMN_STEP_REFERENCE_PPS = (
@@ -66,16 +66,17 @@ NOTE_CONTOUR_ALPHA = 205  # Opacity for note contour overlays
 # EVENTS (Timeline)
 # =============================================================================
 
-EVENT_DEFAULT_COLOR = "#FF6B6B"  # Unclassified event color (bright coral red - visible on dark bg)
+EVENT_DEFAULT_COLOR = "#8f3a2f"  # Unclassified event color (bright coral red - visible on dark bg)
 EVENT_HOVER_ALPHA = 30  # Overlay alpha on hover (0-255)
-EVENT_SELECTION_COLOR = "#0066FF"  # Selected event highlight
+EVENT_SELECTION_COLOR = "#CC8844"  # Selected event highlight
 EVENT_SELECTION_BORDER_PX = 2  # Selection border width
 EVENT_SELECTION_OUTLINE_EXPAND_PX = 1.0  # Expand selection outline outside event bounds
 EVENT_SELECTION_TINY_WIDTH_THRESHOLD_PX = (
     10.0  # Treat selected events narrower than this as zoomed-out
 )
 EVENT_SELECTION_TINY_WIDTH_EXTRA_PX = 1  # Extra outline width for tiny selected events
-EVENT_MIN_VISIBLE_WIDTH_PX = 2  # Minimum rendered width (even for zero-duration)
+EVENT_MIN_VISIBLE_WIDTH_PX = 4  # Minimum rendered width (even for zero-duration)
+EVENT_MIN_HIT_WIDTH_PX = 10  # Minimum clickable width for zoomed-out events
 EVENT_LABEL_MIN_WIDTH_PX = 40  # Don't render labels on events narrower than this
 EVENT_FALSE_BORDER_STYLE = "dash"  # Visual for false/uncertain events ("dash" or "dot")
 TIMELINE_ADD_MODE_DEFAULT_EVENT_DURATION_SECONDS = 0.5  # Draw-mode quick-add event length
@@ -99,42 +100,43 @@ MOVE_DRAG_SNAP_LOCK_MULTIPLIER = (
 # TIME RULER
 # =============================================================================
 
-TIMELINE_TRANSPORT_HEIGHT_PX = 62  # Playback strip height below the timeline viewport
-TIMELINE_TRANSPORT_BUTTON_HEIGHT_PX = 36  # Painted play/stop button height in transport
+TIMELINE_TRANSPORT_HEIGHT_PX = 46  # Playback strip height below the timeline viewport
+TIMELINE_TRANSPORT_BUTTON_HEIGHT_PX = 26  # Painted play/stop button height in transport
 TIMELINE_TRANSPORT_TOP_GAP_PX = 1  # Vertical gap between timeline scroller and transport strip
-TIMELINE_EDITOR_BAR_PADDING_X_PX = 5  # Horizontal padding around the editor toolbar strip
+TIMELINE_EDITOR_BAR_PADDING_X_PX = 4  # Horizontal padding around the editor toolbar strip
 TIMELINE_EDITOR_BAR_PADDING_Y_PX = 1  # Vertical padding around the editor toolbar strip
-TIMELINE_EDITOR_GROUP_PADDING_X_PX = 3  # Horizontal padding inside each toolbar group
+TIMELINE_EDITOR_GROUP_PADDING_X_PX = 2  # Horizontal padding inside each toolbar group
 TIMELINE_EDITOR_GROUP_PADDING_Y_PX = 1  # Vertical padding inside each toolbar group
-TIMELINE_EDITOR_GROUP_SPACING_PX = 4  # Gap between toolbar labels and controls
-TIMELINE_EDITOR_BUTTON_MIN_HEIGHT_PX = 20  # Dense minimum button height in the editor toolbar
+TIMELINE_EDITOR_GROUP_SPACING_PX = 3  # Gap between toolbar labels and controls
+TIMELINE_EDITOR_BUTTON_MIN_HEIGHT_PX = 18  # Dense minimum button height in the editor toolbar
+TIMELINE_RULER_TOP_GAP_PX = 3  # Small breathing room between editor toolbar and ruler/title bar
 TIMELINE_LAUNCHER_SUBMENU_ARROW_SIZE_PX = 6  # Compact submenu chevron size in launcher menus
 TIMELINE_LAUNCHER_SUBMENU_ARROW_RIGHT_PADDING_PX = 8  # Right gutter for launcher submenu chevrons
 TIMELINE_OBJECT_INFO_METADATA_MIN_HEIGHT_PX = (
-    28  # Compact starting body height for inspector facts
+    72  # Compact starting body height for inspector facts
 )
-TIMELINE_OBJECT_INFO_METADATA_DEFAULT_HEIGHT_PX = 90  # Initial inspector metadata pane height
-TIMELINE_OBJECT_INFO_SPLITTER_HANDLE_PX = 6  # Grab area for resizing inspector metadata vs actions
-RULER_HEIGHT_PX = 24  # Ruler bar height
+TIMELINE_OBJECT_INFO_METADATA_DEFAULT_HEIGHT_PX = 143  # Initial inspector metadata pane height
+TIMELINE_OBJECT_INFO_SPLITTER_HANDLE_PX = 4  # Grab area for resizing inspector metadata vs actions
+RULER_HEIGHT_PX = 20  # Ruler bar height
 RULER_MIN_TICK_SPACING_PX = 60  # Minimum pixels between major ticks
 RULER_MINOR_TICKS_PER_MAJOR = 4  # Subdivision density
 RULER_FONT_SIZE = 10  # Tick label font size
-RULER_TICK_COLOR = "#666666"  # Tick mark color
+RULER_TICK_COLOR = "#685f67"  # Tick mark color
 
 # =============================================================================
 # LAYERS
 # =============================================================================
 
-LAYER_HEADER_WIDTH_PX = 320  # Default width of layer name sidebar
+LAYER_HEADER_WIDTH_PX = 300  # Default width of layer name sidebar
 LAYER_HEADER_MIN_WIDTH_PX = 220  # Minimum layer name sidebar width
 LAYER_HEADER_MAX_WIDTH_PX = 560  # Maximum layer name sidebar width
 LAYER_HEADER_RESIZE_HANDLE_HALF_WIDTH_PX = (
     6  # Horizontal hit radius around header divider drag target
 )
-LAYER_ROW_HEIGHT_PX = 60  # Fallback default height per main layer row
-TAKE_ROW_HEIGHT_PX = 44  # Height of subordinate take rows
-LAYER_HEADER_TOP_PADDING_PX = 8  # Top offset before first lane row
-EVENT_BAR_HEIGHT_PX = 22  # Event pill/bar height inside rows
+LAYER_ROW_HEIGHT_PX = 40  # Fallback default height per main layer row
+TAKE_ROW_HEIGHT_PX = 36  # Height of subordinate take rows
+LAYER_HEADER_TOP_PADDING_PX = 4  # Top offset before first lane row
+EVENT_BAR_HEIGHT_PX = 18  # Event pill/bar height inside rows
 TIMELINE_RIGHT_PADDING_PX = 240  # Extra right scroll padding beyond content span
 LAYER_ROW_MIN_HEIGHT_PX = 40  # Fallback minimum for resizable main rows
 LAYER_SEPARATOR_PX = 1  # Divider line between layers
@@ -144,7 +146,7 @@ LAYER_ACTIVE_HIGHLIGHT_ALPHA = 15  # Subtle highlight on focused layer
 # GRID
 # =============================================================================
 
-GRID_LINE_COLOR = "#333333"  # Grid line color (pixel-snapped, no anti-alias)
+GRID_LINE_COLOR = "#3a383a"  # Grid line color (pixel-snapped, no anti-alias)
 GRID_LINE_ALPHA = 40  # Grid line opacity (0-255)
 GRID_BEAT_LINE_ALPHA = 80  # Beat-aligned grid lines (stronger)
 GRID_BAR_LINE_ALPHA = 120  # Bar-aligned grid lines (strongest)
@@ -162,23 +164,23 @@ BLOCK_GRID_SNAP_PX = 20  # Grid snap for block placement
 CONNECTION_BEZIER_TENSION = 0.5  # Bezier curve control point tension (0 = straight, 1 = extreme)
 
 # Port type colors
-PORT_COLOR_AUDIO = "#4488CC"  # Blue
-PORT_COLOR_EVENT = "#44CC88"  # Green
-PORT_COLOR_OSC = "#CC8844"  # Orange
-PORT_COLOR_CONTROL = "#8844CC"  # Purple
+PORT_COLOR_AUDIO = "#8f8a84"  # Blue
+PORT_COLOR_EVENT = "#7fd1ae"  # Green
+PORT_COLOR_OSC = "#ffb84d"  # Orange
+PORT_COLOR_CONTROL = "#8f8a84"  # Purple
 
 # Block category colors
-BLOCK_COLOR_PROCESSOR = "#2D5A88"  # Blue-gray
-BLOCK_COLOR_WORKSPACE = "#885A2D"  # Amber
-BLOCK_COLOR_PLAYBACK = "#5A882D"  # Green
+BLOCK_COLOR_PROCESSOR = "#3d3b3d"  # Blue-gray
+BLOCK_COLOR_WORKSPACE = "#2b2117"  # Amber
+BLOCK_COLOR_PLAYBACK = "#1c3428"  # Green
 
 # =============================================================================
 # ANIMATION
 # =============================================================================
 
 UNDO_FLASH_DURATION_MS = 200  # Flash duration on undo/redo affected events
-UNDO_FLASH_COLOR = "#FFFF00"  # Flash color
-EXECUTION_PROGRESS_COLOR = "#44CC44"  # Progress bar color during execution
+UNDO_FLASH_COLOR = "#ffb84d"  # Flash color
+EXECUTION_PROGRESS_COLOR = "#7fd1ae"  # Progress bar color during execution
 
 # =============================================================================
 # CLASSIFICATION COLORS
@@ -186,15 +188,15 @@ EXECUTION_PROGRESS_COLOR = "#44CC44"  # Progress bar color during execution
 # Map classification labels to display colors. Extend as models are added.
 
 CLASSIFICATION_COLORS = {
-    "kick": "#CC4444",
-    "snare": "#44CC44",
-    "hihat": "#CCCC44",
-    "tom": "#CC8844",
-    "cymbal": "#44CCCC",
-    "clap": "#CC44CC",
-    "percussion": "#8888CC",
-    "vocal": "#CC6688",
-    "bass": "#6644CC",
-    "melody": "#44CC88",
-    "other": "#888888",
+    "kick": "#a6533e",
+    "snare": "#91a19a",
+    "hihat": "#b49a63",
+    "tom": "#a07a68",
+    "cymbal": "#9a8f83",
+    "clap": "#9a8f83",
+    "percussion": "#8f8a84",
+    "vocal": "#b56f61",
+    "bass": "#7f9a72",
+    "melody": "#86a0ad",
+    "other": "#8f8a84",
 }

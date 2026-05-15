@@ -44,7 +44,7 @@ class SongPartsPreviewPanel(QWidget):
 def _summary_text(session: ObjectActionSettingsSession) -> str:
     method = _field_value(session, "detect_method") or "mir_self_similarity"
     method_label = {
-        "mir_self_similarity": "MIR self-similarity",
+        "mir_self_similarity": "MIR part-boundary detection",
         "mfcc_sequence_pooling": "MFCC sequence pooling",
         "determine_sections_style": "legacy section estimation",
     }.get(str(method), str(method).replace("_", " ").title())
@@ -54,7 +54,7 @@ def _summary_text(session: ObjectActionSettingsSession) -> str:
     )
     return (
         f"EchoZero will analyze {source} using {method_label}, then create a section layer "
-        "that you can review before syncing or editing."
+        "showing where parts change for you to review before syncing or editing."
     )
 
 

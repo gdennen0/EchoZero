@@ -21,15 +21,16 @@ from PyQt6.QtWidgets import (
 )
 
 from echozero.application.presentation.inspector_contract import InspectorAction
+from echozero.application.shared.enums import LayerKind
 from echozero.ui.qt.timeline.object_info_panel_text import plan_detail_text
 
-_ACTION_ROW_CONTENT_MARGIN_PX = 4
-_ACTION_ROW_SPACING_PX = 2
-_ACTION_ROW_BUTTON_SPACING_PX = 4
-_ACTION_SETTINGS_BUTTON_WIDTH_PX = 24
-_ACTION_RUN_BUTTON_MIN_WIDTH_PX = 72
-_SECTION_EXPANDED_GLYPH = "▼"
-_SECTION_COLLAPSED_GLYPH = "▶"
+_ACTION_ROW_CONTENT_MARGIN_PX = 2
+_ACTION_ROW_SPACING_PX = 1
+_ACTION_ROW_BUTTON_SPACING_PX = 3
+_ACTION_SETTINGS_BUTTON_WIDTH_PX = 20
+_ACTION_RUN_BUTTON_MIN_WIDTH_PX = 54
+_SECTION_EXPANDED_GLYPH = "[-]"
+_SECTION_COLLAPSED_GLYPH = "[+]"
 
 
 class _ObjectInfoPanelActionsMixin:
@@ -147,6 +148,8 @@ class _ObjectInfoPanelActionsMixin:
                 self._section_toggle_label(section.label, len(actions), expanded)
             )
             section_toggle.setProperty("compact", True)
+            section_toggle.setFixedHeight(24)
+            section_toggle.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             self._action_sections_layout.addWidget(section_toggle)
 
             section_body = QWidget(self._action_sections)
@@ -180,6 +183,8 @@ class _ObjectInfoPanelActionsMixin:
             widget = item.widget()
             child_layout = item.layout()
             if widget is not None:
+                widget.hide()
+                widget.setParent(None)
                 widget.deleteLater()
                 continue
             if child_layout is not None:
@@ -187,6 +192,8 @@ class _ObjectInfoPanelActionsMixin:
                     child_item = child_layout.takeAt(0)
                     child_widget = child_item.widget()
                     if child_widget is not None:
+                        child_widget.hide()
+                        child_widget.setParent(None)
                         child_widget.deleteLater()
 
     def _toggle_action_section(
@@ -209,7 +216,7 @@ class _ObjectInfoPanelActionsMixin:
         expanded: bool,
     ) -> str:
         glyph = _SECTION_EXPANDED_GLYPH if expanded else _SECTION_COLLAPSED_GLYPH
-        return f"{glyph} {str(section_label or '').upper()} ({action_count})"
+        return f"{glyph} {str(section_label or '').upper()}:{action_count}"
 
     def _build_pipeline_action_row(
         self: Any, action: InspectorAction, plan, parent: QWidget
@@ -238,7 +245,7 @@ class _ObjectInfoPanelActionsMixin:
         actions_row.addWidget(title, 1)
 
         settings_button = QPushButton(plan.settings_label, actions_container)
-        settings_button.setText("...")
+        settings_button.setText("CFG")
         settings_button.setToolTip(plan.settings_label)
         self._set_button_appearance(settings_button, "subtle")
         settings_button.setProperty("compact", True)
@@ -359,14 +366,30 @@ class _ObjectInfoPanelActionsMixin:
             "set_layer_solo_off"
         ) or self._find_contract_action("set_layer_solo_on")
 
-        self._panel_mute_btn.setText("Unmute" if muted else "Mute")
-        self._panel_solo_btn.setText("Unsolo" if soloed else "Solo")
+        self._panel_mute_btn.setText("M!") if muted else self._panel_mute_btn.setText("M")
+        self._panel_solo_btn.setText("S!") if soloed else self._panel_solo_btn.setText("S")
+        if hasattr(self, "_bus_state"):
+            if muted:
+                self._bus_state.setText("BUS:MUTE")
+                self._bus_state.setProperty("tone", "mute")
+            elif soloed:
+                self._bus_state.setText("BUS:SOLO")
+                self._bus_state.setProperty("tone", "solo")
+            else:
+                self._bus_state.setText("BUS:LIVE")
+                self._bus_state.setProperty("tone", "live")
+            style = self._bus_state.style()
+            style.unpolish(self._bus_state)
+            style.polish(self._bus_state)
+            self._bus_state.update()
         self._set_button_active(self._panel_mute_btn, muted)
         self._set_button_active(self._panel_solo_btn, soloed)
         self._panel_mute_btn.setEnabled(mute_action is not None and mute_action.enabled)
         self._panel_solo_btn.setEnabled(solo_action is not None and solo_action.enabled)
 
-    def _has_lightweight_audio_controls(self: Any) -> bool:
+    def _has_lightweight_audio_controls(self: Any, *, selected_layer: object | None) -> bool:
+        if getattr(selected_layer, "kind", None) is not LayerKind.AUDIO:
+            return False
         gain_actions = (
             self._find_contract_action("gain_down"),
             self._find_contract_action("gain_unity"),

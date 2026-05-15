@@ -71,6 +71,8 @@ class ShapePreviewRow:
     is_anchor: bool = False
     is_match: bool = False
 
+from echozero.ui.style.qt import ensure_qt_theme_installed
+
 
 class EventShapeComparisonPreviewWidget(QWidget):
     """Paint the anchor shape and the candidate event shapes considered by the dialog."""
@@ -90,6 +92,7 @@ class EventShapeComparisonPreviewWidget(QWidget):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        ensure_qt_theme_installed()
         self._rows = rows
         self._smoothing = smoothing
         self._control_points = control_points
@@ -113,10 +116,10 @@ class EventShapeComparisonPreviewWidget(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         rect = self.rect().adjusted(10, 10, -10, -10)
         painter.fillRect(rect, QColor("#101010"))
-        painter.setPen(QPen(QColor("#f97316"), 1.2))
-        painter.drawRoundedRect(QRectF(rect), 12.0, 12.0)
+        painter.setPen(QPen(QColor("#8f8a84"), 1.2))
+        painter.drawRoundedRect(QRectF(rect), 3.0, 3.0)
         if not self._rows:
-            painter.setPen(QColor("#aaa5a0"))
+            painter.setPen(QColor("#aaa49e"))
             painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "NO AUDIO COMPARISON TELEMETRY")
             painter.end()
             return
@@ -130,20 +133,20 @@ class EventShapeComparisonPreviewWidget(QWidget):
         right_panel = QRectF(left_panel.right() + gap, rect.top() + 12, rect.right() - left_panel.right() - gap - 12, rect.height() - 24)
 
         painter.fillRect(left_panel, QColor("#171719"))
-        painter.setPen(QPen(QColor("#ff9f3f"), 1.0))
-        painter.drawRoundedRect(left_panel, 10.0, 10.0)
+        painter.setPen(QPen(QColor("#8f8a84"), 1.0))
+        painter.drawRoundedRect(left_panel, 3.0, 3.0)
         painter.setPen(QColor("#f6f3ee"))
         painter.drawText(left_panel.adjusted(14, 10, -14, -10), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, "SELECTED CLIP")
-        painter.setPen(QColor("#ffb84d"))
+        painter.setPen(QColor("#d8d2cb"))
         painter.drawText(left_panel.adjusted(14, 32, -14, -10), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, anchor.label)
-        self._draw_shape(painter, QRectF(left_panel.left() + 14, left_panel.top() + 62, left_panel.width() - 28, 128), anchor.shape, QColor("#ffb84d"), width=3.2)
+        self._draw_shape(painter, QRectF(left_panel.left() + 14, left_panel.top() + 62, left_panel.width() - 28, 128), anchor.shape, QColor("#d8d2cb"), width=3.2)
 
         progress_rect = QRectF(left_panel.left() + 14, left_panel.top() + 204, left_panel.width() - 28, 92)
         painter.fillRect(progress_rect, QColor("#101010"))
-        painter.setPen(QColor("#d9d9d9"))
+        painter.setPen(QColor("#e8e2dc"))
         painter.drawText(progress_rect.adjusted(10, 4, -10, -4), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, "LIVE ITERATION")
         current_row = self._rows[-1] if len(self._rows) > 1 and scanned_count else None
-        current_color = QColor("#ff9f3f") if current_row is not None and current_row.is_match else QColor("#d65f4f")
+        current_color = QColor("#8f8a84") if current_row is not None and current_row.is_match else QColor("#8f3a2f")
         painter.setPen(QColor("#f6f3ee"))
         painter.drawText(
             progress_rect.adjusted(10, 24, -10, -4),
@@ -154,7 +157,7 @@ class EventShapeComparisonPreviewWidget(QWidget):
             badge = QRectF(progress_rect.left() + 10, progress_rect.top() + 48, 22, 22)
             painter.fillRect(badge, current_color)
             painter.setPen(QPen(current_color, 2.0))
-            painter.drawRoundedRect(badge, 4.0, 4.0)
+            painter.drawRoundedRect(badge, 2.0, 2.0)
             painter.setPen(QColor("#f6f3ee"))
             score = "--" if current_row.score is None else f"{current_row.score:.2f}"
             painter.drawText(
@@ -168,28 +171,28 @@ class EventShapeComparisonPreviewWidget(QWidget):
         scanned_segments = round(visible_segments * (scanned_count / max(1, total_count)))
         for index in range(visible_segments):
             segment = QRectF(progress_rect.left() + 10 + index * segment_width + 1, segment_top, segment_width - 2, 8)
-            painter.fillRect(segment, QColor("#f97316") if index < scanned_segments else QColor("#222225"))
+            painter.fillRect(segment, QColor("#8f8a84") if index < scanned_segments else QColor("#202022"))
 
         meter_top = progress_rect.bottom() + 16
         for index, (label, value, color) in enumerate(
             (
-                (f"smooth {self._smoothing}", min(1.0, self._smoothing / 12.0), QColor("#46d6c9")),
-                (f"points {self._control_points}", min(1.0, self._control_points / 64.0), QColor("#8f8a84")),
-                (f"fuzz {self._fuzziness}%", min(1.0, self._fuzziness / 100.0), QColor("#ffb84d")),
-                (f"min {self._threshold:.2f}", min(1.0, self._threshold), QColor("#ff9f3f")),
+                (f"smooth {self._smoothing}", min(1.0, self._smoothing / 12.0), QColor("#7fd1ae")),
+                (f"points {self._control_points}", min(1.0, self._control_points / 64.0), QColor("#685f67")),
+                (f"fuzz {self._fuzziness}%", min(1.0, self._fuzziness / 100.0), QColor("#d8d2cb")),
+                (f"min {self._threshold:.2f}", min(1.0, self._threshold), QColor("#8f8a84")),
             )
         ):
             y = meter_top + index * 34
-            painter.setPen(QColor("#aaa5a0"))
+            painter.setPen(QColor("#aaa49e"))
             painter.drawText(QRectF(left_panel.left() + 14, y, 88, 18), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, label.upper())
             bar = QRectF(left_panel.left() + 112, y + 5, left_panel.width() - 132, 8)
-            painter.fillRect(bar, QColor("#222225"))
+            painter.fillRect(bar, QColor("#202022"))
             painter.fillRect(QRectF(bar.left(), bar.top(), bar.width() * value, bar.height()), color)
 
         painter.fillRect(right_panel, QColor("#171719"))
-        painter.setPen(QPen(QColor("#2b2b2f"), 1.0))
-        painter.drawRoundedRect(right_panel, 10.0, 10.0)
-        painter.setPen(QColor("#aaa5a0"))
+        painter.setPen(QPen(QColor("#4a4749"), 1.0))
+        painter.drawRoundedRect(right_panel, 3.0, 3.0)
+        painter.setPen(QColor("#aaa49e"))
         painter.drawText(right_panel.adjusted(14, 10, -14, -10), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, "CANDIDATE CURVES · GOLD REFERENCE / CYAN EVENT")
 
         top = right_panel.top() + 38
@@ -201,30 +204,30 @@ class EventShapeComparisonPreviewWidget(QWidget):
             y = top + index * row_height
             row_rect = QRectF(right_panel.left() + 10, y, right_panel.width() - 20, row_height - 7)
             is_current = index == max(0, min(len(self._rows) - 2, scanned_count - 1))
-            verdict_color = QColor("#ff9f3f") if row.is_match else QColor("#d65f4f")
+            verdict_color = QColor("#8f8a84") if row.is_match else QColor("#8f3a2f")
             verdict_fill = QColor(verdict_color)
             verdict_fill.setAlpha(44 if row.is_match else 34)
-            painter.fillRect(row_rect, QColor("#1f1f1f") if index % 2 == 0 else QColor("#171719"))
+            painter.fillRect(row_rect, QColor("#202022") if index % 2 == 0 else QColor("#171719"))
             painter.fillRect(row_rect, verdict_fill)
-            painter.setPen(QPen(verdict_color if is_current else QColor("#424047"), 2.4 if is_current else 0.8))
-            painter.drawRoundedRect(row_rect, 7.0, 7.0)
+            painter.setPen(QPen(verdict_color if is_current else QColor("#685f67"), 2.4 if is_current else 0.8))
+            painter.drawRoundedRect(row_rect, 2.0, 2.0)
             score = "--" if row.score is None else f"{row.score:.2f}"
             badge_rect = QRectF(row_rect.left() + 10, row_rect.top() + 13, 14, 14)
             painter.fillRect(badge_rect, verdict_color)
             painter.setPen(QPen(verdict_color.lighter(135), 1.2))
-            painter.drawRoundedRect(badge_rect, 3.0, 3.0)
-            painter.setPen(QColor("#ff9f3f") if row.is_match else QColor("#d98b7d"))
+            painter.drawRoundedRect(badge_rect, 2.0, 2.0)
+            painter.setPen(QColor("#8f8a84") if row.is_match else QColor("#c86f5f"))
             painter.drawText(row_rect.adjusted(34, 0, -4, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, f"{row.label} · {score}")
             graph_rect = QRectF(graph_left, y + 8, graph_width, row_height - 24)
             graph_overlay = QColor(verdict_color)
             graph_overlay.setAlpha(26)
             painter.fillRect(graph_rect.adjusted(-4, -4, 4, 4), graph_overlay)
             painter.setPen(QPen(verdict_color, 1.0))
-            painter.drawRoundedRect(graph_rect.adjusted(-4, -4, 4, 4), 5.0, 5.0)
-            painter.setPen(QPen(QColor("#2b2117"), 1.0))
+            painter.drawRoundedRect(graph_rect.adjusted(-4, -4, 4, 4), 2.0, 2.0)
+            painter.setPen(QPen(QColor("#4a4749"), 1.0))
             painter.drawLine(QPointF(graph_rect.left(), graph_rect.center().y()), QPointF(graph_rect.right(), graph_rect.center().y()))
-            self._draw_shape(painter, graph_rect, anchor.shape, QColor("#ffb84d"), width=2.2)
-            self._draw_shape(painter, graph_rect, row.shape, QColor("#46d6c9"), width=2.0)
+            self._draw_shape(painter, graph_rect, anchor.shape, QColor("#d8d2cb"), width=2.2)
+            self._draw_shape(painter, graph_rect, row.shape, QColor("#7fd1ae"), width=2.0)
         painter.end()
 
     def _draw_shape(
@@ -237,7 +240,7 @@ class EventShapeComparisonPreviewWidget(QWidget):
         width: float = 2.0,
     ) -> None:
         if not shape:
-            painter.setPen(QColor("#aaa5a0"))
+            painter.setPen(QColor("#aaa49e"))
             painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "no samples")
             return
         values = list(shape)
@@ -271,6 +274,7 @@ class FindSimilarSoundsDialog(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        ensure_qt_theme_installed()
         self._presentation = presentation
         self._layer_id = layer_id
         self._take_id = take_id
@@ -281,13 +285,6 @@ class FindSimilarSoundsDialog(QDialog):
         self._preview_cache: dict[tuple[str, str, str, str, float, float, int], tuple[float, ...]] = {}
         self._model_score_cache: dict[tuple[str, str, str, str], float] = {}
         self.setWindowTitle("Compare Events")
-        self.setStyleSheet(
-            "QDialog { background: #101010; color: #f6f3ee; }"
-            "QLabel { color: #f6f3ee; }"
-            "QComboBox { background: #222225; color: #f6f3ee; border: 1px solid #f97316; padding: 6px; }"
-            "QScrollArea { border: 1px solid #f97316; background: #101010; }"
-            "QPushButton { background: #f97316; color: white; padding: 6px 14px; }"
-        )
 
         layout = QVBoxLayout(self)
         control_grid = QGridLayout()

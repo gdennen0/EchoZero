@@ -17,10 +17,17 @@ class CachedWaveform:
     sample_rate: int
     window_size: int
     peaks: np.ndarray  # shape (N,2), float32 min/max
+    duration_seconds: float | None = None
 
     @property
     def seconds_per_peak(self) -> float:
         return float(self.window_size) / float(self.sample_rate)
+
+    @property
+    def resolved_duration_seconds(self) -> float:
+        if self.duration_seconds is not None:
+            return max(0.0, float(self.duration_seconds))
+        return max(0.0, float(self.peaks.shape[0]) * self.seconds_per_peak)
 
 
 _CACHE: OrderedDict[str, CachedWaveform] = OrderedDict()
@@ -52,6 +59,7 @@ def register_waveform_from_audio_file(
         sample_rate=int(sample_rate),
         window_size=window_size,
         peaks=peaks,
+        duration_seconds=(float(mono.size) / float(sample_rate)) if sample_rate > 0 else 0.0,
     )
     _put_cached_waveform(key, cached)
     return cached

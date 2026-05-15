@@ -32,6 +32,7 @@ from echozero.ui.qt.window_geometry import resolve_initial_window_size
 
 PROJECT_FILE_FILTER = "EchoZero Project (*.ez);;All Files (*)"
 MAX_RECENT_PROJECTS = 10
+APP_WINDOW_TITLE = "EchoZero"
 
 
 @dataclass(slots=True)
@@ -111,6 +112,9 @@ class LauncherController:
             )
         self.actions.update(build_review_launcher_actions(self))
         setattr(self.widget, "_launcher_actions", self.actions)
+        set_title_sync_callback = getattr(self.widget, "set_window_title_sync_callback", None)
+        if callable(set_title_sync_callback):
+            set_title_sync_callback(self._sync_window_title)
         self._refresh_recent_project_menu()
         self.widget.closeEvent = self.close_event
         self._sync_window_title()
@@ -191,11 +195,22 @@ class LauncherController:
         if not callable(setter):
             return
         project_name = self._resolved_project_name()
-        dirty_suffix = " *" if bool(getattr(self.runtime, "is_dirty", False)) else ""
-        if project_name:
-            setter(f"EchoZero - {project_name}{dirty_suffix}")
-            return
-        setter(f"EchoZero{dirty_suffix}")
+        title = (
+            f"{APP_WINDOW_TITLE} - {project_name}[*]"
+            if project_name
+            else f"{APP_WINDOW_TITLE}[*]"
+        )
+        is_dirty = bool(getattr(self.runtime, "is_dirty", False))
+        set_window_modified = getattr(self.widget, "setWindowModified", None)
+        if callable(set_window_modified):
+            setter(title)
+            set_window_modified(is_dirty)
+        else:
+            setter(title.replace("[*]", " *" if is_dirty else ""))
+        set_window_file_path = getattr(self.widget, "setWindowFilePath", None)
+        if callable(set_window_file_path):
+            project_path = self._current_project_path()
+            set_window_file_path("" if project_path is None else str(project_path))
 
     def _apply_project_runtime_header_width(self) -> None:
         set_layer_header_width = getattr(self.widget, "set_layer_header_width", None)
@@ -749,7 +764,7 @@ def build_launcher_surface(
     if callable(set_minimum_size):
         set_minimum_size(1, 1)
     widget.resize(initial_width, initial_height)
-    widget.setWindowTitle("EchoZero")
+    widget.setWindowTitle(APP_WINDOW_TITLE)
 
     controller = LauncherController(
         runtime=runtime,

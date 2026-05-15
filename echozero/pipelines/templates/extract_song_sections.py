@@ -14,8 +14,8 @@ from echozero.pipelines.registry import pipeline_template
     id="extract_song_sections",
     name="Detect Song Parts",
     description=(
-        "Detect repeated song parts from full-song MIR structure, with "
-        "self-similarity analysis as the recommended path."
+        "Detect where song parts change, with MIR boundary analysis as the "
+        "recommended path."
     ),
     knobs={
         "detect_method": knob(
@@ -23,8 +23,9 @@ from echozero.pipelines.registry import pipeline_template
             label="Section Detection",
             options=("mfcc_sequence_pooling", "determine_sections_style", "mir_self_similarity"),
             description=(
-                "MIR self-similarity is recommended for song-part detection. "
-                "Legacy options remain available for comparison and fallback."
+                "MIR boundary detection finds where parts change without trying "
+                "to predict verse/chorus names. Legacy options remain available "
+                "for comparison and fallback."
             ),
         ),
         "sample_rate": knob(
@@ -43,7 +44,7 @@ from echozero.pipelines.registry import pipeline_template
             step=1,
         ),
         "n_fft": knob(
-            8192,
+            2048,
             label="FFT Window",
             min_value=512,
             max_value=32768,
@@ -51,7 +52,7 @@ from echozero.pipelines.registry import pipeline_template
             advanced=True,
         ),
         "hop_length": knob(
-            4096,
+            512,
             label="Hop Length",
             min_value=64,
             max_value=16384,
@@ -59,7 +60,7 @@ from echozero.pipelines.registry import pipeline_template
             advanced=True,
         ),
         "history_pool_frames": knob(
-            160,
+            32,
             label="History Pool Frames",
             min_value=8,
             max_value=1000,
@@ -79,7 +80,7 @@ from echozero.pipelines.registry import pipeline_template
             description="Higher values detect more section boundaries.",
         ),
         "min_section_seconds": knob(
-            8.0,
+            2.0,
             label="Minimum Section Length (s)",
             min_value=1.0,
             max_value=60.0,
@@ -121,14 +122,14 @@ from echozero.pipelines.registry import pipeline_template
     },
 )
 def build_extract_song_sections(
-    detect_method="mfcc_sequence_pooling",
+    detect_method="mir_self_similarity",
     sample_rate=22050,
     n_mfcc=20,
-    n_fft=8192,
-    hop_length=4096,
-    history_pool_frames=160,
+    n_fft=2048,
+    hop_length=512,
+    history_pool_frames=32,
     boundary_sensitivity=0.60,
-    min_section_seconds=8.0,
+    min_section_seconds=2.0,
     max_sections=14,
     similarity_threshold=0.84,
     intro_tail_seconds=14.0,

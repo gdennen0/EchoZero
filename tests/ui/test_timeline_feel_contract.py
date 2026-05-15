@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
-from PyQt6.QtGui import QMouseEvent
+from PyQt6.QtGui import QMouseEvent, QNativeGestureEvent, QPointingDevice
 from PyQt6.QtWidgets import QApplication
 
 from echozero.application.presentation.models import LayerPresentation, TimelinePresentation
@@ -79,6 +79,19 @@ def _mouse_drag(target, points: list[QPoint]) -> None:
     QApplication.processEvents()
 
 
+def _native_zoom_gesture(point: QPointF, value: float) -> QNativeGestureEvent:
+    return QNativeGestureEvent(
+        Qt.NativeGestureType.ZoomNativeGesture,
+        QPointingDevice.primaryPointingDevice(),
+        2,
+        point,
+        point,
+        point,
+        value,
+        QPointF(),
+    )
+
+
 def test_timeline_canvas_dimensions_include_layer_height_config_defaults():
     app = QApplication.instance() or QApplication([])
     height_config = timeline_layer_height_config()
@@ -110,8 +123,10 @@ def test_timeline_canvas_uses_per_layer_type_default_row_heights():
         assert canvas._main_row_height_for_layer(event_layer) == (
             height_config.layer_kind_main_row_height_px[LayerKind.EVENT]
         )
-        assert canvas._main_row_height_for_layer(audio_layer) != canvas._main_row_height_for_layer(
-            event_layer
+        assert height_config.default_main_row_height_px == height_config.min_main_row_height_px
+        assert all(
+            row_height == height_config.min_main_row_height_px
+            for row_height in height_config.layer_kind_main_row_height_px.values()
         )
     finally:
         canvas.close()
@@ -194,7 +209,12 @@ def test_timeline_canvas_layer_rows_group_children_under_parent():
         layers=[
             LayerPresentation(layer_id=child_id, title="Drums", parent_layer_id=parent_id),
             LayerPresentation(layer_id=sibling_id, title="Sections", kind=LayerKind.SECTION),
-            LayerPresentation(layer_id=parent_id, title="Imported Song", kind=LayerKind.AUDIO),
+            LayerPresentation(
+                layer_id=parent_id,
+                title="Imported Song",
+                kind=LayerKind.AUDIO,
+                is_expanded=True,
+            ),
         ],
     )
     canvas = TimelineCanvas(presentation)
@@ -217,7 +237,12 @@ def test_timeline_canvas_render_contract_marks_parent_and_child_rows():
         timeline_id=TimelineId("timeline"),
         title="Timeline",
         layers=[
-            LayerPresentation(layer_id=parent_id, title="Imported Song", kind=LayerKind.AUDIO),
+            LayerPresentation(
+                layer_id=parent_id,
+                title="Imported Song",
+                kind=LayerKind.AUDIO,
+                is_expanded=True,
+            ),
             LayerPresentation(
                 layer_id=child_id,
                 title="Drums",
@@ -325,6 +350,45 @@ def test_timeline_zoom_scales_continuously_from_partial_wheel_delta():
         assert widget.presentation.pixels_per_second == pytest.approx(expected, rel=1e-6)
     finally:
         widget.close()
+
+
+def test_canvas_emits_zoom_factor_request_for_trackpad_pinch():
+    app = QApplication.instance() or QApplication([])
+    canvas = TimelineCanvas(build_demo_app().presentation())
+    captured: list[tuple[float, float]] = []
+    try:
+        canvas.resize(900, 320)
+        canvas.show()
+        canvas.zoom_factor_requested.connect(lambda factor, anchor_x: captured.append((factor, anchor_x)))
+
+        gesture = _native_zoom_gesture(QPointF(420.0, 160.0), 0.08)
+        QApplication.sendEvent(canvas, gesture)
+
+        assert captured == [(pytest.approx(1.08), pytest.approx(420.0))]
+        assert gesture.isAccepted()
+    finally:
+        canvas.close()
+        app.processEvents()
+
+
+def test_trackpad_pinch_zoom_updates_timeline_scale():
+    app = QApplication.instance() or QApplication([])
+    presentation = build_demo_app().presentation()
+    widget = TimelineWidget(presentation)
+    try:
+        widget.resize(1200, 640)
+        widget.show()
+        app.processEvents()
+        widget.set_presentation(replace(widget.presentation, pixels_per_second=100.0))
+
+        gesture = _native_zoom_gesture(QPointF(480.0, 160.0), 0.12)
+        QApplication.sendEvent(widget._canvas, gesture)
+        app.processEvents()
+
+        assert widget.presentation.pixels_per_second == pytest.approx(112.0, rel=1e-6)
+    finally:
+        widget.close()
+        app.processEvents()
 
 
 def test_zoom_to_fit_all_resets_scroll_and_fits_timeline_span():

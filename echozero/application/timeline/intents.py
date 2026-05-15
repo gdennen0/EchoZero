@@ -766,8 +766,16 @@ class SetLayerOutputBus(TimelineIntent):
         if not output_bus:
             self.output_bus = None
             return
-        canonical_output_bus = _canonical_layer_output_bus(output_bus)
+        try:
+            canonical_output_bus = _canonical_layer_output_bus(output_bus)
+        except ValueError as exc:
+            raise ValueError(
+                "SetLayerOutputBus requires output_bus format 'outputs_<start>_<end>'"
+            ) from exc
         if canonical_output_bus is None:
+            if output_bus.strip().lower() in {"master", "default"}:
+                self.output_bus = None
+                return
             raise ValueError(
                 "SetLayerOutputBus requires output_bus format 'outputs_<start>_<end>'"
             )

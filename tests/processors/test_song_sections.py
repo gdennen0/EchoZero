@@ -6,7 +6,10 @@ Tests prove method dispatch and generator metadata on emitted section cues.
 
 from __future__ import annotations
 
+import math
+import wave
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from echozero.domain.enums import BlockCategory, Direction, PortType
@@ -14,6 +17,7 @@ from echozero.domain.graph import Graph
 from echozero.domain.types import AudioData, Block, BlockSettings, Connection, Port
 from echozero.execution import ExecutionContext
 from echozero.processors.song_sections import SongSectionsProcessor
+from echozero.processors.song_structure_mir import segment_song_structure_with_mir
 from echozero.progress import RuntimeBus
 from echozero.result import Ok
 
@@ -103,6 +107,9 @@ def test_song_sections_processor_uses_default_detector_and_marks_generator() -> 
     assert len(calls) == 1
     event = result.value.layers[0].events[0]
     assert event.metadata["generator"] == "mfcc_sequence_pooling_v1"
+    assert event.metadata["cue_ref"] == "part_01"
+    assert event.metadata["section_label"] == "Part 1"
+    assert event.classifications["label"] == "Part 1"
 
 
 def test_song_sections_processor_uses_determine_sections_mode_and_marks_generator() -> None:
@@ -131,6 +138,9 @@ def test_song_sections_processor_uses_determine_sections_mode_and_marks_generato
     assert isinstance(result, Ok)
     event = result.value.layers[0].events[0]
     assert event.metadata["generator"] == "determine_sections_style_v1"
+    assert event.metadata["cue_ref"] == "part_01"
+    assert event.metadata["section_label"] == "Part 1"
+    assert event.classifications["label"] == "Part 1"
 
 
 def test_song_sections_processor_uses_mir_mode_and_marks_generator() -> None:
@@ -163,3 +173,43 @@ def test_song_sections_processor_uses_mir_mode_and_marks_generator() -> None:
     assert isinstance(result, Ok)
     event = result.value.layers[0].events[0]
     assert event.metadata["generator"] == "mir_self_similarity_v1"
+    assert event.metadata["cue_ref"] == "part_01"
+    assert event.metadata["section_label"] == "Part 1"
+    assert event.classifications["label"] == "Part 1"
+
+
+def test_segment_song_structure_with_mir_finds_multiple_part_starts(tmp_path: Path) -> None:
+    path = tmp_path / "multi-part.wav"
+    sample_rate = 22050
+    samples: list[int] = []
+    for frequency_hz in (220.0, 440.0, 220.0, 660.0):
+        frame_count = int(round(sample_rate * 3.0))
+        for frame_index in range(frame_count):
+            value = math.sin((2.0 * math.pi * frequency_hz * frame_index) / sample_rate) * 0.4
+            samples.append(int(round(value * 32767.0)))
+
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(sample_rate)
+        handle.writeframes(
+            b"".join(int(sample).to_bytes(2, "little", signed=True) for sample in samples)
+        )
+
+    segments = segment_song_structure_with_mir(
+        file_path=str(path),
+        sample_rate=sample_rate,
+        n_mfcc=20,
+        n_fft=2048,
+        hop_length=512,
+        boundary_sensitivity=0.6,
+        min_section_seconds=1.0,
+        max_sections=12,
+        similarity_threshold=0.84,
+        intro_tail_seconds=4.0,
+        end_tail_seconds=4.0,
+    )
+
+    assert len(segments) >= 3
+    assert segments[0].start_seconds == 0.0
+    assert all(segments[index].start_seconds < segments[index + 1].start_seconds for index in range(len(segments) - 1))

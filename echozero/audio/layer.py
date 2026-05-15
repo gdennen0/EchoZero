@@ -133,7 +133,9 @@ class AudioTrack:
         self.volume: float = volume
         self.muted: bool = False
         self.solo: bool = False
-        self.output_bus: str | None = canonical_layer_output_bus(output_bus)
+        self.output_bus: str | None = (
+            None if output_bus is None else canonical_layer_output_bus(output_bus)
+        )
 
     @property
     def duration_samples(self) -> int:

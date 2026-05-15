@@ -136,7 +136,7 @@ def test_app_shell_runtime_describes_song_parts_action_with_mir_default():
         assert plan.run_label == "Review & Run"
         assert detect_method_field.value == "mir_self_similarity"
         assert detect_method_field.default_value == "mir_self_similarity"
-        assert option_labels["mir_self_similarity"] == "MIR Self-Similarity (Recommended)"
+        assert option_labels["mir_self_similarity"] == "MIR Part Boundaries (Recommended)"
         assert option_labels["mfcc_sequence_pooling"] == "MFCC Sequence Pooling (Legacy)"
     finally:
         runtime.shutdown()

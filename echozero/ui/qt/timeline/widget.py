@@ -52,6 +52,7 @@ from echozero.application.timeline.intents import (
 from echozero.application.settings import AppSettingsService
 from echozero.models.paths import ensure_installed_models_dir
 from echozero.ui.FEEL import (
+    TIMELINE_RULER_TOP_GAP_PX,
     TIMELINE_RUNTIME_TICK_ACTIVE_MS,
     TIMELINE_TRANSPORT_TOP_GAP_PX,
 )
@@ -104,6 +105,7 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._on_intent = on_intent
         self._app_settings_service = app_settings_service
         self._runtime_audio = runtime_audio
+        self._window_title_sync_callback: Callable[[], None] | None = None
         self._runtime_sync_payload = None
         self._runtime_playhead_floor: float | None = None
         self._runtime_timing_snapshot: RuntimeAudioTimingSnapshot | None = None
@@ -194,6 +196,8 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
             self._on_pipeline_status_auto_dismiss_timeout
         )
 
+        left_layout.addSpacing(TIMELINE_RULER_TOP_GAP_PX)
+
         self._canvas = TimelineCanvas(self.presentation)
         if initial_header_width is not None:
             self._canvas.set_header_width(initial_header_width)
@@ -228,6 +232,7 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._canvas.playhead_drag_requested.connect(self._seek)
         self._canvas.horizontal_scroll_requested.connect(self._scroll_horizontally_by_steps)
         self._canvas.zoom_requested.connect(self._zoom_from_input)
+        self._canvas.zoom_factor_requested.connect(self._zoom_from_native_factor)
         self._canvas.clear_selection_requested.connect(self._clear_selection)
         self._canvas.select_all_requested.connect(self._select_all_events)
         self._canvas.set_selected_events_requested.connect(self._set_selected_events)
@@ -329,6 +334,7 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._song_browser_panel.song_version_selected.connect(
             self._action_router.switch_song_version
         )
+        self._song_browser_panel.rename_song_requested.connect(self._action_router.rename_song)
         self._song_browser_panel.add_song_requested.connect(
             self._action_router.add_song_from_dialog
         )
@@ -371,6 +377,14 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
 
     def layer_header_width_px(self) -> int:
         return int(self._canvas._header_width)
+
+    def set_window_title_sync_callback(self, callback: Callable[[], None] | None) -> None:
+        self._window_title_sync_callback = callback
+
+    def _notify_window_title_sync(self) -> None:
+        callback = self._window_title_sync_callback
+        if callable(callback):
+            callback()
 
     def set_layer_header_width(self, width: int) -> None:
         self._canvas.set_header_width(int(width))

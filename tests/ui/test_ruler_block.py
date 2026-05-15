@@ -154,8 +154,30 @@ def test_visible_ruler_marks_skip_negative_bar_labels_before_anchor():
         presentation=presentation,
         content_width=800.0,
         content_start_x=320.0,
+        mode=TimelineGridMode.BEAT,
     )
 
     assert marks
     assert marks[0][0] == "1|1"
     assert marks[0][1] == 640.0
+
+
+def test_visible_ruler_marks_use_seconds_when_grid_mode_is_not_beat():
+    presentation = TimelinePresentation(
+        timeline_id=TimelineId("timeline_ruler_seconds"),
+        title="Ruler",
+        bpm=120.0,
+        beat_anchor_seconds=2.0,
+        pixels_per_second=160.0,
+        scroll_x=0.0,
+    )
+
+    marks = visible_ruler_marks(
+        presentation=presentation,
+        content_width=800.0,
+        content_start_x=320.0,
+        mode=TimelineGridMode.AUTO,
+    )
+
+    assert marks
+    assert marks[0][0] == "0"

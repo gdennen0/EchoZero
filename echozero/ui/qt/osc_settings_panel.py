@@ -180,16 +180,10 @@ class OscSettingsPanel(QWidget):
         )
 
     def _set_status(self, tone: str, title: str, detail: str) -> None:
-        colors = {
-            "ok": "#0f7f3a",
-            "warn": "#8a5a00",
-            "error": "#8f1f1f",
-            "unknown": "#0c3a7d",
-        }
-        color = colors.get(tone, colors["unknown"])
         self._status_value.setText(title)
-        self._status_value.setStyleSheet(f"color: {color}; font-weight: 600;")
-        self._status_detail.setStyleSheet(f"color: {color};")
+        self._status_value.setProperty("statusLabel", True)
+        self._set_tone(self._status_value, tone)
+        self._set_tone(self._status_detail, tone)
         self._status_detail.setText(detail)
 
     def _sync_monitor_state(self) -> None:
@@ -199,14 +193,14 @@ class OscSettingsPanel(QWidget):
         self._monitor_clear.setEnabled(provider_available and callable(self._clear_monitor))
         if not provider_available:
             self._monitor_timer.stop()
-            self._monitor_status.setStyleSheet("color: #8a5a00;")
+            self._set_tone(self._monitor_status, "warn")
             self._monitor_status.setText(
                 "Live monitor unavailable: this surface has no active MA3 bridge hook."
             )
             self._monitor_output.setPlainText("No live OSC stream available in this shell.")
             return
 
-        self._monitor_status.setStyleSheet("color: #0f7f3a;")
+        self._set_tone(self._monitor_status, "ok")
         self._monitor_status.setText("Showing the latest inbound OSC messages seen by EZ.")
         self._refresh_monitor()
         if self._monitor_auto.isChecked():
@@ -226,7 +220,7 @@ class OscSettingsPanel(QWidget):
         try:
             rows = list(self._monitor_provider())
         except Exception as exc:
-            self._monitor_status.setStyleSheet("color: #8f1f1f;")
+            self._set_tone(self._monitor_status, "error")
             self._monitor_status.setText(f"Monitor read failed: {exc}")
             return
 
@@ -318,6 +312,15 @@ class OscSettingsPanel(QWidget):
             return
         clipboard = QApplication.clipboard()
         clipboard.setText(self._last_check_result.diagnostic_report(self._last_check_request))
+
+    @staticmethod
+    def _set_tone(label: QLabel, tone: str) -> None:
+        label.setProperty("tone", tone if tone in {"ok", "warn", "error", "unknown"} else "unknown")
+        style = label.style()
+        if style is not None:
+            style.unpolish(label)
+            style.polish(label)
+        label.update()
 
     @staticmethod
     def _format_result_detail(result: MA3OscConnectionCheckResult) -> str:

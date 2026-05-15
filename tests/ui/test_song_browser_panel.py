@@ -123,20 +123,20 @@ def test_song_browser_panel_collapses_to_compact_rail():
     panel = SongBrowserPanel(_song_switching_presentation())
     try:
         assert panel.is_collapsed is False
-        assert panel.width() == 280
+        assert panel.width() == 230
         assert panel.property("collapsed") is False
         assert panel._add_button.isHidden() is False
-        assert panel._collapse_button.text() == "<"
+        assert panel._collapse_button.text() == "◀"
 
         panel.toggle_collapsed()
         app.processEvents()
 
         assert panel.is_collapsed is True
-        assert panel.width() == 28
+        assert panel.width() == 24
         assert panel.property("collapsed") is True
         assert panel._add_button.isHidden() is True
         assert panel._title.isHidden() is True
-        assert panel._collapse_button.text() == ">"
+        assert panel._collapse_button.text() == "▶"
     finally:
         panel.close()
         app.processEvents()

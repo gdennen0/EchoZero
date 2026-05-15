@@ -327,7 +327,7 @@ def _option_label_for_setting(*, key: str, option: str) -> str:
             return "Winner Takes Similar Hits"
     if key == "detect_method":
         if option == "mir_self_similarity":
-            return "MIR Self-Similarity (Recommended)"
+            return "MIR Part Boundaries (Recommended)"
         if option == "mfcc_sequence_pooling":
             return "MFCC Sequence Pooling (Legacy)"
         if option == "determine_sections_style":

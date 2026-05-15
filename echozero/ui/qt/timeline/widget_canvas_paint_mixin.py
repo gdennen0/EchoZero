@@ -17,11 +17,12 @@ from echozero.application.presentation.models import (
     LayerPresentation,
     TakeLanePresentation,
 )
-from echozero.application.shared.enums import LayerKind
+from echozero.application.shared.enums import LayerKind, PlaybackMode
 from echozero.application.shared.layer_kinds import is_event_like_layer_kind
 from echozero.application.shared.ids import LayerId, TakeId
 from echozero.perf import timed
 from echozero.ui.FEEL import (
+    EVENT_MIN_HIT_WIDTH_PX,
     EVENT_MIN_VISIBLE_WIDTH_PX,
     EVENT_SELECTION_BORDER_PX,
     EVENT_SELECTION_COLOR,
@@ -120,6 +121,7 @@ class _TimelineCanvasPaintMixin:
             self._layer_row_resize_hit_rects.clear()
             with timed("timeline.paint.layers"):
                 self._draw_layers(painter)
+            self._draw_header_content_divider(painter)
             with timed("timeline.paint.playhead"):
                 self._draw_playhead(painter)
             self._draw_interaction_overlays(painter)
@@ -378,12 +380,12 @@ class _TimelineCanvasPaintMixin:
         if self._push_outline_active_for_layer(layer):
             outline_rect = layout.row_rect.adjusted(1.0, 1.0, -1.0, -1.0)
             painter.save()
-            painter.setPen(QPen(QColor("#8fd0ff"), 2))
+            painter.setPen(QPen(QColor("#8f8a84"), 2))
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(outline_rect, 8.0, 8.0)
+            painter.drawRoundedRect(outline_rect, 3.0, 3.0)
             painter.restore()
         if hierarchy_depth > 0:
-            hierarchy_accent = QColor("#9aa4b0")
+            hierarchy_accent = QColor("#93A0B1")
             hierarchy_accent.setAlpha(84)
             indent_px = min(34.0, 14.0 + (float(hierarchy_depth - 1) * 10.0))
             painter.fillRect(
@@ -391,7 +393,7 @@ class _TimelineCanvasPaintMixin:
                 hierarchy_accent,
             )
             painter.save()
-            painter.setPen(QPen(QColor("#768190"), 1))
+            painter.setPen(QPen(QColor("#8f8a84"), 1))
             branch_x = indent_px + 5.0
             branch_top = float(top + 8)
             branch_mid = float(top + max(12, row_height // 2))
@@ -518,9 +520,21 @@ class _TimelineCanvasPaintMixin:
                                         float(SECTION_MOVE_EVENT_HIT_MIN_WIDTH_PX)
                                         if self._edit_mode in {"move", "select"}
                                         and layer.kind is LayerKind.SECTION
-                                        else None
+                                        else float(EVENT_MIN_HIT_WIDTH_PX)
                                     ),
                                     default_fill_hex=layer.color,
+                                    waveform_key=layer.waveform_key
+                                    or (
+                                        f"event-audio:{layer.playback_source_ref}"
+                                        if layer.playback_source_ref
+                                        else None
+                                    ),
+                                    source_audio_path=layer.source_audio_path
+                                    or layer.playback_source_ref,
+                                    render_audio_shape=bool(
+                                        layer.playback_enabled
+                                        and layer.playback_mode is PlaybackMode.EVENT_SLICE
+                                    ),
                                     pixels_per_second=self.presentation.pixels_per_second,
                                     scroll_x=self.presentation.scroll_x,
                                     header_width=self._header_width,
@@ -627,9 +641,24 @@ class _TimelineCanvasPaintMixin:
                                         float(SECTION_MOVE_EVENT_HIT_MIN_WIDTH_PX)
                                         if self._edit_mode in {"move", "select"}
                                         and take.kind is LayerKind.SECTION
-                                        else None
+                                        else float(EVENT_MIN_HIT_WIDTH_PX)
                                     ),
                                     default_fill_hex=layer.color,
+                                    waveform_key=take.waveform_key
+                                    or layer.waveform_key
+                                    or (
+                                        f"event-audio:{take.playback_source_ref or layer.playback_source_ref}"
+                                        if (take.playback_source_ref or layer.playback_source_ref)
+                                        else None
+                                    ),
+                                    source_audio_path=take.source_audio_path
+                                    or take.playback_source_ref
+                                    or layer.source_audio_path
+                                    or layer.playback_source_ref,
+                                    render_audio_shape=bool(
+                                        layer.playback_enabled
+                                        and layer.playback_mode is PlaybackMode.EVENT_SLICE
+                                    ),
                                     pixels_per_second=self.presentation.pixels_per_second,
                                     scroll_x=self.presentation.scroll_x,
                                     header_width=self._header_width,
@@ -703,9 +732,9 @@ class _TimelineCanvasPaintMixin:
                 )
             )
 
-            fill = QColor("#9aa4b0")
+            fill = QColor("#93A0B1")
             fill.setAlpha(68 if matched else 112)
-            border = QColor("#c6ced9")
+            border = QColor("#c0bab4")
             border.setAlpha(96 if matched else 176)
             painter.setPen(
                 QPen(
@@ -715,7 +744,7 @@ class _TimelineCanvasPaintMixin:
                 )
             )
             painter.setBrush(QBrush(fill))
-            painter.drawRoundedRect(rect, 4.0, 4.0)
+            painter.drawRoundedRect(rect, 3.0, 3.0)
 
     def _resolve_fix_overlay_source_events(
         self: Any,
@@ -922,6 +951,17 @@ class _TimelineCanvasPaintMixin:
         )
         painter.drawPolygon(playhead_head_polygon(x, float(self._top_padding)))
 
+    def _draw_header_content_divider(self: Any, painter: QPainter) -> None:
+        divider_left = int(max(0, self._header_width - 1))
+        divider_width = min(2, max(1, self.width() - divider_left))
+        painter.fillRect(
+            divider_left,
+            0,
+            divider_width,
+            self.height(),
+            QColor(self._style.canvas.split_divider_hex),
+        )
+
     def _draw_interaction_overlays(self: Any, painter: QPainter) -> None:
         self._draw_fix_tool_overlay(painter)
         focused_fix_rect = self._focused_fix_overlay()
@@ -945,8 +985,8 @@ class _TimelineCanvasPaintMixin:
                     outline_expand,
                     outline_expand,
                 ),
-                5.0 + outline_expand,
-                5.0 + outline_expand,
+                3.0 + outline_expand,
+                3.0 + outline_expand,
             )
             painter.restore()
 
@@ -986,7 +1026,7 @@ class _TimelineCanvasPaintMixin:
             painter.save()
             painter.setPen(QPen(QColor(EVENT_SELECTION_COLOR), 1, Qt.PenStyle.DashLine))
             painter.setBrush(preview_color)
-            painter.drawRoundedRect(self._preview_event_rect, 6.0, 6.0)
+            painter.drawRoundedRect(self._preview_event_rect, 3.0, 3.0)
             painter.restore()
 
         if self._marquee_rect is not None:
@@ -1033,12 +1073,12 @@ class _TimelineCanvasPaintMixin:
         painter.save()
         try:
             overlay_rect = QRectF(float(left), float(top), float(width), 22.0)
-            overlay_fill = QColor("#0f141b")
+            overlay_fill = QColor("#101010")
             overlay_fill.setAlpha(210)
             painter.setBrush(QBrush(overlay_fill))
-            painter.setPen(QPen(QColor("#5f6e82"), 1))
-            painter.drawRoundedRect(overlay_rect, 6.0, 6.0)
-            painter.setPen(QPen(QColor("#dbe4f0"), 1))
+            painter.setPen(QPen(QColor("#685f67"), 1))
+            painter.drawRoundedRect(overlay_rect, 2.0, 2.0)
+            painter.setPen(QPen(QColor("#d8d2cb"), 1))
             painter.drawText(
                 overlay_rect.adjusted(8.0, 0.0, -8.0, 0.0),
                 int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
