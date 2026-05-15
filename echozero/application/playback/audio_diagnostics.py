@@ -68,6 +68,8 @@ def write_audio_diagnostics_bundle(
 
 
 def _as_float_array(value: object) -> np.ndarray:
+    if isinstance(value, dict) and "samples" in value:
+        value = value["samples"]
     arr = np.asarray(value, dtype=np.float32)
     if arr.ndim == 1:
         arr = arr[:, np.newaxis]

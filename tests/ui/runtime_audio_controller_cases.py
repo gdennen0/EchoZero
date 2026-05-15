@@ -1,4 +1,5 @@
 from tests.ui.runtime_audio_support import (
+    test_audio_engine_paused_mute_does_not_leak_previous_tail_on_play,
     test_runtime_controller_can_prefer_sounddevice_backend_for_audio_layers,
     test_runtime_controller_audio_diagnostics_capture_writes_bundle,
     test_demo_dispatch_routes_mix_update_intents_to_runtime_audio,
@@ -9,6 +10,8 @@ from tests.ui.runtime_audio_support import (
     test_runtime_controller_keeps_song_and_stems_sample_aligned_at_shared_anchor,
     test_runtime_controller_mixes_all_playable_layers_by_default,
     test_runtime_controller_mute_and_solo_controls_update_effective_mix_without_rebuild,
+    test_runtime_controller_paused_mix_structure_mismatch_rebuilds_current_state,
+    test_runtime_controller_playing_mix_sync_never_triggers_structural_decode_reload,
     test_runtime_controller_preserves_stereo_audio_layer_channels,
     test_runtime_controller_plays_layers_without_explicit_playback_target,
     test_runtime_controller_preview_clip_plays_sliced_audio_on_preview_engine,

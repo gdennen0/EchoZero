@@ -153,7 +153,7 @@ def test_runtime_controller_seek_while_playing_keeps_transport_running():
     controller.shutdown()
 
 
-def test_runtime_controller_mix_sync_never_triggers_structural_decode_reload():
+def test_runtime_controller_playing_mix_sync_never_triggers_structural_decode_reload():
     presentation = _event_slice_presentation()
     load_calls: list[str] = []
 
@@ -168,6 +168,7 @@ def test_runtime_controller_mix_sync_never_triggers_structural_decode_reload():
     controller = TimelineRuntimeAudioController(audio_loader=_loader)
     try:
         controller.build_for_presentation(presentation)
+        controller.play()
         assert set(load_calls) == {"bed.wav", "kick.wav"}
         assert len(load_calls) == 2
 
@@ -194,17 +195,74 @@ def test_runtime_controller_mix_sync_never_triggers_structural_decode_reload():
         assert set(load_calls) == {"bed.wav", "kick.wav"}
         assert len(load_calls) == 2
         assert controller._last_track_sync_reason == "mix-state-pending-structure-sync"
-
-        controller.sync_structure_state(changed)
-        state = controller.snapshot_state(changed)
-        assert state.diagnostics.structural_rebuild_count >= 2
-        assert state.diagnostics.last_structural_rebuild_ms >= 0.0
-        assert (
-            state.diagnostics.max_structural_rebuild_ms
-            >= state.diagnostics.last_structural_rebuild_ms
-        )
     finally:
         controller.shutdown()
+
+
+def test_runtime_controller_paused_mix_structure_mismatch_rebuilds_current_state():
+    presentation = _event_slice_presentation()
+    engine = AudioEngine(stream_factory=_fake_stream_factory)
+
+    def _loader(path: str):
+        if path == "bed.wav":
+            return np.full(44100, 0.25, dtype=np.float32), 44100
+        if path == "kick.wav":
+            return np.array([1.0, 0.5], dtype=np.float32), 44100
+        raise AssertionError(path)
+
+    controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
+    try:
+        controller.build_for_presentation(presentation)
+        changed = replace(
+            presentation,
+            layers=[
+                replace(presentation.layers[0], muted=True),
+                replace(
+                    presentation.layers[1],
+                    events=[
+                        *presentation.layers[1].events,
+                        EventPresentation(
+                            event_id=EventId("kick_3"),
+                            start=1.4,
+                            end=1.5,
+                            label="Kick",
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        controller.apply_mix_state(changed)
+
+        routed_bed = engine.mixer.get_layer("__ez_route__bed")
+        assert routed_bed is not None
+        assert routed_bed.muted is True
+        assert controller._last_track_sync_reason == "track-signature-changed"
+        assert controller.snapshot_state(changed).diagnostics.structural_rebuild_count >= 2
+    finally:
+        controller.shutdown()
+
+
+def test_audio_engine_paused_mute_does_not_leak_previous_tail_on_play():
+    engine = AudioEngine(stream_factory=_fake_stream_factory)
+    engine.load_track("bed", np.ones(44100, dtype=np.float32), 44100)
+    try:
+        engine.play()
+        audible = np.zeros((256, 1), dtype=np.float32)
+        engine._audio_callback(audible, 256, None, None)
+        assert float(np.max(np.abs(audible))) > 0.0
+
+        engine.pause()
+        engine.apply_track_mix_updates({"bed": (True, 1.0, None)})
+        engine.play()
+        resumed = np.zeros((256, 1), dtype=np.float32)
+        engine._audio_callback(resumed, 256, None, None)
+
+        boundary = np.concatenate((audible[-1:], resumed), axis=0)
+        assert float(np.max(np.abs(np.diff(boundary, axis=0)))) <= 0.18
+        assert float(np.max(np.abs(resumed[-32:]))) == pytest.approx(0.0)
+    finally:
+        engine.shutdown()
 
 
 def test_runtime_controller_decodes_selected_audio_source_on_build():

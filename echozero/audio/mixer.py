@@ -158,6 +158,28 @@ class Mixer:
                 requires_declick = True
         return (applied_change, requires_declick)
 
+    def snap_track_mix_envelopes(
+        self,
+        updates: dict[str, tuple[bool, float, str | None]],
+    ) -> None:
+        """Move updated track gain envelopes directly to their requested targets."""
+
+        if not updates:
+            return
+        for track_id, (muted, volume, _output_bus) in updates.items():
+            target_gain = 0.0 if bool(muted) else float(volume)
+            envelope = self._gain_envelopes.get(str(track_id))
+            if envelope is None:
+                self._gain_envelopes[str(track_id)] = _GainEnvelope(
+                    current=float(target_gain),
+                    target=float(target_gain),
+                    remaining_samples=0,
+                )
+                continue
+            envelope.current = float(target_gain)
+            envelope.target = float(target_gain)
+            envelope.remaining_samples = 0
+
     def configure_gain_smoothing(
         self,
         *,

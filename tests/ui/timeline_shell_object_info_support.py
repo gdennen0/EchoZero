@@ -142,9 +142,19 @@ def test_object_info_panel_audio_surface_exposes_inline_routing_controls():
         selected_layer_ids=[LayerId("layer_kick")],
         playback_output_channels=4,
     )
-    widget = TimelineWidget(
-        presentation, on_intent=lambda intent: intents.append(intent) or presentation
-    )
+    current_presentation = {"value": presentation}
+
+    def _on_intent(intent: object):
+        intents.append(intent)
+        if isinstance(intent, SetLayerOutputBus):
+            updated_layer = replace(audio_layer, output_bus=intent.output_bus)
+            current_presentation["value"] = replace(
+                current_presentation["value"],
+                layers=[updated_layer],
+            )
+        return current_presentation["value"]
+
+    widget = TimelineWidget(presentation, on_intent=_on_intent)
     try:
         _render_for_hit_testing(widget)
         assert widget._object_info._route_to_master_checkbox.text() == "Send to master mix"
@@ -159,17 +169,21 @@ def test_object_info_panel_audio_surface_exposes_inline_routing_controls():
         assert widget._object_info._routing_apply_btn.text() == "Save output routing"
 
         widget._object_info._route_to_master_checkbox.setChecked(False)
-        widget._object_info._routing_apply_btn.click()
         widget._object_info._routing_add_btn.click()
-        widget._object_info._route_to_master_checkbox.setChecked(False)
         combo = widget._object_info._routing_table.cellWidget(0, 0)
         assert isinstance(combo, QComboBox)
         combo.setCurrentIndex(combo.findData("outputs_3_3"))
-        widget._object_info._routing_apply_btn.click()
+        widget._object_info._route_to_master_checkbox.setChecked(True)
+        widget._object_info._routing_remove_btn.click()
 
         assert intents == [
             SetLayerOutputBus(layer_id=LayerId("layer_kick"), output_bus="none"),
             SetLayerOutputBus(layer_id=LayerId("layer_kick"), output_bus="outputs_3_3"),
+            SetLayerOutputBus(
+                layer_id=LayerId("layer_kick"),
+                output_bus="master,outputs_3_3",
+            ),
+            SetLayerOutputBus(layer_id=LayerId("layer_kick"), output_bus=None),
         ]
         assert "layer.routing_settings" not in widget._object_info._action_buttons
     finally:

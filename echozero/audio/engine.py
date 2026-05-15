@@ -144,6 +144,7 @@ class AudioEngine:
         "_glitch_count",
         "_last_status",
         "_last_output_tail",
+        "_last_callback_was_playing",
         "_pending_declick",
         "_pending_declick_reason",
         "_declick_ramp_samples",
@@ -227,6 +228,7 @@ class AudioEngine:
             self._last_output_tail = np.zeros(1, dtype=np.float32)
         else:
             self._last_output_tail = np.zeros(self._channels, dtype=np.float32)
+        self._last_callback_was_playing = False
         self._pending_declick = True
         self._pending_declick_reason = "engine-startup"
         self._declick_ramp_samples = _declick_ramp_samples(self._output_config.sample_rate)
@@ -528,8 +530,13 @@ class AudioEngine:
     ) -> bool:
         """Apply mix-only updates without replacing engine track objects."""
 
-        applied, requires_declick = self._mixer.apply_track_mix_updates(updates)
+        _will_apply, requires_declick = self._track_mix_update_change_flags(updates)
         if requires_declick:
+            self._request_declick("mix-update")
+        applied, applied_requires_declick = self._mixer.apply_track_mix_updates(updates)
+        if applied and not self._transport.is_playing:
+            self._mixer.snap_track_mix_envelopes(updates)
+        if applied_requires_declick:
             self._request_declick("mix-update")
         return bool(applied)
 
@@ -687,6 +694,29 @@ class AudioEngine:
         except Exception:
             return
 
+    def _track_mix_update_change_flags(
+        self,
+        updates: dict[str, tuple[bool, float, str | None]],
+    ) -> tuple[bool, bool]:
+        applied_change = False
+        requires_declick = False
+        if not updates:
+            return (False, False)
+        for track in self._mixer.tracks:
+            desired = updates.get(str(track.id))
+            if desired is None:
+                continue
+            muted, volume, output_bus = desired
+            if bool(track.muted) != bool(muted):
+                applied_change = True
+                requires_declick = True
+            if abs(float(track.volume) - float(volume)) > 1e-6:
+                applied_change = True
+            if track.output_bus != output_bus:
+                applied_change = True
+                requires_declick = True
+        return (applied_change, requires_declick)
+
     @property
     def overlay_active(self) -> bool:
         return self._overlay_buffer is not None
@@ -823,7 +853,9 @@ class AudioEngine:
         mixed = self._output_scratch[:frames]
         end_fade_position = -1
         end_fade_duration = 0
-        if not self._transport.is_playing:
+        callback_is_playing = bool(self._transport.is_playing)
+        transport_state_changed = callback_is_playing != bool(self._last_callback_was_playing)
+        if not callback_is_playing:
             mixed[:] = 0.0
         else:
             position = self._clock.advance(frames)
@@ -879,10 +911,15 @@ class AudioEngine:
         self._mix_overlay_into(mixed, frames)
 
         self._sanitize_output_samples(mixed, frames)
+        boundary_declick_reason = self._pending_declick_reason
+        if transport_state_changed and not self._pending_declick:
+            boundary_declick_reason = "transport-state-changed"
+            self._last_discontinuity_reason = boundary_declick_reason
         self._apply_boundary_declick(
             mixed,
             frames=frames,
-            force=bool(self._pending_declick),
+            force=bool(self._pending_declick) or transport_state_changed,
+            reason=boundary_declick_reason,
         )
         if end_fade_duration > 0:
             self._apply_end_of_content_fade(
@@ -892,6 +929,7 @@ class AudioEngine:
                 duration=end_fade_duration,
             )
         self._pending_declick = False
+        self._last_callback_was_playing = callback_is_playing
         self._capture_output_callback_block(mixed, frames=frames)
         if self._channels == 1:
             outdata[:, 0] = mixed if mixed.ndim == 1 else mixed[:, 0]
@@ -1042,7 +1080,14 @@ class AudioEngine:
         np.nan_to_num(out, copy=False, nan=0.0, posinf=1.0, neginf=-1.0)
         np.clip(out, -1.0, 1.0, out=out)
 
-    def _apply_boundary_declick(self, buffer: np.ndarray, *, frames: int, force: bool) -> None:
+    def _apply_boundary_declick(
+        self,
+        buffer: np.ndarray,
+        *,
+        frames: int,
+        force: bool,
+        reason: str | None = None,
+    ) -> None:
         if frames <= 0:
             return
 
@@ -1057,10 +1102,11 @@ class AudioEngine:
                 self._declick_correction_delta = np.array(delta, dtype=np.float32, copy=True)
                 self._declick_correction_total = int(self._declick_ramp_samples)
                 self._declick_correction_remaining = int(self._declick_ramp_samples)
-                self._last_ramp_reason = self._pending_declick_reason
+                discontinuity_reason = str(reason or self._pending_declick_reason)
+                self._last_ramp_reason = discontinuity_reason
                 self._record_runtime_event(
                     "callback-discontinuity",
-                    reason=self._pending_declick_reason,
+                    reason=discontinuity_reason,
                     frames=int(frames),
                     peak_delta=float(np.max(np.abs(delta))),
                 )

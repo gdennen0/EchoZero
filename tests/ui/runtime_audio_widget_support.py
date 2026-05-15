@@ -510,6 +510,66 @@ def test_widget_dispatch_coalesces_mix_only_intents_while_playing():
         app.processEvents()
 
 
+def test_widget_dispatch_flushes_pending_paused_mix_before_play():
+    app = QApplication.instance() or QApplication([])
+    base = _audio_presentation()
+
+    class OrderedRuntimeAudio(CountingRuntimeAudio):
+        def __init__(self):
+            super().__init__()
+            self.calls: list[str] = []
+            self.last_mix_state = None
+
+        def sync_mix_state(self, presentation):
+            self.calls.append("mix")
+            self.last_mix_state = presentation
+            super().sync_mix_state(presentation)
+
+        def play(self):
+            self.calls.append("play")
+            super().play()
+
+    runtime_audio = OrderedRuntimeAudio()
+    state = {"presentation": base}
+
+    def _on_intent(intent):
+        current = state["presentation"]
+        if isinstance(intent, SetLayerMute):
+            updated = replace(
+                current,
+                layers=[replace(current.layers[0], muted=bool(intent.muted))],
+            )
+            state["presentation"] = updated
+            return updated
+        if isinstance(intent, Play):
+            runtime_audio.play()
+            updated = replace(current, is_playing=True)
+            state["presentation"] = updated
+            return updated
+        return current
+
+    widget = TimelineWidget(base, on_intent=_on_intent, runtime_audio=runtime_audio)
+    widget._runtime_timer.stop()
+    runtime_audio.calls.clear()
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+
+        widget._dispatch(SetLayerMute(layer_id=LayerId("runtime_audio"), muted=True))
+        assert runtime_audio.mix_calls == 0
+        assert widget._runtime_mix_sync_pending_presentation is not None
+
+        widget._dispatch(Play())
+
+        assert runtime_audio.calls[:2] == ["mix", "play"]
+        assert runtime_audio.last_mix_state.layers[0].muted is True
+        assert widget._runtime_mix_sync_pending_presentation is None
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_widget_uses_precise_runtime_timer_with_8ms_interval():
     app = QApplication.instance() or QApplication([])
     presentation = _audio_presentation()

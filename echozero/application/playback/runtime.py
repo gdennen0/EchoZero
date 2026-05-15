@@ -151,6 +151,10 @@ class PlaybackController:
         resolved = self._with_resolved_output_channels(presentation)
         mix_plan = self._track_builder.build_mix_plan(resolved)
         if self._apply_track_mix_state(mix_plan):
+            if not bool(self._engine.transport.is_playing):
+                self._cancel_pending_structure_sync(reason="mix-state-structure-mismatch")
+                self._sync_track_plan(self._track_builder.build_track_plan(resolved))
+                return
             self._last_track_sync_reason = "mix-state-pending-structure-sync"
             return
         self._last_track_sync_reason = "mix-state-applied"

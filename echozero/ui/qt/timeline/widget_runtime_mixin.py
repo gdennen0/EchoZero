@@ -740,6 +740,9 @@ class TimelineWidgetRuntimeMixin:
     def _dispatch(self: _TimelineWidgetRuntimeHost, intent: TimelineIntent) -> None:
         if self._on_intent is None:
             return
+        if isinstance(intent, Play) and self._runtime_audio is not None:
+            self._flush_pending_mix_runtime_sync()
+            self._flush_pending_structural_runtime_sync(reason="transport-boundary")
         updated = self._on_intent(intent)
         if updated is None:
             return
@@ -794,9 +797,8 @@ class TimelineWidgetRuntimeMixin:
         delta = self._classify_runtime_audio_change(presentation)
         self._record_runtime_audio_sync_decision(delta)
         if isinstance(intent, (Play, Pause, Stop, Seek)):
-            if isinstance(intent, (Pause, Stop, Seek)):
-                self._flush_pending_mix_runtime_sync()
-                self._flush_pending_structural_runtime_sync(reason="transport-boundary")
+            self._flush_pending_mix_runtime_sync()
+            self._flush_pending_structural_runtime_sync(reason="transport-boundary")
             return
         if delta.change_kind is PlaybackChangeKind.NONE:
             return

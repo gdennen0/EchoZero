@@ -75,6 +75,64 @@ def test_toggle_play_pause_uses_transport_declick_path() -> None:
     engine.shutdown()
 
 
+def test_callback_declicks_pause_state_even_if_request_races_callback() -> None:
+    engine = AudioEngine(sample_rate=_SAMPLE_RATE, channels=1, stream_factory=fake_stream_factory)
+    engine.replace_tracks([_constant_track(engine)])
+
+    try:
+        engine.play()
+        previous = _callback(engine)
+        while engine.ramp_samples_remaining > 0:
+            previous = _callback(engine)
+
+        engine.transport.pause()
+        paused = _callback(engine)
+
+        assert _max_delta(previous, paused) <= _DELTA_LIMIT
+        assert engine.last_ramp_reason == "transport-state-changed"
+    finally:
+        engine.shutdown()
+
+
+def test_callback_declicks_play_state_even_if_pending_request_was_consumed_early() -> None:
+    engine = AudioEngine(sample_rate=_SAMPLE_RATE, channels=1, stream_factory=fake_stream_factory)
+    engine.replace_tracks([_constant_track(engine)])
+
+    try:
+        _callback(engine)
+        engine.request_declick()
+        early_silence = _callback(engine)
+        engine.transport.play()
+        resumed = _callback(engine)
+
+        assert _max_delta(early_silence, resumed) <= _DELTA_LIMIT
+        assert engine.last_ramp_reason == "transport-state-changed"
+    finally:
+        engine.shutdown()
+
+
+def test_paused_mute_declicks_from_last_audible_tail_to_silence() -> None:
+    engine = AudioEngine(sample_rate=_SAMPLE_RATE, channels=1, stream_factory=fake_stream_factory)
+    engine.replace_tracks([_constant_track(engine)])
+
+    try:
+        engine.play()
+        previous = _callback(engine)
+        while engine.ramp_samples_remaining > 0:
+            previous = _callback(engine)
+
+        engine.pause()
+        engine.apply_track_mix_updates({"bed": (True, 1.0, None)})
+        engine.play()
+        resumed = _callback(engine)
+        settled = _callback(engine)
+
+        assert _max_delta(previous[-1:], resumed, settled) <= _DELTA_LIMIT
+        assert float(np.max(np.abs(settled[-32:]))) <= 1e-5
+    finally:
+        engine.shutdown()
+
+
 def test_seek_while_playing_is_declick_safe_for_discontinuous_waveform() -> None:
     engine = AudioEngine(sample_rate=_SAMPLE_RATE, channels=1, stream_factory=fake_stream_factory)
     samples = np.concatenate(

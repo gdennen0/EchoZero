@@ -378,7 +378,7 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         self._panel_mute_btn.clicked.connect(self._emit_toggle_mute_from_panel)
         self._panel_solo_btn.clicked.connect(self._emit_toggle_solo_from_panel)
         self._route_to_master_checkbox.toggled.connect(
-            lambda _checked=False: self._sync_routing_apply_state()
+            lambda _checked=False: self._on_routing_controls_changed()
         )
         self._routing_add_btn.clicked.connect(lambda _checked=False: self._add_routing_row())
         self._routing_remove_btn.clicked.connect(
@@ -556,7 +556,7 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
             index = combo.findData(selected_token)
             if index >= 0:
                 combo.setCurrentIndex(index)
-        combo.currentIndexChanged.connect(lambda _index=0: self._sync_routing_apply_state())
+        combo.currentIndexChanged.connect(lambda _index=0: self._on_routing_controls_changed())
         self._routing_table.setCellWidget(row, 0, combo)
         self._routing_table.selectRow(row)
         self._sync_routing_apply_state()
@@ -571,6 +571,7 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         if self._routing_table.rowCount() > 0:
             self._routing_table.selectRow(min(row, self._routing_table.rowCount() - 1))
         self._sync_routing_apply_state()
+        self._emit_apply_routing_if_user_edit()
 
     def _routing_tokens_from_table(self) -> list[str]:
         tokens: list[str] = []
@@ -596,6 +597,17 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         if not route_tokens:
             return NO_OUTPUT_BUS
         return ",".join(route_tokens)
+
+    def _on_routing_controls_changed(self) -> None:
+        self._sync_routing_apply_state()
+        self._emit_apply_routing_if_user_edit()
+
+    def _emit_apply_routing_if_user_edit(self) -> None:
+        if self._syncing_routing_controls:
+            return
+        if not self._layer_controls.isVisible():
+            return
+        self._emit_apply_routing()
 
     def _emit_apply_routing(self) -> None:
         layer_id = self._layer_id_for_controls()
