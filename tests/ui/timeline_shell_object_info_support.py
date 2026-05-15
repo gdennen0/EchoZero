@@ -4,6 +4,7 @@ Connects the compatibility wrapper to the bounded object-info support slice.
 """
 
 import wave
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -1328,6 +1329,70 @@ def test_find_similar_shapes_dialog_previews_anchor_and_candidate_shapes(tmp_pat
         dialog._points_slider.setValue(12)
         app.processEvents()
         assert len(dialog._preview_widget.rows[0].shape) == 12
+    finally:
+        dialog.close()
+        app.processEvents()
+
+
+def test_find_similar_dialog_timbre_mode_and_mini_model_affordance(tmp_path, monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    audio_path = tmp_path / "timbre-preview.wav"
+    sample_rate = 8000
+    seconds = 3.0
+    times = np.linspace(0.0, seconds, int(sample_rate * seconds), endpoint=False, dtype=np.float32)
+    samples = np.zeros_like(times)
+    first = slice(int(1.0 * sample_rate), int(1.5 * sample_rate))
+    second = slice(int(2.0 * sample_rate), int(2.5 * sample_rate))
+    samples[first] = np.sin(2.0 * np.pi * 130.0 * times[first]) * np.hanning(first.stop - first.start) * 0.8
+    samples[second] = np.sin(2.0 * np.pi * 2200.0 * times[second]) * np.hanning(second.stop - second.start) * 0.8
+    with wave.open(str(audio_path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(sample_rate)
+        handle.writeframes(np.clip(samples * 32767.0, -32768, 32767).astype("<i2").tobytes())
+
+    train_calls = []
+
+    def fake_train_timbre_mini_model(*, anchor_sample, positive_samples, **_kwargs):
+        train_calls.append((anchor_sample, tuple(positive_samples)))
+        return SimpleNamespace(artifact_path=tmp_path / "saved-model.json", positive_sample_count=2)
+
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.find_similar_dialog.train_timbre_mini_model",
+        fake_train_timbre_mini_model,
+    )
+    base = _selection_test_presentation()
+    layer = replace(
+        base.layers[0],
+        source_audio_path=str(audio_path),
+        takes=[
+            replace(
+                base.layers[0].takes[0],
+                take_id=TakeId("take_main"),
+                source_audio_path=str(audio_path),
+            )
+        ],
+    )
+    presentation = replace(base, layers=[layer])
+    dialog = FindSimilarSoundsDialog(
+        presentation=presentation,
+        layer_id=LayerId("layer_kick"),
+        take_id=TakeId("take_main"),
+        event_id=EventId("main_evt"),
+        default_scope_mode="take",
+        parent=None,
+    )
+    try:
+        dialog._mode_combo.setCurrentIndex(dialog._mode_combo.findData("timbre_fingerprint"))
+        app.processEvents()
+        assert dialog._preview_widget.rows[0].is_anchor is True
+        assert dialog._preview_widget.rows[1].score is not None
+        dialog._train_model_checkbox.setChecked(True)
+        payload = dialog.selected_payload()
+        assert payload["comparison_mode"] == "timbre_fingerprint"
+        assert payload["mini_model_requested"] is True
+        assert payload["mini_model_path"].endswith("saved-model.json")
+        assert train_calls[0][0].event_ref.event_id == EventId("main_evt")
     finally:
         dialog.close()
         app.processEvents()

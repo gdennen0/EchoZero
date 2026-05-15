@@ -11,6 +11,7 @@ from pathlib import Path
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QGuiApplication, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -31,6 +32,15 @@ from echozero.application.timeline.event_similarity_audio import (
     audio_shape_preview,
     compare_shape_similarity,
     read_mono_audio_slice,
+)
+from echozero.application.timeline.event_comparison_service import (
+    TimbreFingerprintSettings,
+    build_timbre_fingerprint_preview,
+    compare_timbre_fingerprint_similarity,
+)
+from echozero.application.timeline.event_similarity_mini_model import (
+    AudioEventTrainingSample,
+    train_timbre_mini_model,
 )
 from echozero.application.timeline.models import EventRef
 
@@ -98,11 +108,11 @@ class EventShapeComparisonPreviewWidget(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         rect = self.rect().adjusted(10, 10, -10, -10)
-        painter.fillRect(rect, QColor("#07111f"))
-        painter.setPen(QPen(QColor("#1d4ed8"), 1.2))
+        painter.fillRect(rect, QColor("#121212"))
+        painter.setPen(QPen(QColor("#1DB954"), 1.2))
         painter.drawRoundedRect(QRectF(rect), 12.0, 12.0)
         if not self._rows:
-            painter.setPen(QColor("#93c5fd"))
+            painter.setPen(QColor("#b3b3b3"))
             painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "NO AUDIO SHAPE TELEMETRY")
             painter.end()
             return
@@ -115,22 +125,22 @@ class EventShapeComparisonPreviewWidget(QWidget):
         left_panel = QRectF(rect.left() + 12, rect.top() + 12, left_width, rect.height() - 24)
         right_panel = QRectF(left_panel.right() + gap, rect.top() + 12, rect.right() - left_panel.right() - gap - 12, rect.height() - 24)
 
-        painter.fillRect(left_panel, QColor("#0b1f35"))
-        painter.setPen(QPen(QColor("#38bdf8"), 1.0))
+        painter.fillRect(left_panel, QColor("#181818"))
+        painter.setPen(QPen(QColor("#1ED760"), 1.0))
         painter.drawRoundedRect(left_panel, 10.0, 10.0)
-        painter.setPen(QColor("#dbeafe"))
+        painter.setPen(QColor("#ffffff"))
         painter.drawText(left_panel.adjusted(14, 10, -14, -10), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, "SELECTED CLIP")
-        painter.setPen(QColor("#fbbf24"))
+        painter.setPen(QColor("#f5c451"))
         painter.drawText(left_panel.adjusted(14, 32, -14, -10), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, anchor.label)
-        self._draw_shape(painter, QRectF(left_panel.left() + 14, left_panel.top() + 62, left_panel.width() - 28, 128), anchor.shape, QColor("#f59e0b"), width=3.2)
+        self._draw_shape(painter, QRectF(left_panel.left() + 14, left_panel.top() + 62, left_panel.width() - 28, 128), anchor.shape, QColor("#f5c451"), width=3.2)
 
         progress_rect = QRectF(left_panel.left() + 14, left_panel.top() + 204, left_panel.width() - 28, 92)
-        painter.fillRect(progress_rect, QColor("#07111f"))
-        painter.setPen(QColor("#bae6fd"))
+        painter.fillRect(progress_rect, QColor("#121212"))
+        painter.setPen(QColor("#d9d9d9"))
         painter.drawText(progress_rect.adjusted(10, 4, -10, -4), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, "LIVE ITERATION")
         current_row = self._rows[-1] if len(self._rows) > 1 and scanned_count else None
-        current_color = QColor("#22c55e") if current_row is not None and current_row.is_match else QColor("#ef4444")
-        painter.setPen(QColor("#e0f2fe"))
+        current_color = QColor("#1ED760") if current_row is not None and current_row.is_match else QColor("#e91429")
+        painter.setPen(QColor("#ffffff"))
         painter.drawText(
             progress_rect.adjusted(10, 24, -10, -4),
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
@@ -141,7 +151,7 @@ class EventShapeComparisonPreviewWidget(QWidget):
             painter.fillRect(badge, current_color)
             painter.setPen(QPen(current_color, 2.0))
             painter.drawRoundedRect(badge, 4.0, 4.0)
-            painter.setPen(QColor("#dbeafe"))
+            painter.setPen(QColor("#ffffff"))
             score = "--" if current_row.score is None else f"{current_row.score:.2f}"
             painter.drawText(
                 progress_rect.adjusted(42, 48, -10, -4),
@@ -154,28 +164,28 @@ class EventShapeComparisonPreviewWidget(QWidget):
         scanned_segments = round(visible_segments * (scanned_count / max(1, total_count)))
         for index in range(visible_segments):
             segment = QRectF(progress_rect.left() + 10 + index * segment_width + 1, segment_top, segment_width - 2, 8)
-            painter.fillRect(segment, QColor("#0ea5e9") if index < scanned_segments else QColor("#1e293b"))
+            painter.fillRect(segment, QColor("#1DB954") if index < scanned_segments else QColor("#242424"))
 
         meter_top = progress_rect.bottom() + 16
         for index, (label, value, color) in enumerate(
             (
-                (f"smooth {self._smoothing}", min(1.0, self._smoothing / 12.0), QColor("#22d3ee")),
-                (f"points {self._control_points}", min(1.0, self._control_points / 64.0), QColor("#a78bfa")),
-                (f"fuzz {self._fuzziness}%", min(1.0, self._fuzziness / 100.0), QColor("#f59e0b")),
-                (f"min {self._threshold:.2f}", min(1.0, self._threshold), QColor("#34d399")),
+                (f"smooth {self._smoothing}", min(1.0, self._smoothing / 12.0), QColor("#4dd4ac")),
+                (f"points {self._control_points}", min(1.0, self._control_points / 64.0), QColor("#8b7cf6")),
+                (f"fuzz {self._fuzziness}%", min(1.0, self._fuzziness / 100.0), QColor("#f5c451")),
+                (f"min {self._threshold:.2f}", min(1.0, self._threshold), QColor("#1ED760")),
             )
         ):
             y = meter_top + index * 34
-            painter.setPen(QColor("#93c5fd"))
+            painter.setPen(QColor("#b3b3b3"))
             painter.drawText(QRectF(left_panel.left() + 14, y, 88, 18), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, label.upper())
             bar = QRectF(left_panel.left() + 112, y + 5, left_panel.width() - 132, 8)
-            painter.fillRect(bar, QColor("#1e293b"))
+            painter.fillRect(bar, QColor("#242424"))
             painter.fillRect(QRectF(bar.left(), bar.top(), bar.width() * value, bar.height()), color)
 
-        painter.fillRect(right_panel, QColor("#081827"))
-        painter.setPen(QPen(QColor("#164e63"), 1.0))
+        painter.fillRect(right_panel, QColor("#181818"))
+        painter.setPen(QPen(QColor("#292929"), 1.0))
         painter.drawRoundedRect(right_panel, 10.0, 10.0)
-        painter.setPen(QColor("#93c5fd"))
+        painter.setPen(QColor("#b3b3b3"))
         painter.drawText(right_panel.adjusted(14, 10, -14, -10), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, "CANDIDATE OVERLAYS · GOLD ANCHOR / CYAN EVENT")
 
         top = right_panel.top() + 38
@@ -187,19 +197,19 @@ class EventShapeComparisonPreviewWidget(QWidget):
             y = top + index * row_height
             row_rect = QRectF(right_panel.left() + 10, y, right_panel.width() - 20, row_height - 7)
             is_current = index == max(0, min(len(self._rows) - 2, scanned_count - 1))
-            verdict_color = QColor("#22c55e") if row.is_match else QColor("#ef4444")
+            verdict_color = QColor("#1ED760") if row.is_match else QColor("#e91429")
             verdict_fill = QColor(verdict_color)
             verdict_fill.setAlpha(44 if row.is_match else 34)
-            painter.fillRect(row_rect, QColor("#0d2740") if index % 2 == 0 else QColor("#0b2137"))
+            painter.fillRect(row_rect, QColor("#1f1f1f") if index % 2 == 0 else QColor("#181818"))
             painter.fillRect(row_rect, verdict_fill)
-            painter.setPen(QPen(verdict_color if is_current else QColor("#155e75"), 2.4 if is_current else 0.8))
+            painter.setPen(QPen(verdict_color if is_current else QColor("#3a3a3a"), 2.4 if is_current else 0.8))
             painter.drawRoundedRect(row_rect, 7.0, 7.0)
             score = "--" if row.score is None else f"{row.score:.2f}"
             badge_rect = QRectF(row_rect.left() + 10, row_rect.top() + 13, 14, 14)
             painter.fillRect(badge_rect, verdict_color)
             painter.setPen(QPen(verdict_color.lighter(135), 1.2))
             painter.drawRoundedRect(badge_rect, 3.0, 3.0)
-            painter.setPen(QColor("#bbf7d0") if row.is_match else QColor("#fecaca"))
+            painter.setPen(QColor("#1ED760") if row.is_match else QColor("#ffb4bd"))
             painter.drawText(row_rect.adjusted(34, 0, -4, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, f"{row.label} · {score}")
             graph_rect = QRectF(graph_left, y + 8, graph_width, row_height - 24)
             graph_overlay = QColor(verdict_color)
@@ -207,10 +217,10 @@ class EventShapeComparisonPreviewWidget(QWidget):
             painter.fillRect(graph_rect.adjusted(-4, -4, 4, 4), graph_overlay)
             painter.setPen(QPen(verdict_color, 1.0))
             painter.drawRoundedRect(graph_rect.adjusted(-4, -4, 4, 4), 5.0, 5.0)
-            painter.setPen(QPen(QColor("#1e3a8a"), 1.0))
+            painter.setPen(QPen(QColor("#123923"), 1.0))
             painter.drawLine(QPointF(graph_rect.left(), graph_rect.center().y()), QPointF(graph_rect.right(), graph_rect.center().y()))
-            self._draw_shape(painter, graph_rect, anchor.shape, QColor("#f59e0b"), width=2.2)
-            self._draw_shape(painter, graph_rect, row.shape, QColor("#22d3ee"), width=2.0)
+            self._draw_shape(painter, graph_rect, anchor.shape, QColor("#f5c451"), width=2.2)
+            self._draw_shape(painter, graph_rect, row.shape, QColor("#4dd4ac"), width=2.0)
         painter.end()
 
     def _draw_shape(
@@ -223,7 +233,7 @@ class EventShapeComparisonPreviewWidget(QWidget):
         width: float = 2.0,
     ) -> None:
         if not shape:
-            painter.setPen(QColor("#9ca3af"))
+            painter.setPen(QColor("#b3b3b3"))
             painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "no samples")
             return
         values = list(shape)
@@ -265,11 +275,11 @@ class FindSimilarSoundsDialog(QDialog):
         self._scan_limit: int | None = None
         self.setWindowTitle("Compare Events")
         self.setStyleSheet(
-            "QDialog { background: #020617; color: #dbeafe; }"
-            "QLabel { color: #dbeafe; }"
-            "QComboBox { background: #0f172a; color: #e0f2fe; border: 1px solid #2563eb; padding: 6px; }"
-            "QScrollArea { border: 1px solid #1d4ed8; background: #020617; }"
-            "QPushButton { background: #1d4ed8; color: white; padding: 6px 14px; }"
+            "QDialog { background: #121212; color: #ffffff; }"
+            "QLabel { color: #ffffff; }"
+            "QComboBox { background: #242424; color: #ffffff; border: 1px solid #1DB954; padding: 6px; }"
+            "QScrollArea { border: 1px solid #1DB954; background: #121212; }"
+            "QPushButton { background: #1DB954; color: white; padding: 6px 14px; }"
         )
 
         layout = QVBoxLayout(self)
@@ -283,6 +293,7 @@ class FindSimilarSoundsDialog(QDialog):
         self._mode_combo = QComboBox(self)
         self._mode_combo.addItem("Shape Envelope", "shape_envelope")
         self._mode_combo.addItem("Timbre Fingerprint", "timbre_fingerprint")
+        self._mode_combo.currentIndexChanged.connect(self._refresh_preview)
         control_grid.addWidget(self._mode_combo, 1, 1)
 
         self._scope_label = QLabel("Scan field", self)
@@ -307,6 +318,7 @@ class FindSimilarSoundsDialog(QDialog):
         balanced = self._strength_combo.findData("balanced")
         if balanced >= 0:
             self._strength_combo.setCurrentIndex(balanced)
+        self._strength_combo.currentIndexChanged.connect(self._refresh_preview)
         control_grid.addWidget(self._strength_combo, 1, 5)
 
         self._smoothing_label = QLabel("Smooth: 3", self)
@@ -350,6 +362,15 @@ class FindSimilarSoundsDialog(QDialog):
         control_grid.addWidget(self._layer_name_label, 3, 3)
         self._layer_name_edit = QLineEdit("Similar Events", self)
         control_grid.addWidget(self._layer_name_edit, 3, 4, 1, 2)
+
+        self._train_model_checkbox = QCheckBox("Save local mini-model from matches", self)
+        self._train_model_checkbox.setToolTip(
+            "Saves a lightweight timbre prototype using the anchor and matched positives."
+        )
+        self._train_model_checkbox.toggled.connect(self._sync_model_status_label)
+        control_grid.addWidget(self._train_model_checkbox, 4, 0, 1, 3)
+        self._model_status_label = QLabel("Mini-model: off", self)
+        control_grid.addWidget(self._model_status_label, 4, 3, 1, 3)
         layout.addLayout(control_grid)
 
         self._preview_scroll = QScrollArea(self)
@@ -370,7 +391,7 @@ class FindSimilarSoundsDialog(QDialog):
 
     def selected_payload(self) -> dict[str, object]:
         selected_layer_ids = self._selected_layer_ids_for_scope(str(self._scope_combo.currentData()))
-        rows = self._build_shape_preview_rows(str(self._scope_combo.currentData()), scan_limit=None)
+        rows = self._build_preview_rows(str(self._scope_combo.currentData()), scan_limit=None)
         matched_rows = [row for row in rows if row.is_anchor or row.is_match]
         if not matched_rows:
             matched_rows = [
@@ -384,7 +405,7 @@ class FindSimilarSoundsDialog(QDialog):
                 )
             ]
         event_refs = [row.event_ref for row in matched_rows]
-        return {
+        payload: dict[str, object] = {
             "event_ids": [row.event_ref.event_id for row in matched_rows],
             "event_refs": event_refs,
             "matched_event_refs": event_refs,
@@ -402,6 +423,9 @@ class FindSimilarSoundsDialog(QDialog):
             "outcome_action": str(self._outcome_combo.currentData()),
             "new_layer_title": self._layer_name_edit.text().strip() or "Similar Events",
         }
+        if self._train_model_checkbox.isChecked():
+            payload.update(self._train_mini_model_payload(matched_rows))
+        return payload
 
     def _summary_text(self) -> str:
         candidates = self._candidate_events(self._default_scope_mode)
@@ -427,7 +451,7 @@ class FindSimilarSoundsDialog(QDialog):
     def _refresh_preview(self) -> None:
         scope_mode = str(self._scope_combo.currentData())
         total_candidates = max(0, len(self._candidate_events(scope_mode)) - 1)
-        rows = self._build_shape_preview_rows(scope_mode, scan_limit=self._scan_limit)
+        rows = self._build_preview_rows(scope_mode, scan_limit=self._scan_limit)
         self._preview_widget = EventShapeComparisonPreviewWidget(
             rows,
             smoothing=int(self._smoothing_slider.value()),
@@ -443,6 +467,16 @@ class FindSimilarSoundsDialog(QDialog):
         self._preview_scroll.setWidget(self._preview_widget)
 
     def _build_shape_preview_rows(self, scope_mode: str, *, scan_limit: int | None = None) -> tuple[ShapePreviewRow, ...]:
+        return self._build_preview_rows(scope_mode, scan_limit=scan_limit, comparison_mode="shape_envelope")
+
+    def _build_preview_rows(
+        self,
+        scope_mode: str,
+        *,
+        scan_limit: int | None = None,
+        comparison_mode: str | None = None,
+    ) -> tuple[ShapePreviewRow, ...]:
+        mode = comparison_mode or str(self._mode_combo.currentData())
         candidates = self._candidate_events(scope_mode)
         anchor = next(
             (
@@ -458,11 +492,11 @@ class FindSimilarSoundsDialog(QDialog):
             anchor = self._find_event_candidate(self._layer_id, self._take_id, self._event_id)
         if anchor is None:
             return ()
-        raw_anchor_shape = _shape_for_candidate(anchor)
-        if not raw_anchor_shape:
+        raw_anchor_preview = _preview_for_candidate(anchor, mode=mode)
+        if not raw_anchor_preview:
             return ()
-        anchor_shape = _shape_with_params(
-            raw_anchor_shape,
+        anchor_shape = _display_curve_with_params(
+            raw_anchor_preview,
             smoothing=int(self._smoothing_slider.value()),
             control_points=int(self._points_slider.value()),
         )
@@ -486,16 +520,20 @@ class FindSimilarSoundsDialog(QDialog):
             if scan_limit is not None and scanned >= scan_limit:
                 break
             scanned += 1
-            raw_candidate_shape = _shape_for_candidate(candidate)
-            if not raw_candidate_shape:
+            raw_candidate_preview = _preview_for_candidate(candidate, mode=mode)
+            if not raw_candidate_preview:
                 continue
-            candidate_shape = _shape_with_params(
-                raw_candidate_shape,
+            candidate_shape = _display_curve_with_params(
+                raw_candidate_preview,
                 smoothing=int(self._smoothing_slider.value()),
                 control_points=int(self._points_slider.value()),
             )
-            aligned = align_shape_to_reference(anchor_shape, candidate_shape)
-            score = compare_shape_similarity(anchor_shape, candidate_shape)
+            if mode == "timbre_fingerprint":
+                aligned = candidate_shape
+                score = compare_timbre_fingerprint_similarity(raw_anchor_preview, raw_candidate_preview)
+            else:
+                aligned = align_shape_to_reference(anchor_shape, candidate_shape)
+                score = compare_shape_similarity(anchor_shape, candidate_shape)
             rows.append(
                 ShapePreviewRow(
                     event_ref=EventRef(candidate.layer_id, candidate.take_id, candidate.event_id),
@@ -507,11 +545,51 @@ class FindSimilarSoundsDialog(QDialog):
             )
         return tuple(rows)
 
+    def _train_mini_model_payload(self, rows: list[ShapePreviewRow]) -> dict[str, object]:
+        samples = self._training_samples_for_rows(rows)
+        if not samples:
+            self._model_status_label.setText("Mini-model: no matched audio samples")
+            return {"mini_model_requested": True, "mini_model_error": "No matched audio samples"}
+        try:
+            result = train_timbre_mini_model(anchor_sample=samples[0], positive_samples=samples)
+        except ValueError as exc:
+            self._model_status_label.setText("Mini-model: training skipped")
+            return {"mini_model_requested": True, "mini_model_error": str(exc)}
+        self._model_status_label.setText(f"Mini-model: saved {result.artifact_path.name}")
+        return {
+            "mini_model_requested": True,
+            "mini_model_path": str(result.artifact_path),
+            "mini_model_sample_count": result.positive_sample_count,
+        }
+
+    def _training_samples_for_rows(self, rows: list[ShapePreviewRow]) -> list[AudioEventTrainingSample]:
+        candidates = list(self._candidate_events(str(self._scope_combo.currentData())))
+        anchor = self._find_event_candidate(self._layer_id, self._take_id, self._event_id)
+        if anchor is not None:
+            candidates.append(anchor)
+        candidate_by_ref = {
+            (str(candidate.layer_id), str(candidate.take_id), str(candidate.event_id)): candidate
+            for candidate in candidates
+        }
+        samples: list[AudioEventTrainingSample] = []
+        for row in rows:
+            key = (str(row.event_ref.layer_id), str(row.event_ref.take_id), str(row.event_ref.event_id))
+            candidate = candidate_by_ref.get(key)
+            if candidate is None or not candidate.audio_path:
+                continue
+            samples.append(_training_sample_from_candidate(candidate))
+        return samples
+
     def set_scan_preview_limit(self, value: int | None) -> None:
         """Set a visible scan-progress cap for live app demos and automation captures."""
 
         self._scan_limit = None if value is None else max(0, int(value))
         self._refresh_preview()
+
+    def _sync_model_status_label(self, checked: bool) -> None:
+        self._model_status_label.setText(
+            "Mini-model: will save on OK" if checked else "Mini-model: off"
+        )
 
     def _current_threshold(self) -> float:
         base = {
@@ -616,7 +694,7 @@ def _candidate_from_event(
     )
 
 
-def _shape_with_params(
+def _display_curve_with_params(
     shape: tuple[float, ...],
     *,
     smoothing: int,
@@ -644,6 +722,19 @@ def _shape_with_params(
     return tuple(float(value / peak) if peak > 1e-9 else 0.0 for value in values)
 
 
+def _shape_with_params(
+    shape: tuple[float, ...],
+    *,
+    smoothing: int,
+    control_points: int,
+) -> tuple[float, ...]:
+    return _display_curve_with_params(
+        shape,
+        smoothing=smoothing,
+        control_points=control_points,
+    )
+
+
 def _linear_sample(values: list[float], position: float) -> float:
     left = int(position)
     right = min(len(values) - 1, left + 1)
@@ -663,6 +754,39 @@ def _shape_for_candidate(candidate: _Candidate) -> tuple[float, ...]:
         return ()
     samples, _sample_rate = sliced
     return audio_shape_preview(samples, sample_count=64)
+
+
+def _preview_for_candidate(candidate: _Candidate, *, mode: str) -> tuple[float, ...]:
+    if mode == "timbre_fingerprint":
+        return _timbre_fingerprint_for_candidate(candidate)
+    return _shape_for_candidate(candidate)
+
+
+def _timbre_fingerprint_for_candidate(candidate: _Candidate) -> tuple[float, ...]:
+    if not candidate.audio_path:
+        return ()
+    path = Path(candidate.audio_path)
+    if not path.exists():
+        return ()
+    end_seconds = candidate.end if candidate.end > candidate.start else candidate.start + 0.12
+    fingerprint = build_timbre_fingerprint_preview(
+        audio_path=str(path),
+        start_seconds=candidate.start,
+        end_seconds=end_seconds,
+        settings=TimbreFingerprintSettings(sample_count=64, padding_ms=20.0),
+        audio_cache=None,
+    )
+    return fingerprint or ()
+
+
+def _training_sample_from_candidate(candidate: _Candidate) -> AudioEventTrainingSample:
+    return AudioEventTrainingSample(
+        event_ref=EventRef(candidate.layer_id, candidate.take_id, candidate.event_id),
+        label=candidate.label,
+        audio_path=candidate.audio_path,
+        start_seconds=candidate.start,
+        end_seconds=candidate.end if candidate.end > candidate.start else candidate.start + 0.12,
+    )
 
 
 def _coerce_scope_mode(value: str) -> str:

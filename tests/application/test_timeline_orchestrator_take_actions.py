@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 import sqlite3
 import tempfile
@@ -42,6 +43,12 @@ from echozero.application.timeline.event_comparison_service import (
     TimbreFingerprintSettings,
     build_timbre_fingerprint_preview,
     compare_timbre_fingerprint_similarity,
+)
+from echozero.application.timeline.event_similarity_mini_model import (
+    AudioEventTrainingSample,
+    load_timbre_mini_model,
+    score_timbre_mini_model,
+    train_timbre_mini_model,
 )
 from echozero.application.timeline.event_batch_scope import EventBatchScope
 from echozero.application.timeline.intents import (
@@ -1122,6 +1129,86 @@ def test_compare_timbre_fingerprint_similarity_prefers_matching_one_shots(tmp_pa
     assert different is not None
     assert compare_timbre_fingerprint_similarity(anchor, matching) >= 0.99
     assert compare_timbre_fingerprint_similarity(anchor, different) < 0.9
+
+
+def test_select_similar_events_timbre_fingerprint_mode_prefers_matching_frequency(tmp_path: Path):
+    kick_a = _shaped_burst(shape="tight", frequency_hz=120.0)
+    kick_b = _shaped_burst(shape="tight", frequency_hz=120.0)
+    hat_a = _shaped_burst(shape="tight", frequency_hz=2200.0)
+    hat_b = _shaped_burst(shape="tight", frequency_hz=2200.0)
+    silence = np.zeros(int(22050 * 0.32), dtype=np.float32)
+    audio = np.concatenate((kick_a, silence, kick_b, silence, hat_a, silence, hat_b))
+    audio_path = tmp_path / "timbre_mode.wav"
+    _write_mono_wav(audio_path, audio)
+    orchestrator, timeline, layer, take = _build_audio_similarity_timeline(audio_path)
+
+    orchestrator.handle(
+        timeline,
+        SelectSimilarEvents(
+            layer_id=layer.id,
+            take_id=take.id,
+            event_id=EventId("evt_low_1"),
+            comparison_mode="timbre_fingerprint",
+            match_strength="very_strict",
+            similarity_threshold_override=0.95,
+        ),
+    )
+
+    assert timeline.selection.selected_event_ids == [EventId("evt_low_1"), EventId("evt_low_2")]
+
+
+def test_timbre_mini_model_trains_json_centroid_and_scores_candidates(tmp_path: Path):
+    kick_a = _shaped_burst(shape="tight", frequency_hz=120.0)
+    kick_b = _shaped_burst(shape="tight", frequency_hz=120.0)
+    hat = _shaped_burst(shape="tight", frequency_hz=2200.0)
+    audio = np.concatenate((kick_a, np.zeros(4000), kick_b, np.zeros(4000), hat))
+    audio_path = tmp_path / "mini-model.wav"
+    _write_mono_wav(audio_path, audio)
+    settings = TimbreFingerprintSettings(sample_count=48, padding_ms=10.0)
+    anchor = AudioEventTrainingSample(
+        event_ref=EventRef(LayerId("layer"), TakeId("take"), EventId("kick_a")),
+        label="Kick",
+        audio_path=str(audio_path),
+        start_seconds=0.0,
+        end_seconds=0.18,
+    )
+    matching = AudioEventTrainingSample(
+        event_ref=EventRef(LayerId("layer"), TakeId("take"), EventId("kick_b")),
+        label="Kick 2",
+        audio_path=str(audio_path),
+        start_seconds=0.18 + 4000 / 22050,
+        end_seconds=0.36 + 4000 / 22050,
+    )
+    different = AudioEventTrainingSample(
+        event_ref=EventRef(LayerId("layer"), TakeId("take"), EventId("hat")),
+        label="Hat",
+        audio_path=str(audio_path),
+        start_seconds=0.36 + 8000 / 22050,
+        end_seconds=0.54 + 8000 / 22050,
+    )
+
+    result = train_timbre_mini_model(
+        anchor_sample=anchor,
+        positive_samples=[matching],
+        output_dir=tmp_path,
+        settings=settings,
+        created_at=datetime(2026, 5, 14, 12, 0, tzinfo=timezone.utc),
+    )
+
+    payload = load_timbre_mini_model(result.artifact_path)
+    assert payload["positive_sample_count"] == 2
+    assert payload["settings"]["sample_count"] == 48
+    assert result.artifact_path.parent == tmp_path
+    matching_score = score_timbre_mini_model(
+        artifact_path=result.artifact_path,
+        candidate_sample=matching,
+    ).score
+    different_score = score_timbre_mini_model(
+        artifact_path=result.artifact_path,
+        candidate_sample=different,
+    ).score
+    assert matching_score >= 0.9
+    assert different_score <= matching_score - 0.15
 
 
 def test_select_similar_sounding_events_same_take_uses_normalized_shape(tmp_path: Path):
