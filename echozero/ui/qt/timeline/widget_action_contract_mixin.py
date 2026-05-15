@@ -21,12 +21,16 @@ from echozero.application.presentation.models import (
 )
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import EventId, LayerId, TakeId
+from echozero.application.shared.ranges import TimeRange
 from echozero.application.shared.layer_kinds import is_event_like_layer_kind
 from echozero.application.sync.models import LiveSyncState
 from echozero.application.timeline.event_batch_scope import event_batch_scope_from_params
 from echozero.application.timeline.object_content import is_imported_song_layer
 from echozero.application.timeline.intents import (
     ClearLayerLiveSyncPauseReason,
+    CommitRejectedEventsReview,
+    CommitVerifiedEventsReview,
+    CreateEvent,
     DuplicateSelectedEvents,
     MoveSelectedEvents,
     NudgeSelectedEvents,
@@ -459,15 +463,36 @@ class TimelineWidgetContractActionMixin:
             )
             if payload is None:
                 return
+            event_refs = list(payload["event_refs"])
+            outcome_action = str(payload.get("outcome_action", "select"))
             host._dispatch(
                 SetSelectedEvents(
                     event_ids=list(payload["event_ids"]),
-                    event_refs=list(payload["event_refs"]),
+                    event_refs=event_refs,
                     anchor_layer_id=payload["anchor_layer_id"],
                     anchor_take_id=payload["anchor_take_id"],
                     selected_layer_ids=list(payload["selected_layer_ids"]),
                 )
             )
+            if outcome_action == "promote":
+                host._dispatch(
+                    CommitVerifiedEventsReview(
+                        event_refs=event_refs,
+                        review_note="Find Similar matched events",
+                    )
+                )
+            elif outcome_action == "demote":
+                host._dispatch(
+                    CommitRejectedEventsReview(
+                        event_refs=event_refs,
+                        review_note="Find Similar matched events",
+                    )
+                )
+            elif outcome_action == "create_layer":
+                self._create_layer_from_matched_events(
+                    event_refs=event_refs,
+                    title=str(payload.get("new_layer_title") or "Similar Events"),
+                )
             return
         if action_id == "selection.renumber_cues_from_one":
             scope = event_batch_scope_from_params(params)
@@ -1937,6 +1962,39 @@ class TimelineWidgetContractActionMixin:
             default_scope_mode=default_scope_mode,
         )
 
+
+    def _create_layer_from_matched_events(
+        self,
+        *,
+        event_refs: list[object],
+        title: str,
+    ) -> None:
+        host = cast(_ContractActionHost, self)
+        runtime = cast(_AddLayerRuntimeShell | None, host._resolve_runtime_shell())
+        if runtime is None or not event_refs:
+            return
+        presentation = runtime.add_layer(LayerKind.EVENT, title.strip() or "Similar Events")
+        if presentation is None or presentation.selected_layer_id is None:
+            return
+        target_layer_id = presentation.selected_layer_id
+        source_presentation = host._get_presentation()
+        created_refs = []
+        for index, event_ref in enumerate(event_refs, start=1):
+            event = _find_presentation_event(source_presentation, event_ref)
+            if event is None:
+                continue
+            host._dispatch(
+                CreateEvent(
+                    layer_id=target_layer_id,
+                    time_range=TimeRange(float(event.start), float(event.end)),
+                    label=event.label or "Matched Event",
+                    cue_number=index,
+                    source_event_id=str(getattr(event_ref, "event_id", "") or "") or None,
+                    color=getattr(event, "color", None),
+                )
+            )
+            created_refs.append(event_ref)
+
     def _resolve_song_title(self, song_id: str) -> str:
         host = cast(_ContractActionHost, self)
         presentation = host._get_presentation()
@@ -2026,3 +2084,22 @@ class TimelineWidgetContractActionMixin:
 
 def _is_imported_song_layer(layer: object) -> bool:
     return is_imported_song_layer(layer)
+
+
+def _find_presentation_event(presentation: TimelinePresentation, event_ref: object):
+    layer_id = getattr(event_ref, "layer_id", None)
+    take_id = getattr(event_ref, "take_id", None)
+    event_id = getattr(event_ref, "event_id", None)
+    for layer in presentation.layers:
+        if layer.layer_id != layer_id:
+            continue
+        for event in layer.events:
+            if event.event_id == event_id:
+                return event
+        for take in layer.takes:
+            if take_id is not None and take.take_id != take_id:
+                continue
+            for event in take.events:
+                if event.event_id == event_id:
+                    return event
+    return None

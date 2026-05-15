@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QDialogButtonBox,
     QGridLayout,
     QLabel,
+    QLineEdit,
     QScrollArea,
     QSizePolicy,
     QSlider,
@@ -54,6 +55,7 @@ class ShapePreviewRow:
     shape: tuple[float, ...]
     score: float | None = None
     is_anchor: bool = False
+    is_match: bool = False
 
 
 class EventShapeComparisonPreviewWidget(QWidget):
@@ -66,6 +68,11 @@ class EventShapeComparisonPreviewWidget(QWidget):
         smoothing: int = 3,
         control_points: int = 24,
         fuzziness: int = 35,
+        threshold: float = 0.78,
+        scan_total: int | None = None,
+        scan_limit: int | None = None,
+        match_count: int | None = None,
+        action_label: str = "Select matched events",
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -73,6 +80,11 @@ class EventShapeComparisonPreviewWidget(QWidget):
         self._smoothing = smoothing
         self._control_points = control_points
         self._fuzziness = fuzziness
+        self._threshold = threshold
+        self._scan_total = scan_total if scan_total is not None else max(0, len(rows) - 1)
+        self._scan_limit = scan_limit if scan_limit is not None else self._scan_total
+        self._match_count = match_count if match_count is not None else sum(1 for row in rows[1:] if row.is_match)
+        self._action_label = action_label
         self.setMinimumHeight(max(320, 76 + 54 * max(1, len(rows) - 1)))
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding)
 
@@ -96,7 +108,8 @@ class EventShapeComparisonPreviewWidget(QWidget):
             return
 
         anchor = self._rows[0]
-        scanned_count = max(0, len(self._rows) - 1)
+        scanned_count = max(0, int(self._scan_limit))
+        total_count = max(scanned_count, int(self._scan_total))
         left_width = min(360.0, max(285.0, rect.width() * 0.36))
         gap = 12.0
         left_panel = QRectF(rect.left() + 12, rect.top() + 12, left_width, rect.height() - 24)
@@ -116,12 +129,18 @@ class EventShapeComparisonPreviewWidget(QWidget):
         painter.setPen(QColor("#bae6fd"))
         painter.drawText(progress_rect.adjusted(10, 4, -10, -4), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, "LIVE ITERATION")
         painter.setPen(QColor("#e0f2fe"))
-        painter.drawText(progress_rect.adjusted(10, 26, -10, -4), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, f"{scanned_count} queued · preview ready")
+        painter.drawText(
+            progress_rect.adjusted(10, 26, -10, -4),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+            f"{scanned_count}/{total_count} scanned · {self._match_count} matches · {self._action_label}",
+        )
         segment_top = progress_rect.top() + 52
-        segment_width = max(5.0, (progress_rect.width() - 20) / max(1, min(scanned_count, 28)))
-        for index in range(max(1, min(scanned_count, 28))):
+        visible_segments = max(1, min(total_count, 28))
+        segment_width = max(5.0, (progress_rect.width() - 20) / visible_segments)
+        scanned_segments = round(visible_segments * (scanned_count / max(1, total_count)))
+        for index in range(visible_segments):
             segment = QRectF(progress_rect.left() + 10 + index * segment_width + 1, segment_top, segment_width - 2, 8)
-            painter.fillRect(segment, QColor("#0ea5e9"))
+            painter.fillRect(segment, QColor("#0ea5e9") if index < scanned_segments else QColor("#1e293b"))
 
         meter_top = progress_rect.bottom() + 16
         for index, (label, value, color) in enumerate(
@@ -129,6 +148,7 @@ class EventShapeComparisonPreviewWidget(QWidget):
                 (f"smooth {self._smoothing}", min(1.0, self._smoothing / 12.0), QColor("#22d3ee")),
                 (f"points {self._control_points}", min(1.0, self._control_points / 64.0), QColor("#a78bfa")),
                 (f"fuzz {self._fuzziness}%", min(1.0, self._fuzziness / 100.0), QColor("#f59e0b")),
+                (f"min {self._threshold:.2f}", min(1.0, self._threshold), QColor("#34d399")),
             )
         ):
             y = meter_top + index * 34
@@ -155,9 +175,10 @@ class EventShapeComparisonPreviewWidget(QWidget):
             painter.fillRect(row_rect, QColor("#0d2740") if index % 2 == 0 else QColor("#0b2137"))
             painter.setPen(QPen(QColor("#155e75"), 0.8))
             painter.drawRoundedRect(row_rect, 7.0, 7.0)
-            painter.setPen(QColor("#e0f2fe"))
+            painter.setPen(QColor("#bbf7d0") if row.is_match else QColor("#e0f2fe"))
             score = "--" if row.score is None else f"{row.score:.2f}"
-            painter.drawText(row_rect.adjusted(10, 0, -4, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, f"{row.label} · {score}")
+            verdict = "MATCH" if row.is_match else "miss"
+            painter.drawText(row_rect.adjusted(10, 0, -4, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, f"{verdict} · {row.label} · {score}")
             graph_rect = QRectF(graph_left, y + 8, graph_width, row_height - 24)
             painter.setPen(QPen(QColor("#1e3a8a"), 1.0))
             painter.drawLine(QPointF(graph_rect.left(), graph_rect.center().y()), QPointF(graph_rect.right(), graph_rect.center().y()))
@@ -214,6 +235,7 @@ class FindSimilarSoundsDialog(QDialog):
         self._take_id = take_id
         self._event_id = event_id
         self._default_scope_mode = _coerce_scope_mode(default_scope_mode)
+        self._scan_limit: int | None = None
         self.setWindowTitle("Compare Events")
         self.setStyleSheet(
             "QDialog { background: #020617; color: #dbeafe; }"
@@ -286,6 +308,21 @@ class FindSimilarSoundsDialog(QDialog):
         self._fuzziness_slider.valueChanged.connect(self._refresh_preview)
         self._fuzziness_slider.valueChanged.connect(lambda value: self._fuzziness_label.setText(f"Fuzz: {value}%"))
         control_grid.addWidget(self._fuzziness_slider, 2, 5)
+
+        self._outcome_label = QLabel("Matched events", self)
+        control_grid.addWidget(self._outcome_label, 3, 0)
+        self._outcome_combo = QComboBox(self)
+        self._outcome_combo.addItem("Select matched events", "select")
+        self._outcome_combo.addItem("Promote matched events", "promote")
+        self._outcome_combo.addItem("Demote matched events", "demote")
+        self._outcome_combo.addItem("Create new layer from matches", "create_layer")
+        self._outcome_combo.currentIndexChanged.connect(self._refresh_preview)
+        control_grid.addWidget(self._outcome_combo, 3, 1, 1, 2)
+
+        self._layer_name_label = QLabel("New layer", self)
+        control_grid.addWidget(self._layer_name_label, 3, 3)
+        self._layer_name_edit = QLineEdit("Similar Events", self)
+        control_grid.addWidget(self._layer_name_edit, 3, 4, 1, 2)
         layout.addLayout(control_grid)
 
         self._preview_scroll = QScrollArea(self)
@@ -305,20 +342,38 @@ class FindSimilarSoundsDialog(QDialog):
         layout.addWidget(buttons)
 
     def selected_payload(self) -> dict[str, object]:
-        candidate = EventRef(self._layer_id, self._take_id, self._event_id)
         selected_layer_ids = self._selected_layer_ids_for_scope(str(self._scope_combo.currentData()))
+        rows = self._build_shape_preview_rows(str(self._scope_combo.currentData()), scan_limit=None)
+        matched_rows = [row for row in rows if row.is_anchor or row.is_match]
+        if not matched_rows:
+            matched_rows = [
+                ShapePreviewRow(
+                    event_ref=EventRef(self._layer_id, self._take_id, self._event_id),
+                    label="Current",
+                    shape=(),
+                    score=1.0,
+                    is_anchor=True,
+                    is_match=True,
+                )
+            ]
+        event_refs = [row.event_ref for row in matched_rows]
         return {
-            "event_ids": [self._event_id],
-            "event_refs": [candidate],
+            "event_ids": [row.event_ref.event_id for row in matched_rows],
+            "event_refs": event_refs,
+            "matched_event_refs": event_refs,
+            "match_count": len(event_refs),
             "anchor_layer_id": self._layer_id,
             "anchor_take_id": self._take_id,
             "selected_layer_ids": selected_layer_ids,
             "comparison_mode": str(self._mode_combo.currentData()),
             "scope_mode": str(self._scope_combo.currentData()),
             "match_strength": str(self._strength_combo.currentData()),
+            "match_threshold": self._current_threshold(),
             "shape_smoothing": int(self._smoothing_slider.value()),
             "shape_control_points": int(self._points_slider.value()),
             "shape_fuzziness": int(self._fuzziness_slider.value()),
+            "outcome_action": str(self._outcome_combo.currentData()),
+            "new_layer_title": self._layer_name_edit.text().strip() or "Similar Events",
         }
 
     def _summary_text(self) -> str:
@@ -343,17 +398,24 @@ class FindSimilarSoundsDialog(QDialog):
         )
 
     def _refresh_preview(self) -> None:
-        rows = self._build_shape_preview_rows(str(self._scope_combo.currentData()))
+        scope_mode = str(self._scope_combo.currentData())
+        total_candidates = max(0, len(self._candidate_events(scope_mode)) - 1)
+        rows = self._build_shape_preview_rows(scope_mode, scan_limit=self._scan_limit)
         self._preview_widget = EventShapeComparisonPreviewWidget(
             rows,
             smoothing=int(self._smoothing_slider.value()),
             control_points=int(self._points_slider.value()),
             fuzziness=int(self._fuzziness_slider.value()),
+            threshold=self._current_threshold(),
+            scan_total=total_candidates,
+            scan_limit=max(0, len(rows) - 1) if self._scan_limit is None else min(self._scan_limit, total_candidates),
+            match_count=sum(1 for row in rows[1:] if row.is_match),
+            action_label=self._outcome_combo.currentText(),
             parent=self._preview_scroll,
         )
         self._preview_scroll.setWidget(self._preview_widget)
 
-    def _build_shape_preview_rows(self, scope_mode: str) -> tuple[ShapePreviewRow, ...]:
+    def _build_shape_preview_rows(self, scope_mode: str, *, scan_limit: int | None = None) -> tuple[ShapePreviewRow, ...]:
         candidates = self._candidate_events(scope_mode)
         anchor = next(
             (
@@ -386,6 +448,7 @@ class FindSimilarSoundsDialog(QDialog):
                 is_anchor=True,
             )
         ]
+        scanned = 0
         for candidate in candidates:
             if (
                 candidate.layer_id == anchor.layer_id
@@ -393,6 +456,9 @@ class FindSimilarSoundsDialog(QDialog):
                 and candidate.event_id == anchor.event_id
             ):
                 continue
+            if scan_limit is not None and scanned >= scan_limit:
+                break
+            scanned += 1
             raw_candidate_shape = _shape_for_candidate(candidate)
             if not raw_candidate_shape:
                 continue
@@ -402,15 +468,33 @@ class FindSimilarSoundsDialog(QDialog):
                 control_points=int(self._points_slider.value()),
             )
             aligned = align_shape_to_reference(anchor_shape, candidate_shape)
+            score = compare_shape_similarity(anchor_shape, candidate_shape)
             rows.append(
                 ShapePreviewRow(
                     event_ref=EventRef(candidate.layer_id, candidate.take_id, candidate.event_id),
                     label=candidate.label,
                     shape=aligned,
-                    score=compare_shape_similarity(anchor_shape, candidate_shape),
+                    score=score,
+                    is_match=score >= self._current_threshold(),
                 )
             )
         return tuple(rows)
+
+    def set_scan_preview_limit(self, value: int | None) -> None:
+        """Set a visible scan-progress cap for live app demos and automation captures."""
+
+        self._scan_limit = None if value is None else max(0, int(value))
+        self._refresh_preview()
+
+    def _current_threshold(self) -> float:
+        base = {
+            "very_strict": 0.95,
+            "strict": 0.90,
+            "balanced": 0.78,
+            "loose": 0.65,
+        }.get(str(self._strength_combo.currentData()), 0.78)
+        fuzz_relief = max(0.0, min(1.0, int(self._fuzziness_slider.value()) / 100.0)) * 0.18
+        return max(0.0, min(1.0, base - fuzz_relief))
 
     def _find_event_candidate(self, layer_id: LayerId, take_id: TakeId, event_id: EventId) -> _Candidate | None:
         layer = _find_layer(self._presentation, layer_id)

@@ -1263,6 +1263,13 @@ def test_find_similar_shapes_dialog_constructs_for_real_event():
         assert payload["shape_smoothing"] == 3
         assert payload["shape_control_points"] == 24
         assert payload["shape_fuzziness"] == 35
+        assert payload["outcome_action"] == "select"
+        assert payload["new_layer_title"] == "Similar Events"
+        dialog._outcome_combo.setCurrentIndex(dialog._outcome_combo.findData("create_layer"))
+        dialog._layer_name_edit.setText("Matched Kicks")
+        payload = dialog.selected_payload()
+        assert payload["outcome_action"] == "create_layer"
+        assert payload["new_layer_title"] == "Matched Kicks"
         assert hasattr(dialog, "_preview_widget")
     finally:
         dialog.close()
@@ -1312,6 +1319,12 @@ def test_find_similar_shapes_dialog_previews_anchor_and_candidate_shapes(tmp_pat
         assert len(rows[0].shape) == 24
         assert rows[1].score is not None
         assert len(rows[1].shape) == 24
+        payload = dialog.selected_payload()
+        assert payload["match_count"] >= 1
+        assert payload["matched_event_refs"]
+        dialog.set_scan_preview_limit(1)
+        app.processEvents()
+        assert len(dialog._preview_widget.rows) == 2
         dialog._points_slider.setValue(12)
         app.processEvents()
         assert len(dialog._preview_widget.rows[0].shape) == 12
