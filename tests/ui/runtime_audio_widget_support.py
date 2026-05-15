@@ -707,6 +707,50 @@ def test_widget_seek_churn_keeps_seek_anchor_through_stale_runtime_samples():
         app.processEvents()
 
 
+def test_widget_ma3_pause_transport_update_toggles_play_pause():
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(_audio_presentation(), is_playing=True)
+    updates = [
+        {"change": "pause", "is_playing": False},
+        {"change": "pause", "is_playing": False},
+    ]
+    dispatched: list[object] = []
+    state = {"presentation": presentation}
+
+    class RuntimeShell:
+        def consume_sync_transport_update(self):
+            return updates.pop(0) if updates else None
+
+    def _on_intent(intent):
+        dispatched.append(intent)
+        current = state["presentation"]
+        if isinstance(intent, Pause):
+            updated = replace(current, is_playing=False)
+        elif isinstance(intent, Play):
+            updated = replace(current, is_playing=True)
+        else:
+            updated = current
+        state["presentation"] = updated
+        return updated
+
+    widget = TimelineWidget(presentation, on_intent=_on_intent, runtime_audio=None)
+    widget._runtime_timer.stop()
+    widget._resolve_runtime_shell = lambda: RuntimeShell()
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+
+        widget._on_runtime_tick()
+        widget._on_runtime_tick()
+
+        assert [type(intent) for intent in dispatched] == [Pause, Play]
+        assert widget.presentation.is_playing is True
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_widget_dispatch_preserves_local_scroll_when_seek_updates_arrive_with_stale_scroll_state():
     app = QApplication.instance() or QApplication([])
     initial = replace(_audio_presentation(), scroll_x=972.0, pixels_per_second=180.0)

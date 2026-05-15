@@ -165,6 +165,7 @@ class _TimelineWidgetRuntimeHost(Protocol):
     def _reset_scroll_area_horizontal_offset(self) -> None: ...
     def _sync_editor_state(self) -> None: ...
     def _sync_pipeline_status_banner(self) -> None: ...
+    def _notify_window_title_sync(self) -> None: ...
     def _set_pipeline_status_tone(self, tone: str) -> None: ...
     def _dismiss_pipeline_status_banner(self) -> None: ...
     def _on_pipeline_status_auto_dismiss_timeout(self) -> None: ...
@@ -219,6 +220,7 @@ class TimelineWidgetRuntimeMixin:
         self._ruler.set_presentation(self.presentation)
         self._canvas.set_presentation(self.presentation)
         self._sync_runtime_timer_cadence()
+        self._notify_window_title_sync()
         if sync_runtime_audio:
             self._sync_runtime_audio_for_presentation(
                 self.presentation,
@@ -889,7 +891,9 @@ class TimelineWidgetRuntimeMixin:
                 if not bool(self.presentation.is_playing):
                     self._dispatch(Play())
             elif transport_action == "pause":
-                self._dispatch(Pause())
+                # MA3 pause buttons behave like a transport play/pause toggle.
+                # When EchoZero is already paused, a second MA3 pause press should resume.
+                self._dispatch(Pause() if bool(self.presentation.is_playing) else Play())
             elif transport_action == "stop":
                 self._dispatch(Stop())
             seek_seconds = _resolve_transport_seek_seconds(transport_update)
