@@ -88,6 +88,7 @@ class PlaybackTrack:
     source_key: str
     cache_keys: tuple[str, ...]
     muted: bool = False
+    soloed: bool = False
     buffer: np.ndarray | None = None
     sample_rate: int = 0
     source_ref: str | None = None
@@ -309,6 +310,7 @@ class PlaybackTrackBuilder:
             layer_soloed = bool(getattr(layer, "soloed", False))
             layer_muted = bool(getattr(layer, "muted", False)) and not layer_soloed
             playback_track.muted = layer_muted or (has_soloed_layers and not layer_soloed)
+            playback_track.soloed = layer_soloed
             tracks.append(playback_track)
             seen_track_ids.add(playback_track.track_id)
         return tracks

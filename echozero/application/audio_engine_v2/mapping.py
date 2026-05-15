@@ -41,9 +41,7 @@ def build_prepared_graph_from_playback_plan(
     master_bus = PreparedBus(
         bus_id=MASTER_BUS_ID,
         name="Master",
-        route=TrackRoute.to_hardware(master_routes)
-        if master_routes
-        else TrackRoute.no_output(),
+        route=TrackRoute.to_hardware(master_routes) if master_routes else TrackRoute.no_output(),
     )
     return PreparedGraph(graph_id=graph_id, tracks=tracks, buses=(master_bus,))
 
@@ -58,6 +56,7 @@ def _prepared_track_from_playback_track(playback_track: object) -> PreparedTrack
         mix=MixParameters(
             gain_db=float(getattr(playback_track, "gain_db", 0.0)),
             muted=bool(getattr(playback_track, "muted", False)),
+            soloed=bool(getattr(playback_track, "soloed", False)),
         ),
         channels=_channels_from_buffer(playback_track),
         source_sample_rate=max(0, int(getattr(playback_track, "sample_rate", 0) or 0)),
@@ -70,9 +69,7 @@ def _track_route_from_output_bus(output_bus: object) -> TrackRoute:
     tokens = _route_tokens(output_bus)
     if any(token in {NO_OUTPUT_BUS, "no_output", "off"} for token in tokens):
         return TrackRoute.no_output()
-    master_requested = any(
-        token in {MASTER_OUTPUT_BUS_TOKEN, "default"} for token in tokens
-    )
+    master_requested = any(token in {MASTER_OUTPUT_BUS_TOKEN, "default"} for token in tokens)
     routes = _hardware_routes_from_tokens(output_bus)
     if master_requested and routes:
         return TrackRoute.to_master_and_hardware(routes)
@@ -95,11 +92,7 @@ def _route_tokens(value: object) -> tuple[str, ...]:
     if value is None:
         return ()
     if isinstance(value, str):
-        return tuple(
-            token.strip().lower()
-            for token in value.split(",")
-            if token.strip()
-        )
+        return tuple(token.strip().lower() for token in value.split(",") if token.strip())
     return (str(value).strip().lower(),)
 
 

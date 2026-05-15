@@ -40,18 +40,25 @@ Audit:
 
 Scope:
 
-- build v2 prepared graphs from real app playback projections in a shadow lane
-- compare v1 playback track plans with v2 graph identities and route summaries
-- add diagnostics that are visible to developers but not operator-facing by
-  default
+- build v2 prepared graphs from real app/runtime playback projections and
+  existing `PlaybackTrackPlan`/`PlaybackMixPlan` shaped inputs in a shadow lane
+- compare v1 playback track plans with v2 graph identities, route summaries,
+  mix summaries, and structure signatures
+- classify graph identity edits as unchanged, mix, route, or structure for
+  developer diagnostics
+- make unsupported route tokens observable as parity planning failures instead
+  of silently falling back to an incorrect route
+- keep diagnostics visible to developers only, not operator-facing by default
 
 Gates:
 
 - shadow planner runs without changing audible output
 - route summaries match existing v1 behavior for representative projects
 - app-boundary tests cover selected song, selected version, event-slice, mute,
-  solo, gain, no-output, master, master plus direct output, bus-to-bus, and
-  direct output cases
+  solo, gain, no-output, master, master plus direct output, and direct output
+  cases
+- bus-to-bus route coverage remains in the immutable graph foundation until a
+  current app projection exposes subgroup buses
 
 Audit:
 
