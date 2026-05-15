@@ -1256,6 +1256,13 @@ def test_find_similar_shapes_dialog_constructs_for_real_event():
         assert dialog._mode_combo.count() == 2
         assert dialog._mode_combo.itemText(0) == "Shape Envelope"
         assert dialog._mode_combo.itemText(1) == "Timbre Fingerprint"
+        assert dialog._smoothing_slider.value() == 3
+        assert dialog._points_slider.value() == 24
+        assert dialog._fuzziness_slider.value() == 35
+        payload = dialog.selected_payload()
+        assert payload["shape_smoothing"] == 3
+        assert payload["shape_control_points"] == 24
+        assert payload["shape_fuzziness"] == 35
         assert hasattr(dialog, "_preview_widget")
     finally:
         dialog.close()
@@ -1302,9 +1309,12 @@ def test_find_similar_shapes_dialog_previews_anchor_and_candidate_shapes(tmp_pat
         rows = dialog._preview_widget.rows
         assert len(rows) == 2
         assert rows[0].is_anchor is True
-        assert rows[0].shape
+        assert len(rows[0].shape) == 24
         assert rows[1].score is not None
-        assert rows[1].shape
+        assert len(rows[1].shape) == 24
+        dialog._points_slider.setValue(12)
+        app.processEvents()
+        assert len(dialog._preview_widget.rows[0].shape) == 12
     finally:
         dialog.close()
         app.processEvents()

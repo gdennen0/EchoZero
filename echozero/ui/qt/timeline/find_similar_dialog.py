@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QScrollArea,
     QSizePolicy,
+    QSlider,
     QVBoxLayout,
     QWidget,
 )
@@ -58,9 +59,20 @@ class ShapePreviewRow:
 class EventShapeComparisonPreviewWidget(QWidget):
     """Paint the anchor shape and the candidate event shapes considered by the dialog."""
 
-    def __init__(self, rows: tuple[ShapePreviewRow, ...], parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        rows: tuple[ShapePreviewRow, ...],
+        *,
+        smoothing: int = 3,
+        control_points: int = 24,
+        fuzziness: int = 35,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self._rows = rows
+        self._smoothing = smoothing
+        self._control_points = control_points
+        self._fuzziness = fuzziness
         self.setMinimumHeight(max(320, 76 + 54 * max(1, len(rows) - 1)))
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding)
 
@@ -114,9 +126,9 @@ class EventShapeComparisonPreviewWidget(QWidget):
         meter_top = progress_rect.bottom() + 16
         for index, (label, value, color) in enumerate(
             (
-                ("strictness", 0.72, QColor("#22d3ee")),
-                ("alignment", 0.86, QColor("#a78bfa")),
-                ("window", 0.54, QColor("#f59e0b")),
+                (f"smooth {self._smoothing}", min(1.0, self._smoothing / 12.0), QColor("#22d3ee")),
+                (f"points {self._control_points}", min(1.0, self._control_points / 64.0), QColor("#a78bfa")),
+                (f"fuzz {self._fuzziness}%", min(1.0, self._fuzziness / 100.0), QColor("#f59e0b")),
             )
         ):
             y = meter_top + index * 34
@@ -247,12 +259,39 @@ class FindSimilarSoundsDialog(QDialog):
         if balanced >= 0:
             self._strength_combo.setCurrentIndex(balanced)
         control_grid.addWidget(self._strength_combo, 1, 5)
+
+        self._smoothing_label = QLabel("Smooth: 3", self)
+        control_grid.addWidget(self._smoothing_label, 2, 0)
+        self._smoothing_slider = QSlider(Qt.Orientation.Horizontal, self)
+        self._smoothing_slider.setRange(0, 12)
+        self._smoothing_slider.setValue(3)
+        self._smoothing_slider.valueChanged.connect(self._refresh_preview)
+        self._smoothing_slider.valueChanged.connect(lambda value: self._smoothing_label.setText(f"Smooth: {value}"))
+        control_grid.addWidget(self._smoothing_slider, 2, 1)
+
+        self._points_label = QLabel("Points: 24", self)
+        control_grid.addWidget(self._points_label, 2, 2)
+        self._points_slider = QSlider(Qt.Orientation.Horizontal, self)
+        self._points_slider.setRange(8, 64)
+        self._points_slider.setValue(24)
+        self._points_slider.valueChanged.connect(self._refresh_preview)
+        self._points_slider.valueChanged.connect(lambda value: self._points_label.setText(f"Points: {value}"))
+        control_grid.addWidget(self._points_slider, 2, 3)
+
+        self._fuzziness_label = QLabel("Fuzz: 35%", self)
+        control_grid.addWidget(self._fuzziness_label, 2, 4)
+        self._fuzziness_slider = QSlider(Qt.Orientation.Horizontal, self)
+        self._fuzziness_slider.setRange(0, 100)
+        self._fuzziness_slider.setValue(35)
+        self._fuzziness_slider.valueChanged.connect(self._refresh_preview)
+        self._fuzziness_slider.valueChanged.connect(lambda value: self._fuzziness_label.setText(f"Fuzz: {value}%"))
+        control_grid.addWidget(self._fuzziness_slider, 2, 5)
         layout.addLayout(control_grid)
 
         self._preview_scroll = QScrollArea(self)
         self._preview_scroll.setWidgetResizable(True)
         self._preview_scroll.setMinimumHeight(180)
-        self._preview_widget = EventShapeComparisonPreviewWidget((), self._preview_scroll)
+        self._preview_widget = EventShapeComparisonPreviewWidget((), parent=self._preview_scroll)
         self._preview_scroll.setWidget(self._preview_widget)
         layout.addWidget(self._preview_scroll, stretch=1)
         self._refresh_preview()
@@ -277,6 +316,9 @@ class FindSimilarSoundsDialog(QDialog):
             "comparison_mode": str(self._mode_combo.currentData()),
             "scope_mode": str(self._scope_combo.currentData()),
             "match_strength": str(self._strength_combo.currentData()),
+            "shape_smoothing": int(self._smoothing_slider.value()),
+            "shape_control_points": int(self._points_slider.value()),
+            "shape_fuzziness": int(self._fuzziness_slider.value()),
         }
 
     def _summary_text(self) -> str:
@@ -302,7 +344,13 @@ class FindSimilarSoundsDialog(QDialog):
 
     def _refresh_preview(self) -> None:
         rows = self._build_shape_preview_rows(str(self._scope_combo.currentData()))
-        self._preview_widget = EventShapeComparisonPreviewWidget(rows, self._preview_scroll)
+        self._preview_widget = EventShapeComparisonPreviewWidget(
+            rows,
+            smoothing=int(self._smoothing_slider.value()),
+            control_points=int(self._points_slider.value()),
+            fuzziness=int(self._fuzziness_slider.value()),
+            parent=self._preview_scroll,
+        )
         self._preview_scroll.setWidget(self._preview_widget)
 
     def _build_shape_preview_rows(self, scope_mode: str) -> tuple[ShapePreviewRow, ...]:
@@ -321,9 +369,14 @@ class FindSimilarSoundsDialog(QDialog):
             anchor = self._find_event_candidate(self._layer_id, self._take_id, self._event_id)
         if anchor is None:
             return ()
-        anchor_shape = _shape_for_candidate(anchor)
-        if not anchor_shape:
+        raw_anchor_shape = _shape_for_candidate(anchor)
+        if not raw_anchor_shape:
             return ()
+        anchor_shape = _shape_with_params(
+            raw_anchor_shape,
+            smoothing=int(self._smoothing_slider.value()),
+            control_points=int(self._points_slider.value()),
+        )
         rows = [
             ShapePreviewRow(
                 event_ref=EventRef(anchor.layer_id, anchor.take_id, anchor.event_id),
@@ -340,9 +393,14 @@ class FindSimilarSoundsDialog(QDialog):
                 and candidate.event_id == anchor.event_id
             ):
                 continue
-            candidate_shape = _shape_for_candidate(candidate)
-            if not candidate_shape:
+            raw_candidate_shape = _shape_for_candidate(candidate)
+            if not raw_candidate_shape:
                 continue
+            candidate_shape = _shape_with_params(
+                raw_candidate_shape,
+                smoothing=int(self._smoothing_slider.value()),
+                control_points=int(self._points_slider.value()),
+            )
             aligned = align_shape_to_reference(anchor_shape, candidate_shape)
             rows.append(
                 ShapePreviewRow(
@@ -445,6 +503,41 @@ def _candidate_from_event(
         end=float(event.end),
         audio_path=(take.source_audio_path if take is not None and take.source_audio_path else layer.source_audio_path),
     )
+
+
+def _shape_with_params(
+    shape: tuple[float, ...],
+    *,
+    smoothing: int,
+    control_points: int,
+) -> tuple[float, ...]:
+    values = list(shape)
+    if not values:
+        return ()
+    if smoothing > 0 and len(values) > 2:
+        radius = max(1, int(smoothing))
+        smoothed = []
+        for index in range(len(values)):
+            lo = max(0, index - radius)
+            hi = min(len(values), index + radius + 1)
+            smoothed.append(sum(values[lo:hi]) / max(1, hi - lo))
+        values = smoothed
+    point_count = max(4, int(control_points))
+    if point_count != len(values):
+        source_max = max(1, len(values) - 1)
+        values = [
+            _linear_sample(values, index * source_max / max(1, point_count - 1))
+            for index in range(point_count)
+        ]
+    peak = max(values) if values else 0.0
+    return tuple(float(value / peak) if peak > 1e-9 else 0.0 for value in values)
+
+
+def _linear_sample(values: list[float], position: float) -> float:
+    left = int(position)
+    right = min(len(values) - 1, left + 1)
+    blend = position - left
+    return float(values[left] * (1.0 - blend) + values[right] * blend)
 
 
 def _shape_for_candidate(candidate: _Candidate) -> tuple[float, ...]:
