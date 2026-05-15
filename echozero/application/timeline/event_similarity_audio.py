@@ -57,14 +57,31 @@ def read_mono_audio_slice(path: str | Path, *, start_seconds: float, end_seconds
             end = max(start, int(round(float(end_seconds) * sr)))
             handle.setpos(min(start, handle.getnframes()))
             raw = handle.readframes(max(0, min(end, handle.getnframes()) - start))
-        if width != 2 or not raw:
+        if not raw:
             return None
-        data = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
+        data = _decode_pcm(raw, sample_width=width)
+        if data is None:
+            return None
         if channels > 1:
             data = data.reshape((-1, channels)).mean(axis=1)
         return data, sr
     except Exception:
         return None
+
+
+def _decode_pcm(raw: bytes, *, sample_width: int) -> np.ndarray | None:
+    if sample_width == 1:
+        return (np.frombuffer(raw, dtype=np.uint8).astype(np.float32) - 128.0) / 128.0
+    if sample_width == 2:
+        return np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
+    if sample_width == 3:
+        bytes_array = np.frombuffer(raw, dtype=np.uint8).reshape(-1, 3).astype(np.int32)
+        values = bytes_array[:, 0] | (bytes_array[:, 1] << 8) | (bytes_array[:, 2] << 16)
+        values = np.where(values & 0x800000, values - 0x1000000, values)
+        return values.astype(np.float32) / 8388608.0
+    if sample_width == 4:
+        return np.frombuffer(raw, dtype="<i4").astype(np.float32) / 2147483648.0
+    return None
 
 
 def audio_shape_preview(audio: np.ndarray, *, sample_count: int = 64) -> tuple[float, ...]:

@@ -94,14 +94,18 @@ class EventShapeComparisonPreviewWidget(QWidget):
         painter.setPen(QPen(QColor("#38bdf8"), 1.0))
         painter.drawRoundedRect(anchor_rect, 10.0, 10.0)
         painter.setPen(QColor("#fbbf24"))
-        painter.drawText(anchor_rect.adjusted(14, 8, -14, -8), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, "SELECTED CLIP · ANCHOR SHAPE")
+        painter.drawText(
+            anchor_rect.adjusted(14, 8, -14, -8),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+            f"SELECTED CLIP · {anchor.label}",
+        )
         self._draw_shape(painter, anchor_rect.adjusted(18, 30, -18, -18), anchor.shape, QColor("#f59e0b"), width=3.0)
 
         progress_rect = QRectF(rect.left() + 16, anchor_rect.bottom() + 12, rect.width() - 32, 24)
         scanned_count = max(0, len(self._rows) - 1)
         painter.setPen(QColor("#bae6fd"))
         painter.drawText(progress_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, f"LIVE SCAN READY · {scanned_count} EVENTS QUEUED")
-        segment_left = progress_rect.left() + 220
+        segment_left = progress_rect.left() + 340
         segment_width = max(8.0, (progress_rect.right() - segment_left) / max(1, scanned_count))
         for index in range(max(1, scanned_count)):
             segment = QRectF(segment_left + index * segment_width + 2, progress_rect.top() + 5, segment_width - 4, 12)
@@ -267,9 +271,12 @@ class FindSimilarSoundsDialog(QDialog):
         )
         layer_count = len({candidate.layer_id for candidate in candidates})
         take_count = len({candidate.take_id for candidate in candidates})
+        event_word = "event" if comparison_count == 1 else "events"
+        take_word = "take" if take_count == 1 else "takes"
+        layer_word = "layer" if layer_count == 1 else "layers"
         return (
-            f"Compare the selected event against {comparison_count} candidate events across "
-            f"{take_count} takes and {layer_count} layers."
+            f"Compare the selected event against {comparison_count} candidate {event_word} across "
+            f"{take_count} {take_word} and {layer_count} {layer_word}."
         )
 
     def _refresh_preview(self) -> None:
@@ -425,7 +432,8 @@ def _shape_for_candidate(candidate: _Candidate) -> tuple[float, ...]:
     path = Path(candidate.audio_path)
     if not path.exists():
         return ()
-    sliced = read_mono_audio_slice(path, start_seconds=candidate.start, end_seconds=candidate.end)
+    end_seconds = candidate.end if candidate.end > candidate.start else candidate.start + 0.12
+    sliced = read_mono_audio_slice(path, start_seconds=candidate.start, end_seconds=end_seconds)
     if sliced is None:
         return ()
     samples, _sample_rate = sliced
