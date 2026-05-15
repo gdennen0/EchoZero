@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -47,11 +48,13 @@ class _CheckboxGroupWidget(QWidget):
         default_values = set(self._coerce_values(field.default_value))
         if not selected_values or not (selected_values & option_values):
             selected_values = default_values & option_values
+        column_count = 2 if len(field.options) <= 4 else 3
         for index, option in enumerate(field.options):
             checkbox = QCheckBox(option.label, self)
+            checkbox.setProperty("settingsRole", "checkboxOption")
             checkbox.setChecked(str(option.value) in selected_values)
-            row = index // 2
-            column = index % 2
+            row = index // column_count
+            column = index % column_count
             layout.addWidget(checkbox, row, column)
             self._checkboxes.append((option.value, checkbox))
 
@@ -106,6 +109,7 @@ class _TargetLabelWorksheetAdapter(QWidget):
             if not value:
                 continue
             checkbox = QCheckBox(option.label, parent)
+            checkbox.setProperty("settingsRole", "worksheetToggle")
             checkbox.setChecked(value in selected_values)
             checkbox.setEnabled(field.enabled)
             self._checkboxes[value] = checkbox
@@ -149,9 +153,10 @@ class SettingsPageForm(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self.setObjectName("settingsPageForm")
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(6)
+        root.setSpacing(3)
 
         self._scroll = QScrollArea(self)
         self._scroll.setWidgetResizable(True)
@@ -163,7 +168,8 @@ class SettingsPageForm(QWidget):
         self._scroll.setWidget(self._content)
         self._content_layout = QVBoxLayout(self._content)
         self._content_layout.setContentsMargins(0, 0, 0, 0)
-        self._content_layout.setSpacing(6)
+        self._content_layout.setSpacing(4)
+        self._content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self._inputs: dict[str, QWidget] = {}
         self._page: SettingsPage | None = None
@@ -189,6 +195,12 @@ class SettingsPageForm(QWidget):
                 empty_state = QLabel(empty_message, self._content)
                 empty_state.setWordWrap(True)
                 self._content_layout.addWidget(empty_state)
+            self._content_layout.addStretch(1)
+            self._content_layout.activate()
+            content_height = self._content_layout.sizeHint().height()
+            compact_height = min(260, max(42, content_height + 2))
+            self._scroll.setMinimumHeight(compact_height)
+            self.setMinimumHeight(compact_height)
         finally:
             self._suspend_field_events = False
 
@@ -216,9 +228,11 @@ class SettingsPageForm(QWidget):
             return
 
         title = QLabel(section.title, self._content)
+        title.setProperty("settingsRole", "sectionTitle")
         self._content_layout.addWidget(title)
         if section.description:
             description = QLabel(section.description, self._content)
+            description.setProperty("settingsRole", "sectionDescription")
             description.setWordWrap(True)
             self._content_layout.addWidget(description)
 
@@ -273,7 +287,8 @@ class SettingsPageForm(QWidget):
     ) -> None:
         show_advanced = always_show or any(field.is_dirty for field in fields)
         if not always_show:
-            toggle = QCheckBox("Show advanced settings", self._content)
+            toggle = QCheckBox("Advanced", self._content)
+            toggle.setProperty("settingsRole", "advancedToggle")
             toggle.setChecked(show_advanced)
             self._content_layout.addWidget(toggle)
 
@@ -281,9 +296,10 @@ class SettingsPageForm(QWidget):
         container.setVisible(show_advanced)
         container_layout = QVBoxLayout(container)
         container_layout.setContentsMargins(0, 0, 0, 0)
-        container_layout.setSpacing(6)
+        container_layout.setSpacing(4)
 
-        title = QLabel("Advanced", container)
+        title = QLabel("ADVANCED", container)
+        title.setProperty("settingsRole", "sectionTitle")
         container_layout.addWidget(title)
 
         if preferred_columns <= 1:
@@ -305,9 +321,11 @@ class SettingsPageForm(QWidget):
         """Render classifier outputs as one compact worksheet instead of scattered rows."""
 
         title = QLabel(section.title, self._content)
+        title.setProperty("settingsRole", "sectionTitle")
         self._content_layout.addWidget(title)
         if section.description:
             description = QLabel(section.description, self._content)
+            description.setProperty("settingsRole", "sectionDescription")
             description.setWordWrap(True)
             self._content_layout.addWidget(description)
 
@@ -334,12 +352,13 @@ class SettingsPageForm(QWidget):
         grid.setProperty("worksheet", "classifier_models")
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setHorizontalSpacing(8)
-        grid.setVerticalSpacing(4)
+        grid.setVerticalSpacing(2)
 
         headers = ("Output", "Compatible Model", "Confidence", "Dedup")
         for column, header in enumerate(headers):
             label = QLabel(header, self._content)
             label.setProperty("role", "worksheet_header")
+            label.setProperty("settingsRole", "worksheetHeader")
             grid.addWidget(label, 0, column)
         grid.setColumnStretch(0, 0)
         grid.setColumnStretch(1, 3)
@@ -400,8 +419,8 @@ class SettingsPageForm(QWidget):
         form.setContentsMargins(0, 0, 0, 0)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        form.setHorizontalSpacing(6)
-        form.setVerticalSpacing(4)
+        form.setHorizontalSpacing(4)
+        form.setVerticalSpacing(2)
         for field in fields:
             self._add_form_field_row(form, field)
         return form
@@ -418,17 +437,19 @@ class SettingsPageForm(QWidget):
         grid.setProperty("preferred_columns", preferred_columns)
         grid.setProperty("section_key", section_key)
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(6)
-        grid.setVerticalSpacing(4)
+        grid.setHorizontalSpacing(4)
+        grid.setVerticalSpacing(2)
         for column_index in range(preferred_columns):
             label_column = column_index * 2
             field_column = label_column + 1
             grid.setColumnStretch(label_column, 0)
-            grid.setColumnStretch(field_column, 1)
+            grid.setColumnStretch(field_column, 0)
         for index, field in enumerate(fields):
             row = index // preferred_columns
             column_group = index % preferred_columns
             self._add_grid_field_row(grid, row, column_group, field)
+        trailing_spacer_column = preferred_columns * 2
+        grid.setColumnStretch(trailing_spacer_column, 1)
         return grid
 
     @staticmethod
@@ -467,6 +488,15 @@ class SettingsPageForm(QWidget):
             index = combo.findData(field.value)
             if index >= 0:
                 combo.setCurrentIndex(index)
+            combo.setMinimumContentsLength(self._minimum_dropdown_contents_length(field))
+            combo.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+            )
+            self._set_compact_width(
+                combo,
+                self._dropdown_width_hint(combo, field),
+                allow_growth=False,
+            )
             combo.currentIndexChanged.connect(
                 lambda _index, key=field.key, widget=combo: self._emit_field_value_changed(
                     key, widget
@@ -477,6 +507,7 @@ class SettingsPageForm(QWidget):
         if field.widget is SettingsFieldWidget.TOGGLE:
             checkbox = QCheckBox(self._content)
             checkbox.setChecked(bool(field.value))
+            checkbox.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
             checkbox.toggled.connect(
                 lambda _checked, key=field.key, widget=checkbox: self._emit_field_value_changed(
                     key, widget
@@ -486,6 +517,7 @@ class SettingsPageForm(QWidget):
 
         if field.widget is SettingsFieldWidget.CHECKBOX_GROUP:
             group = _CheckboxGroupWidget(field, self._content)
+            group.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
             group.connect_changed(
                 lambda _checked, key=field.key, widget=group: self._emit_field_value_changed(
                     key, widget
@@ -502,7 +534,11 @@ class SettingsPageForm(QWidget):
                 spin.setValue(int(field.value))
                 if field.units:
                     spin.setSuffix(f" {field.units}")
-                spin.setMinimumWidth(118)
+                self._set_compact_width(
+                    spin,
+                    self._number_width_hint(spin, field),
+                    allow_growth=False,
+                )
                 spin.setKeyboardTracking(False)
                 spin.valueChanged.connect(
                     lambda _value, key=field.key, widget=spin: self._emit_field_value_changed(
@@ -521,7 +557,11 @@ class SettingsPageForm(QWidget):
             spin.setValue(float(field.value if field.value is not None else 0.0))
             if field.units:
                 spin.setSuffix(f" {field.units}")
-            spin.setMinimumWidth(118)
+            self._set_compact_width(
+                spin,
+                self._number_width_hint(spin, field),
+                allow_growth=False,
+            )
             spin.setKeyboardTracking(False)
             spin.valueChanged.connect(
                 lambda _value, key=field.key, widget=spin: self._emit_field_value_changed(
@@ -532,7 +572,11 @@ class SettingsPageForm(QWidget):
 
         line_edit = QLineEdit(self._content)
         line_edit.setText("" if field.value is None else str(field.value))
-        line_edit.setMinimumWidth(180)
+        self._set_compact_width(
+            line_edit,
+            self._text_width_hint(line_edit, field),
+            allow_growth=False,
+        )
         if field.placeholder:
             line_edit.setPlaceholderText(field.placeholder)
         line_edit.textChanged.connect(
@@ -547,6 +591,12 @@ class SettingsPageForm(QWidget):
         widget.setEnabled(field.enabled)
         tooltip = self._field_tooltip_text(field)
         label = QLabel(field.label, self._content)
+        label.setProperty("settingsRole", "fieldLabel")
+        label.setMinimumWidth(76)
+        if isinstance(widget, QCheckBox):
+            widget.setText(field.label)
+            widget.setProperty("settingsRole", "fieldToggle")
+            label.setText("")
         if tooltip:
             widget.setToolTip(tooltip)
             widget.setStatusTip(tooltip)
@@ -562,6 +612,12 @@ class SettingsPageForm(QWidget):
         widget.setEnabled(field.enabled)
         tooltip = self._field_tooltip_text(field)
         label = QLabel(field.label, self._content)
+        label.setProperty("settingsRole", "fieldLabel")
+        label.setMinimumWidth(76)
+        if isinstance(widget, QCheckBox):
+            widget.setText(field.label)
+            widget.setProperty("settingsRole", "fieldToggle")
+            label.setText("")
         if tooltip:
             widget.setToolTip(tooltip)
             widget.setStatusTip(tooltip)
@@ -576,7 +632,109 @@ class SettingsPageForm(QWidget):
             label_column,
             alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
         )
-        grid.addWidget(widget, row, field_column)
+        grid.addWidget(
+            widget,
+            row,
+            field_column,
+            alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        )
+
+    @staticmethod
+    def _set_compact_width(
+        widget: QWidget,
+        width: int,
+        *,
+        allow_growth: bool,
+    ) -> None:
+        resolved_width = max(76, int(width))
+        widget.setMinimumWidth(resolved_width)
+        if allow_growth:
+            widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+            return
+        widget.setMaximumWidth(resolved_width)
+        widget.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+    @staticmethod
+    def _minimum_dropdown_contents_length(field: SettingsField) -> int:
+        longest_label = max(
+            (len(str(option.label)) for option in field.options),
+            default=0,
+        )
+        if SettingsPageForm._should_compact_model_dropdown(field):
+            return max(10, min(16, longest_label))
+        return max(10, min(28, longest_label))
+
+    @staticmethod
+    def _dropdown_width_hint(widget: QComboBox, field: SettingsField) -> int:
+        text_candidates = [str(option.label) for option in field.options]
+        if widget.currentText():
+            text_candidates.append(widget.currentText())
+        widest_text = max(text_candidates, key=len, default="")
+        maximum = 240 if SettingsPageForm._should_compact_model_dropdown(field) else 420
+        return SettingsPageForm._bounded_text_width(
+            widget,
+            widest_text,
+            padding=52,
+            minimum=136,
+            maximum=maximum,
+        )
+
+    @staticmethod
+    def _should_compact_model_dropdown(field: SettingsField) -> bool:
+        return field.key == "classify_model_path"
+
+    @staticmethod
+    def _number_width_hint(widget: QWidget, field: SettingsField) -> int:
+        candidates = [field.value, field.default_value, field.min_value, field.max_value]
+        longest = max(
+            (SettingsPageForm._format_numeric_candidate(candidate) for candidate in candidates),
+            key=len,
+            default="0",
+        )
+        suffix = f" {field.units.strip()}" if field.units.strip() else ""
+        return SettingsPageForm._bounded_text_width(
+            widget,
+            f"{longest}{suffix}",
+            padding=36,
+            minimum=96,
+            maximum=168,
+        )
+
+    @staticmethod
+    def _text_width_hint(widget: QLineEdit, field: SettingsField) -> int:
+        candidates = [
+            str(field.value or ""),
+            str(field.default_value or ""),
+            str(field.placeholder or ""),
+        ]
+        widest_text = max(candidates, key=len, default="")
+        return SettingsPageForm._bounded_text_width(
+            widget,
+            widest_text,
+            padding=32,
+            minimum=148,
+            maximum=280,
+        )
+
+    @staticmethod
+    def _bounded_text_width(
+        widget: QWidget,
+        text: str,
+        *,
+        padding: int,
+        minimum: int,
+        maximum: int,
+    ) -> int:
+        horizontal_advance = widget.fontMetrics().horizontalAdvance(text or "00000000")
+        return max(minimum, min(maximum, horizontal_advance + padding))
+
+    @staticmethod
+    def _format_numeric_candidate(value: object) -> str:
+        if value is None:
+            return "0"
+        if isinstance(value, float):
+            return format(value, "g")
+        return str(value)
 
     @staticmethod
     def _field_tooltip_text(field: SettingsField) -> str:

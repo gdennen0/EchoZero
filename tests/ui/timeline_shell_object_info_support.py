@@ -8,6 +8,7 @@ import wave
 from types import SimpleNamespace
 
 import numpy as np
+from PyQt6.QtWidgets import QComboBox
 
 from echozero.application.timeline.event_comparison_service import (
     TimbreFingerprintSettings,
@@ -124,8 +125,9 @@ def test_object_info_panel_keeps_only_transfer_workspace_entrypoint():
         app.processEvents()
 
 
-def test_object_info_panel_audio_surface_hides_routing_controls():
+def test_object_info_panel_audio_surface_exposes_inline_routing_controls():
     app = QApplication.instance() or QApplication([])
+    intents: list[object] = []
     base = _selection_test_presentation()
     audio_layer = replace(
         base.layers[0],
@@ -138,11 +140,37 @@ def test_object_info_panel_audio_surface_hides_routing_controls():
         layers=[audio_layer],
         selected_layer_id=LayerId("layer_kick"),
         selected_layer_ids=[LayerId("layer_kick")],
+        playback_output_channels=4,
     )
-    widget = TimelineWidget(presentation, on_intent=lambda intent: presentation)
+    widget = TimelineWidget(
+        presentation, on_intent=lambda intent: intents.append(intent) or presentation
+    )
     try:
         _render_for_hit_testing(widget)
-        assert not hasattr(widget._object_info, "_routing_settings_btn")
+        assert widget._object_info._route_to_master_checkbox.text() == "Send to master mix"
+        assert widget._object_info._route_to_master_checkbox.isChecked() is True
+        assert (
+            widget._object_info._routing_table.horizontalHeaderItem(0).text()
+            == "Additional outputs"
+        )
+        assert widget._object_info._routing_table.rowCount() == 0
+        assert widget._object_info._routing_add_btn.text() == "Add output"
+        assert widget._object_info._routing_remove_btn.text() == "Remove selected"
+        assert widget._object_info._routing_apply_btn.text() == "Save output routing"
+
+        widget._object_info._route_to_master_checkbox.setChecked(False)
+        widget._object_info._routing_apply_btn.click()
+        widget._object_info._routing_add_btn.click()
+        widget._object_info._route_to_master_checkbox.setChecked(False)
+        combo = widget._object_info._routing_table.cellWidget(0, 0)
+        assert isinstance(combo, QComboBox)
+        combo.setCurrentIndex(combo.findData("outputs_3_3"))
+        widget._object_info._routing_apply_btn.click()
+
+        assert intents == [
+            SetLayerOutputBus(layer_id=LayerId("layer_kick"), output_bus="none"),
+            SetLayerOutputBus(layer_id=LayerId("layer_kick"), output_bus="outputs_3_3"),
+        ]
         assert "layer.routing_settings" not in widget._object_info._action_buttons
     finally:
         widget.close()
@@ -177,9 +205,13 @@ def test_object_info_panel_audio_settings_panel_reflects_and_dispatches_layer_mi
     try:
         _render_for_hit_testing(widget)
 
-        assert widget._object_info._layer_controls_title.text().startswith("Layer: Kick")
-        assert widget._object_info._panel_mute_btn.text() == "Unmute"
-        assert widget._object_info._panel_solo_btn.text() == "Unsolo"
+        assert widget._object_info._layer_controls_title.text() == "Kick  // layer_kick"
+        assert widget._object_info._panel_mute_btn.text() == "M!"
+        assert widget._object_info._panel_solo_btn.text() == "S!"
+        assert widget._object_info._gain_down_btn.text() == "-6 dB"
+        assert widget._object_info._gain_unity_btn.text() == "0 dB"
+        assert widget._object_info._gain_up_btn.text() == "+6 dB"
+        assert widget._object_info._gain_apply_btn.text() == "Apply gain"
         assert widget._object_info._gain_spin.value() == -6.0
 
         widget._object_info._panel_mute_btn.click()
@@ -1290,8 +1322,12 @@ def test_find_similar_shapes_dialog_previews_anchor_and_candidate_shapes(tmp_pat
     seconds = 3.0
     t = np.linspace(0.0, seconds, int(sample_rate * seconds), endpoint=False, dtype=np.float32)
     samples = np.zeros_like(t)
-    samples[int(1.0 * sample_rate) : int(1.5 * sample_rate)] = np.hanning(int(0.5 * sample_rate)).astype(np.float32) * 0.8
-    samples[int(2.0 * sample_rate) : int(2.5 * sample_rate)] = np.hanning(int(0.5 * sample_rate)).astype(np.float32) * 0.6
+    samples[int(1.0 * sample_rate) : int(1.5 * sample_rate)] = (
+        np.hanning(int(0.5 * sample_rate)).astype(np.float32) * 0.8
+    )
+    samples[int(2.0 * sample_rate) : int(2.5 * sample_rate)] = (
+        np.hanning(int(0.5 * sample_rate)).astype(np.float32) * 0.6
+    )
     with wave.open(str(audio_path), "wb") as handle:
         handle.setnchannels(1)
         handle.setsampwidth(2)
@@ -1361,8 +1397,12 @@ def test_find_similar_dialog_timbre_mode_and_mini_model_affordance(tmp_path, mon
     samples = np.zeros_like(times)
     first = slice(int(1.0 * sample_rate), int(1.5 * sample_rate))
     second = slice(int(2.0 * sample_rate), int(2.5 * sample_rate))
-    samples[first] = np.sin(2.0 * np.pi * 130.0 * times[first]) * np.hanning(first.stop - first.start) * 0.8
-    samples[second] = np.sin(2.0 * np.pi * 2200.0 * times[second]) * np.hanning(second.stop - second.start) * 0.8
+    samples[first] = (
+        np.sin(2.0 * np.pi * 130.0 * times[first]) * np.hanning(first.stop - first.start) * 0.8
+    )
+    samples[second] = (
+        np.sin(2.0 * np.pi * 2200.0 * times[second]) * np.hanning(second.stop - second.start) * 0.8
+    )
     with wave.open(str(audio_path), "wb") as handle:
         handle.setnchannels(1)
         handle.setsampwidth(2)
@@ -1373,7 +1413,9 @@ def test_find_similar_dialog_timbre_mode_and_mini_model_affordance(tmp_path, mon
 
     def fake_train_timbre_mini_model(*, anchor_sample, positive_samples, **_kwargs):
         train_calls.append((anchor_sample, tuple(positive_samples)))
-        return SimpleNamespace(artifact_path=tmp_path / "saved-model.json", positive_sample_count=2)
+        return SimpleNamespace(
+            artifact_path=tmp_path / "saved-model.json", positive_sample_count=2
+        )
 
     monkeypatch.setattr(
         "echozero.ui.qt.timeline.find_similar_dialog.train_timbre_mini_model",
@@ -1425,8 +1467,12 @@ def test_find_similar_dialog_saved_mini_model_path_scores_and_payload(tmp_path, 
     samples = np.zeros_like(times)
     first = slice(int(1.0 * sample_rate), int(1.5 * sample_rate))
     second = slice(int(2.0 * sample_rate), int(2.5 * sample_rate))
-    samples[first] = np.sin(2.0 * np.pi * 130.0 * times[first]) * np.hanning(first.stop - first.start) * 0.8
-    samples[second] = np.sin(2.0 * np.pi * 130.0 * times[second]) * np.hanning(second.stop - second.start) * 0.8
+    samples[first] = (
+        np.sin(2.0 * np.pi * 130.0 * times[first]) * np.hanning(first.stop - first.start) * 0.8
+    )
+    samples[second] = (
+        np.sin(2.0 * np.pi * 130.0 * times[second]) * np.hanning(second.stop - second.start) * 0.8
+    )
     with wave.open(str(audio_path), "wb") as handle:
         handle.setnchannels(1)
         handle.setsampwidth(2)
@@ -1463,7 +1509,9 @@ def test_find_similar_dialog_saved_mini_model_path_scores_and_payload(tmp_path, 
     )
     monkeypatch.setattr(
         "echozero.ui.qt.timeline.find_similar_dialog.list_timbre_mini_models",
-        lambda: (SimpleNamespace(label="Saved Kick", positive_sample_count=1, artifact_path=model_path),),
+        lambda: (
+            SimpleNamespace(label="Saved Kick", positive_sample_count=1, artifact_path=model_path),
+        ),
     )
     base = _selection_test_presentation()
     layer = replace(

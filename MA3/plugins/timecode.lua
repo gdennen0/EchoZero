@@ -1485,7 +1485,7 @@ local function sendTransportMessage(change, payload)
     return true
 end
 
-local function emitTransportState(change, action, tcNo, isPlaying)
+local function emitTransportState(change, action, tcNo, isPlaying, extraFields)
     local tc, resolvedTcNo, tcErr = resolveTimecodeForTransport(tcNo)
     if not tc then
         sendTransportMessage("error", {
@@ -1496,14 +1496,20 @@ local function emitTransportState(change, action, tcNo, isPlaying)
     end
 
     local playhead = readTimecodeCursorSeconds(tc) or 0
-    local sent = sendTransportMessage(change, {
+    local payload = {
         action = action,
         state = action,
         is_playing = isPlaying,
         tc = resolvedTcNo,
         playhead = playhead,
         to_seconds = playhead
-    })
+    }
+    if type(extraFields) == "table" then
+        for key, value in pairs(extraFields) do
+            payload[key] = value
+        end
+    end
+    local sent = sendTransportMessage(change, payload)
     return sent
 end
 
@@ -1512,9 +1518,17 @@ function EZ.Play(tcNo)
     return emitTransportState("play", "play", tcNo, true)
 end
 
--- Send transport pause command to EchoZero sync lane.
+-- Send transport play/pause toggle command to EchoZero sync lane.
+function EZ.PlayPause(tcNo)
+    return emitTransportState("play_pause", "play_pause", tcNo, false, { toggle = true })
+end
+
+-- Send transport pause button command to EchoZero sync lane.
+-- MA3 pause controls are user-facing play/pause toggles, so mark this payload
+-- explicitly as a toggle. EchoZero still treats ordinary external pause payloads
+-- without this flag as idempotent pause commands.
 function EZ.Pause(tcNo)
-    return emitTransportState("pause", "pause", tcNo, false)
+    return emitTransportState("pause", "pause", tcNo, false, { toggle = true })
 end
 
 -- Send transport stop command to EchoZero sync lane.

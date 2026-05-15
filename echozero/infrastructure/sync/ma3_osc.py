@@ -3039,14 +3039,17 @@ def _coerce_transport_update_payload(message: MA3OSCMessage) -> dict[str, object
     )
     if is_playing is None:
         is_playing = _transport_state_to_bool(fields.get("state"))
+    action = _first_transport_action(message.change, fields)
 
-    if playhead_seconds is None and is_playing is None:
+    if playhead_seconds is None and is_playing is None and action is None:
         return None
 
     payload: dict[str, object] = {
         "change": str(message.change or ""),
         "fields": fields,
     }
+    if action is not None:
+        payload["action"] = action
     if playhead_seconds is not None:
         payload["playhead_seconds"] = playhead_seconds
     if is_playing is not None:
@@ -3068,6 +3071,27 @@ def _first_transport_bool(fields: dict[str, object], *, keys: tuple[str, ...]) -
             parsed = _coerce_bool(fields.get(key))
             if parsed is not None:
                 return parsed
+    return None
+
+
+def _first_transport_action(change: object, fields: dict[str, object]) -> str | None:
+    for value in (fields.get("action"), change, fields.get("state")):
+        text = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+        if text in {
+            "play",
+            "pause",
+            "stop",
+            "seek",
+            "scrubbed",
+            "toggle",
+            "play_pause",
+            "toggle_play_pause",
+            "jump_previous_section",
+            "jump_next_section",
+        }:
+            return text
+        if text in {"scrub", "scrubbing"}:
+            return "scrubbed"
     return None
 
 

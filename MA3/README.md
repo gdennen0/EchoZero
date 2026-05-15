@@ -65,7 +65,8 @@ EZ.PrepareTrackForEvents(tcNo, tgNo, trackNo)      -- Ensure TimeRange/CmdSubTra
 
 -- Transport / Playhead
 EZ.Play([tcNo])                                    -- Trigger EZ transport play state
-EZ.Pause([tcNo])                                   -- Trigger EZ transport pause state
+EZ.PlayPause([tcNo])                               -- Toggle EZ play/pause from current EZ state
+EZ.Pause([tcNo])                                   -- Trigger EZ play/pause toggle from MA3 pause button
 EZ.Stop([tcNo])                                    -- Trigger EZ transport stop state
 EZ.JumpToPreviousSection([tcNo[, tgNo, trackNo]])  -- Ask EZ to jump to previous EZ section cue
 EZ.JumpToNextSection([tcNo[, tgNo, trackNo]])      -- Ask EZ to jump to next EZ section cue

@@ -24,6 +24,11 @@ from echozero.application.playback.sync_projection import PlaybackSyncPayload
 from echozero.application.presentation.models import TimelinePresentation
 from echozero.application.shared.enums import FollowMode
 from echozero.application.timeline.ma3_push_intents import PollMA3PushOperation
+from echozero.application.timeline.external_transport import (
+    normalize_external_transport_intents,
+    resolve_external_transport_action,
+    resolve_external_transport_seek_seconds,
+)
 from echozero.application.timeline.intents import (
     CommitBoundaryCorrectedEventReview,
     CommitMissedEventsReview,
@@ -510,6 +515,7 @@ class TimelineWidgetRuntimeMixin:
             grid_mode=self._grid_mode,
         )
         self._ruler.set_editor_mode(self._edit_mode)
+        self._ruler.set_grid_mode(self._grid_mode)
 
     def _sync_pipeline_status_banner(self: _TimelineWidgetRuntimeHost) -> None:
         timer = getattr(self, "_pipeline_status_auto_dismiss_timer", None)
@@ -896,22 +902,16 @@ class TimelineWidgetRuntimeMixin:
         if callable(consume_transport_update):
             transport_update = consume_transport_update()
             transport_action = _resolve_transport_action(transport_update)
-            if transport_action == "play":
-                if not bool(self.presentation.is_playing):
-                    self._dispatch(Play())
-            elif transport_action == "pause":
-                # MA3 pause buttons behave like a transport play/pause toggle.
-                # When EchoZero is already paused, a second MA3 pause press should resume.
-                self._dispatch(Pause() if bool(self.presentation.is_playing) else Play())
-            elif transport_action == "stop":
-                self._dispatch(Stop())
-            elif transport_action == "jump_previous_section":
+            if transport_action == "jump_previous_section":
                 self._jump_to_adjacent_section(direction=-1)
             elif transport_action == "jump_next_section":
                 self._jump_to_adjacent_section(direction=1)
-            seek_seconds = _resolve_transport_seek_seconds(transport_update)
-            if seek_seconds is not None:
-                self._dispatch(Seek(position=float(seek_seconds)))
+            else:
+                for intent in normalize_external_transport_intents(
+                    transport_update,
+                    is_playing=bool(self.presentation.is_playing),
+                ):
+                    self._dispatch(intent)
 
         consume_pipeline_update = (
             cast(_RuntimeShellWithPipelineUpdate, runtime).consume_operation_presentation_update
@@ -1081,52 +1081,11 @@ def _preserve_paused_playhead_on_visual_regression(
 
 
 def _resolve_transport_seek_seconds(payload: dict[str, object] | None) -> float | None:
-    if not isinstance(payload, dict):
-        return None
-    for key in ("playhead_seconds", "to_seconds", "position", "playhead", "seconds"):
-        raw = payload.get(key)
-        try:
-            value = float(raw)
-        except (TypeError, ValueError):
-            continue
-        return max(0.0, value)
-    fields = payload.get("fields")
-    if isinstance(fields, dict):
-        for key in ("to_seconds", "position", "playhead", "seconds"):
-            raw = fields.get(key)
-            try:
-                value = float(raw)
-            except (TypeError, ValueError):
-                continue
-            return max(0.0, value)
-    return None
+    return resolve_external_transport_seek_seconds(payload)
 
 
 def _resolve_transport_action(payload: dict[str, object] | None) -> str | None:
-    if not isinstance(payload, dict):
-        return None
-    change = str(payload.get("change") or "").strip().lower()
-    if change in {"play", "pause", "stop", "jump_previous_section", "jump_next_section"}:
-        return change
-
-    action = str(payload.get("action") or "").strip().lower()
-    if action in {"play", "pause", "stop", "jump_previous_section", "jump_next_section"}:
-        return action
-
-    state = str(payload.get("state") or "").strip().lower()
-    if state in {"play", "pause", "stop", "jump_previous_section", "jump_next_section"}:
-        return state
-
-    fields = payload.get("fields")
-    if isinstance(fields, dict):
-        field_action = str(fields.get("action") or "").strip().lower()
-        if field_action in {"play", "pause", "stop", "jump_previous_section", "jump_next_section"}:
-            return field_action
-        field_state = str(fields.get("state") or "").strip().lower()
-        if field_state in {"play", "pause", "stop", "jump_previous_section", "jump_next_section"}:
-            return field_state
-
-    return None
+    return resolve_external_transport_action(payload)
 
 
 def _adjacent_section_start(

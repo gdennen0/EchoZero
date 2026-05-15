@@ -708,12 +708,12 @@ def test_widget_seek_churn_keeps_seek_anchor_through_stale_runtime_samples():
         app.processEvents()
 
 
-def test_widget_ma3_pause_transport_update_toggles_play_pause():
+def test_widget_ma3_pause_transport_update_is_idempotent_not_toggle():
     app = QApplication.instance() or QApplication([])
     presentation = replace(_audio_presentation(), is_playing=True)
     updates = [
-        {"change": "pause", "is_playing": False},
-        {"change": "pause", "is_playing": False},
+        {"change": "pause", "action": "pause", "is_playing": False},
+        {"change": "pause", "action": "pause", "is_playing": False},
     ]
     dispatched: list[object] = []
     state = {"presentation": presentation}
@@ -738,10 +738,46 @@ def test_widget_ma3_pause_transport_update_toggles_play_pause():
     widget._runtime_timer.stop()
     widget._resolve_runtime_shell = lambda: RuntimeShell()
     try:
-        widget.resize(1200, 320)
-        widget.show()
+        widget._on_runtime_tick()
+        widget._on_runtime_tick()
+
+        assert [type(intent) for intent in dispatched] == [Pause]
+        assert widget.presentation.is_playing is False
+    finally:
+        widget.close()
         app.processEvents()
 
+
+def test_widget_ma3_toggle_transport_update_toggles_play_pause():
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(_audio_presentation(), is_playing=True)
+    updates = [
+        {"change": "toggle", "action": "toggle"},
+        {"change": "toggle", "action": "toggle"},
+    ]
+    dispatched: list[object] = []
+    state = {"presentation": presentation}
+
+    class RuntimeShell:
+        def consume_sync_transport_update(self):
+            return updates.pop(0) if updates else None
+
+    def _on_intent(intent):
+        dispatched.append(intent)
+        current = state["presentation"]
+        if isinstance(intent, Pause):
+            updated = replace(current, is_playing=False)
+        elif isinstance(intent, Play):
+            updated = replace(current, is_playing=True)
+        else:
+            updated = current
+        state["presentation"] = updated
+        return updated
+
+    widget = TimelineWidget(presentation, on_intent=_on_intent, runtime_audio=None)
+    widget._runtime_timer.stop()
+    widget._resolve_runtime_shell = lambda: RuntimeShell()
+    try:
         widget._on_runtime_tick()
         widget._on_runtime_tick()
 
@@ -803,10 +839,6 @@ def test_widget_ma3_section_jump_uses_ez_section_cues_not_ma3_selected_timecode(
     widget._runtime_timer.stop()
     widget._resolve_runtime_shell = lambda: RuntimeShell()
     try:
-        widget.resize(1200, 320)
-        widget.show()
-        app.processEvents()
-
         widget._on_runtime_tick()
         widget._on_runtime_tick()
 

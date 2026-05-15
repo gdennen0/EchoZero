@@ -1,13 +1,15 @@
 from dataclasses import replace
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFontMetrics, QImage, QPainter
+from PyQt6.QtCore import QRectF, Qt
+from PyQt6.QtGui import QColor, QFontMetrics, QImage, QPainter
 from PyQt6.QtWidgets import (
     QApplication,
+    QComboBox,
     QDialogButtonBox,
     QDoubleSpinBox,
     QGridLayout,
     QLabel,
+    QSizePolicy,
     QSpinBox,
     QWidget,
 )
@@ -44,7 +46,7 @@ from echozero.ui.qt.settings_dialog import ActionSettingsDialog
 from echozero.ui.qt.settings_form import ActionSettingsForm
 from echozero.ui.qt.timeline.blocks.event_lane import EventLaneBlock
 from echozero.ui.qt.timeline.blocks.layer_header import LayerHeaderBlock
-from echozero.ui.qt.timeline.blocks.ruler import RulerBlock, visible_ruler_marks
+from echozero.ui.qt.timeline.blocks.ruler import RulerBlock, RulerLayout, visible_ruler_marks
 from echozero.ui.qt.timeline.blocks.take_row import TakeRowBlock
 from echozero.ui.qt.timeline.blocks.transport_bar import TransportLayout
 from echozero.ui.qt.timeline.blocks.transport_bar_block import TransportBarBlock
@@ -70,6 +72,28 @@ def test_object_palette_stylesheet_uses_shared_tokens():
     assert TIMELINE_STYLE.object_palette.border_hex in stylesheet
     assert TIMELINE_STYLE.object_palette.title_object_name in stylesheet
     assert TIMELINE_STYLE.object_palette.body_object_name in stylesheet
+
+
+def test_ruler_paints_bottom_divider_through_header_gap_and_split_seam():
+    app = QApplication.instance() or QApplication([])
+    image = QImage(220, 28, QImage.Format.Format_ARGB32)
+    image.fill(QColor("#00000000"))
+    painter = QPainter(image)
+    try:
+        RulerBlock().paint(
+            painter,
+            RulerLayout(QRectF(0, 0, 220, 28), 72.0),
+            build_demo_app().presentation(),
+        )
+    finally:
+        painter.end()
+
+    divider = QColor(TIMELINE_STYLE.ruler.divider_hex)
+    split = QColor(TIMELINE_STYLE.ruler.split_divider_hex)
+
+    assert image.pixelColor(8, image.height() - 1) == divider
+    assert image.pixelColor(71, 10) == split
+    app.processEvents()
 
 
 def test_object_info_panel_layout_comes_from_style_module():
@@ -1030,6 +1054,72 @@ def test_pipeline_settings_browser_dialog_honors_initial_action_selection():
         app.processEvents()
 
 
+def test_pipeline_settings_browser_dialog_stage_container_stretches():
+    app = QApplication.instance() or QApplication([])
+    target_field = ObjectActionSettingField(
+        key="target_drum_labels",
+        label="Drum Outputs",
+        value=("kick", "snare"),
+        default_value=("kick", "snare"),
+        widget="checkbox_group",
+        options=(
+            ObjectActionSettingOption(value="kick", label="Kick"),
+            ObjectActionSettingOption(value="snare", label="Snare"),
+        ),
+    )
+    session = ObjectActionSettingsSession(
+        session_id="pipeline_extract_drums_stretch",
+        action_id="timeline.extract_song_drum_events",
+        object_id="source_audio",
+        object_type="layer",
+        scope="version",
+        plan=ObjectActionSettingsPlan(
+            action_id="timeline.extract_song_drum_events",
+            title="Extract Drum Events",
+            object_id="source_audio",
+            object_type="layer",
+            pipeline_template_id="extract_song_drum_events",
+            editable_fields=(target_field,),
+            summary="Source Audio · This Version",
+        ),
+        scope_states=(
+            ObjectActionSettingsScopeState(
+                scope="version",
+                label="This Version",
+                field_values=(
+                    ObjectActionSessionFieldValue(
+                        key="target_drum_labels",
+                        persisted_value=("kick", "snare"),
+                        draft_value=("kick", "snare"),
+                    ),
+                ),
+                can_run=True,
+            ),
+        ),
+        can_save=True,
+        can_save_and_run=True,
+    )
+
+    dialog = PipelineSettingsBrowserDialog(
+        (session,),
+        dispatch_command=lambda _session_id, _command: session,
+    )
+    try:
+        right_layout = dialog._right.layout()
+        stage_index = right_layout.indexOf(dialog._stage_group)
+
+        assert stage_index >= 0
+        assert right_layout.stretch(stage_index) == 1
+        assert (
+            dialog._stage_group.sizePolicy().verticalPolicy()
+            == QSizePolicy.Policy.Expanding
+        )
+        assert dialog._form.sizePolicy().verticalPolicy() == QSizePolicy.Policy.Expanding
+    finally:
+        dialog.close()
+        app.processEvents()
+
+
 def test_pipeline_settings_browser_dialog_song_parts_shows_preview_panel():
     app = QApplication.instance() or QApplication([])
     field_values = (
@@ -1174,14 +1264,14 @@ def test_timeline_editor_mode_bar_groups_tools_and_syncs_state():
         assert bar._mode_buttons["draw"].isHidden() is False
         assert bar._mode_buttons["erase"].isHidden() is True
         assert bar._mode_buttons["fix"].isHidden() is False
-        assert bar._mode_buttons["move"].text() == "↔ Move"
-        assert bar._mode_buttons["draw"].text() == "+ Add"
-        assert bar._mode_buttons["erase"].text() == "- Erase"
-        assert bar._mode_buttons["fix"].text() == "🩹 Fix"
+        assert bar._mode_buttons["move"].text() == "MOV"
+        assert bar._mode_buttons["draw"].text() == "+EV"
+        assert bar._mode_buttons["erase"].text() == "DEL"
+        assert bar._mode_buttons["fix"].text() == "FIX"
         assert bar._fix_action_buttons["select"].objectName() == "timelineEditorFixSelectButton"
         assert bar._mode_buttons["draw"].isChecked()
         assert bar._snap_button.isChecked()
-        assert bar._grid_button.text() == "▦ Grid: Beats"
+        assert bar._grid_button.text() == "GRD:B"
 
         bar.set_state(
             edit_mode="erase",
@@ -1195,6 +1285,24 @@ def test_timeline_editor_mode_bar_groups_tools_and_syncs_state():
         assert bar._mode_buttons["move"].isHidden() is True
     finally:
         bar.close()
+        app.processEvents()
+
+
+def test_timeline_widget_syncs_grid_mode_into_ruler_immediately():
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(replace(_song_switching_presentation(), bpm=120.0))
+    try:
+        assert widget._ruler._grid_mode.value == "auto"
+
+        widget._set_grid_mode("beat")
+
+        assert widget._ruler._grid_mode.value == "beat"
+
+        widget._set_grid_mode("off")
+
+        assert widget._ruler._grid_mode.value == "off"
+    finally:
+        widget.close()
         app.processEvents()
 
 
@@ -1243,14 +1351,14 @@ def test_timeline_editor_mode_bar_switches_to_compact_density_when_narrow():
         app.processEvents()
 
         assert bar.property("compact") is True
-        assert bar._mode_buttons["select"].text() == "↖"
-        assert bar._mode_buttons["move"].text() == "↔"
+        assert bar._mode_buttons["select"].text() == "S"
+        assert bar._mode_buttons["move"].text() == "M"
         assert bar._mode_buttons["move"].isHidden() is True
         assert bar._mode_buttons["erase"].isHidden() is True
-        assert bar._settings_button.text() == ""
+        assert bar._settings_button.text() == "CFG"
         assert bar._osc_settings_button.text() == "OSC"
-        assert bar._pipeline_settings_button.text() == "Pipe"
-        assert bar._grid_button.text() == "▦T"
+        assert bar._pipeline_settings_button.text() == "PIP"
+        assert bar._grid_button.text() == "GRD:T"
         assert bar._fix_action_buttons["select"].isVisible() is False
     finally:
         bar.close()
@@ -1872,6 +1980,49 @@ def test_action_settings_form_compacts_song_drum_events_primary_controls():
         assert {
             field.surface for field in sections_by_title["Advanced / Custom recovery"].fields
         } == {SettingsFieldSurface.ADVANCED}
+    finally:
+        form.close()
+        app.processEvents()
+
+
+def test_action_settings_form_classify_model_dropdown_stays_compact():
+    app = QApplication.instance() or QApplication([])
+    form = ActionSettingsForm()
+    try:
+        form.set_plan(
+            ObjectActionSettingsPlan(
+                action_id="timeline.classify_drum_events",
+                title="Classify Drum Events",
+                object_id="drums",
+                object_type="layer",
+                pipeline_template_id="drum_classification",
+                editable_fields=(
+                    ObjectActionSettingField(
+                        key="classify_model_path",
+                        label="Classification Model",
+                        value="/models/really-long-runtime-drum-classifier.manifest.json",
+                        default_value="",
+                        widget="dropdown",
+                        options=(
+                            ObjectActionSettingOption(value="", label="Choose a model…"),
+                            ObjectActionSettingOption(
+                                value="/models/really-long-runtime-drum-classifier.manifest.json",
+                                label=(
+                                    "Project Specialized Drum Classifier — "
+                                    "really-long-runtime-drum-classifier.manifest.json"
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        widget = form._inputs["classify_model_path"]
+
+        assert isinstance(widget, QComboBox)
+        assert widget.minimumContentsLength() <= 16
+        assert widget.maximumWidth() == 240
     finally:
         form.close()
         app.processEvents()

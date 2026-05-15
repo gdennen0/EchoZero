@@ -79,6 +79,22 @@ def test_ma3_osc_bridge_queues_transport_state_updates_without_playhead():
     assert update.get("is_playing") is True
 
 
+def test_ma3_osc_bridge_queues_action_only_transport_updates():
+    bridge = MA3OSCBridge()
+    message = parse_ma3_osc_payload(
+        "type=transport|change=jump_next_section|action=jump_next_section"
+    )
+
+    with bridge._condition:
+        bridge._ingest_message_locked(message)
+
+    update = bridge.consume_transport_update()
+
+    assert update is not None
+    assert update.get("change") == "jump_next_section"
+    assert update.get("action") == "jump_next_section"
+
+
 def test_simulated_ma3_bridge_fetches_tracks_and_events_via_osc_commands():
     bridge = SimulatedMA3Bridge()
 
