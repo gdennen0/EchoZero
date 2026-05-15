@@ -129,8 +129,7 @@ class EventShapeComparisonPreviewWidget(QWidget):
         painter.setPen(QColor("#bae6fd"))
         painter.drawText(progress_rect.adjusted(10, 4, -10, -4), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, "LIVE ITERATION")
         current_row = self._rows[-1] if len(self._rows) > 1 and scanned_count else None
-        current_verdict = "PASS" if current_row is not None and current_row.is_match else "FAIL"
-        current_color = QColor("#22c55e") if current_verdict == "PASS" else QColor("#ef4444")
+        current_color = QColor("#22c55e") if current_row is not None and current_row.is_match else QColor("#ef4444")
         painter.setPen(QColor("#e0f2fe"))
         painter.drawText(
             progress_rect.adjusted(10, 24, -10, -4),
@@ -138,14 +137,14 @@ class EventShapeComparisonPreviewWidget(QWidget):
             f"{scanned_count}/{total_count} scanned · {self._match_count} passes · {self._action_label}",
         )
         if current_row is not None:
-            badge = QRectF(progress_rect.left() + 10, progress_rect.top() + 48, 58, 22)
+            badge = QRectF(progress_rect.left() + 10, progress_rect.top() + 48, 22, 22)
             painter.fillRect(badge, current_color)
-            painter.setPen(QColor("#020617"))
-            painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, current_verdict)
+            painter.setPen(QPen(current_color, 2.0))
+            painter.drawRoundedRect(badge, 4.0, 4.0)
             painter.setPen(QColor("#dbeafe"))
             score = "--" if current_row.score is None else f"{current_row.score:.2f}"
             painter.drawText(
-                progress_rect.adjusted(78, 48, -10, -4),
+                progress_rect.adjusted(42, 48, -10, -4),
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
                 f"current: {current_row.label} · {score}",
             )
@@ -196,13 +195,12 @@ class EventShapeComparisonPreviewWidget(QWidget):
             painter.setPen(QPen(verdict_color if is_current else QColor("#155e75"), 2.4 if is_current else 0.8))
             painter.drawRoundedRect(row_rect, 7.0, 7.0)
             score = "--" if row.score is None else f"{row.score:.2f}"
-            verdict = "PASS" if row.is_match else "FAIL"
-            badge_rect = QRectF(row_rect.left() + 8, row_rect.top() + 9, 48, row_rect.height() - 18)
+            badge_rect = QRectF(row_rect.left() + 10, row_rect.top() + 13, 14, 14)
             painter.fillRect(badge_rect, verdict_color)
-            painter.setPen(QColor("#020617"))
-            painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, verdict)
+            painter.setPen(QPen(verdict_color.lighter(135), 1.2))
+            painter.drawRoundedRect(badge_rect, 3.0, 3.0)
             painter.setPen(QColor("#bbf7d0") if row.is_match else QColor("#fecaca"))
-            painter.drawText(row_rect.adjusted(66, 0, -4, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, f"{row.label} · {score}")
+            painter.drawText(row_rect.adjusted(34, 0, -4, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, f"{row.label} · {score}")
             graph_rect = QRectF(graph_left, y + 8, graph_width, row_height - 24)
             graph_overlay = QColor(verdict_color)
             graph_overlay.setAlpha(26)
