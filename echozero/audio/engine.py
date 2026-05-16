@@ -147,6 +147,7 @@ class AudioEngine:
         "_last_status",
         "_last_output_tail",
         "_last_callback_was_playing",
+        "_last_callback_frames",
         "_pending_declick",
         "_pending_declick_reason",
         "_declick_ramp_samples",
@@ -236,6 +237,7 @@ class AudioEngine:
         else:
             self._last_output_tail = np.zeros(self._channels, dtype=np.float32)
         self._last_callback_was_playing = False
+        self._last_callback_frames = max(1, int(self._stream_blocksize or self._buffer_size))
         self._pending_declick = True
         self._pending_declick_reason = "engine-startup"
         self._declick_ramp_samples = _declick_ramp_samples(self._output_config.sample_rate)
@@ -882,7 +884,8 @@ class AudioEngine:
             self._clear_transport_release()
             return
         release = _create_audio_buffer(release_frames, self._channels)
-        self._mixer.read_mix_into(release, int(self._clock.position), release_frames)
+        release_position = int(self._clock.position) + max(0, int(self._last_callback_frames))
+        self._mixer.read_mix_into(release, release_position, release_frames)
         if not np.any(np.abs(release) > 1e-7):
             self._clear_transport_release()
             return
@@ -898,6 +901,7 @@ class AudioEngine:
             reason=str(reason or "transport-release"),
             release_frames=int(release_frames),
             clock_samples=int(self._clock.position),
+            release_start_samples=int(release_position),
             peak_abs=float(np.max(np.abs(release))) if release.size else 0.0,
         )
 
@@ -933,6 +937,7 @@ class AudioEngine:
                 f"callback_frames_exceeded_scratch:{frames}>{len(self._output_scratch)}"
             )
             return
+        self._last_callback_frames = max(1, int(frames))
         mixed = self._output_scratch[:frames]
         end_fade_position = -1
         end_fade_duration = 0

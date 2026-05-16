@@ -102,6 +102,30 @@ def test_pause_renders_program_release_tail_before_silence() -> None:
     engine.shutdown()
 
 
+def test_pause_release_starts_at_next_callback_program_window() -> None:
+    engine = AudioEngine(sample_rate=_SAMPLE_RATE, channels=1, stream_factory=fake_stream_factory)
+    samples = np.zeros(_SAMPLE_RATE, dtype=np.float32)
+    samples[_FRAMES : _FRAMES * 2] = 0.75
+    samples[_FRAMES * 2 : _FRAMES * 8] = -0.75
+    engine.replace_tracks([engine.create_track("bed", samples, _SAMPLE_RATE)])
+
+    engine.play()
+    playing = _callback(engine)
+    clock_after_playing_callback = int(engine.clock.position)
+    engine.pause()
+    release = _callback(engine)
+    after = _callback(engine, frames=1024)
+    release_event = next(
+        event
+        for event in engine.recent_runtime_events
+        if event.get("kind") == "transport-release" and event.get("reason") == "pause"
+    )
+
+    assert release_event["release_start_samples"] == clock_after_playing_callback + _FRAMES
+    assert _max_delta(playing, release, after) <= _DELTA_LIMIT
+    engine.shutdown()
+
+
 def test_callback_declicks_pause_state_even_if_request_races_callback() -> None:
     engine = AudioEngine(sample_rate=_SAMPLE_RATE, channels=1, stream_factory=fake_stream_factory)
     engine.replace_tracks([_constant_track(engine)])
