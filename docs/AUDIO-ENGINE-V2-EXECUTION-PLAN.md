@@ -70,21 +70,36 @@ Audit:
 Scope:
 
 - add `RtGraph` preparation from `PreparedGraph`
-- add callback-safe command queues
-- add atomic committed-generation reference
-- add offline render harness for deterministic block rendering
+- add bounded callback-style command batches for graph, transport, and track mix
+  edits
+- add immutable runtime state as the prototype committed-generation reference
+- add offline render harness for deterministic block rendering with
+  preallocated scratch memory
+- add a centralized `TransitionPolicy` for v2 gain/mute/transport ramps
 
 Gates:
 
 - offline block renders are deterministic
-- callback path performs no allocation or locking in steady state
+- prepared RT graph route targets are pre-resolved by bus index or hardware span
 - route and mix commands apply only at block/sample boundaries
-- seek and stop behavior is covered by click/discontinuity tests
+- stale command sequences are reported and ignored without moving state backward
+- track -> master -> hardware and track -> subgroup -> master -> hardware
+  routing render correctly offline
+- direct hardware, master plus hardware sends, and no-output silence render
+  correctly offline
+- mono/stereo source and hardware span adaptation is covered
+- mute, solo, and gain behavior matches the v2 mix model
+- transition ramps prevent full-scale discontinuities in offline mute and stop
+  probes
+- no live v1 runtime behavior changes
 
 Audit:
 
-- run performance guardrails for graph preparation and block rendering
-- inspect command queue overflow behavior and telemetry
+- keep Phase 3 imports inside the v2 application package and numpy test/render
+  lane
+- inspect bounded command batch behavior
+- defer no-allocation callback proof, atomic pointer swaps, telemetry, and
+  sounddevice integration to later live/shadow phases
 
 ## Phase 4: App Shadow Runtime
 

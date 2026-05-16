@@ -124,9 +124,34 @@ parameter changes should ramp where needed to avoid discontinuities.
 ## Compatibility Boundary
 
 Phase 1 exposes mapping hooks from the current `PlaybackTrackPlan` shape into a
-v2 `PreparedGraph`. These hooks are for tests and later migration only. They
-must not be threaded into the live v1 engine until a later phase proves parity
-through the app path.
+v2 `PreparedGraph`. Phase 2 adds a shadow parity harness from app/runtime
+playback projections into those graph summaries. Phase 3 adds a non-live
+`RtGraph` and offline renderer prototype. These hooks are for tests and later
+migration only. They must not be threaded into the live v1 engine until a later
+phase proves parity through the app path.
+
+## Phase 3 Prototype
+
+The Phase 3 RT graph prototype lives under
+`echozero/application/audio_engine_v2`:
+
+- `rt_graph.py` lowers immutable `PreparedGraph` values into index-addressed
+  `RtGraph` track and bus nodes with pre-resolved route targets.
+- `rt_commands.py` defines bounded `RtCommandBatch` values and immutable
+  `RtRuntimeState` reduction for graph commits, transport commands, and track
+  mix edits. Commands apply at render block boundaries and stale/replayed
+  sequences are reported without moving state backward.
+- `offline_render.py` provides deterministic numpy block rendering against
+  immutable `OfflineSourceBank` fixtures and preallocated `OfflineRenderMemory`.
+  It supports track, subgroup bus, master, direct hardware, and master plus
+  hardware sends across mono/stereo and explicit hardware channel spans.
+- `TransitionPolicy` centralizes the v2 declick ramp foundation. The offline
+  renderer uses it for block-boundary gain, mute, and transport stop
+  transitions.
+
+This is still non-live by design. Phase 3 does not import or replace
+sounddevice, the live v1 `AudioEngine`, UI playback controls, MA3 sync, or IPC.
+It proves render semantics in tests only.
 
 ## Non-Goals For Phase 1
 
@@ -136,6 +161,14 @@ through the app path.
 - adding a real-time callback implementation
 - changing MA3 sync behavior
 - changing Foundry behavior
+
+## Non-Goals For Phase 3
+
+- driving hardware audio
+- replacing or wrapping current v1 runtime playback
+- adding UI, MA3, or IPC integration
+- claiming callback no-allocation performance for Python/numpy internals
+- porting current v1 tail-correction behavior into v2
 
 ## Required Proof
 
