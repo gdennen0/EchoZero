@@ -81,7 +81,7 @@ def test_toggle_play_pause_uses_transport_declick_path() -> None:
     engine.shutdown()
 
 
-def test_pause_renders_program_release_tail_before_silence() -> None:
+def test_pause_renders_output_tail_release_before_silence() -> None:
     engine = AudioEngine(sample_rate=_SAMPLE_RATE, channels=1, stream_factory=fake_stream_factory)
     samples = np.sin(np.linspace(0.0, 80.0, _SAMPLE_RATE, dtype=np.float32))
     engine.replace_tracks([engine.create_track("bed", samples, _SAMPLE_RATE)])
@@ -102,11 +102,11 @@ def test_pause_renders_program_release_tail_before_silence() -> None:
     engine.shutdown()
 
 
-def test_pause_release_starts_at_next_callback_program_window() -> None:
+def test_pause_release_starts_at_clock_position_after_completed_callback() -> None:
     engine = AudioEngine(sample_rate=_SAMPLE_RATE, channels=1, stream_factory=fake_stream_factory)
     samples = np.zeros(_SAMPLE_RATE, dtype=np.float32)
-    samples[_FRAMES : _FRAMES * 2] = 0.75
-    samples[_FRAMES * 2 : _FRAMES * 8] = -0.75
+    samples[:_FRAMES] = np.linspace(0.25, 0.5, _FRAMES, dtype=np.float32)
+    samples[_FRAMES : _FRAMES * 8] = -0.75
     engine.replace_tracks([engine.create_track("bed", samples, _SAMPLE_RATE)])
 
     engine.play()
@@ -121,7 +121,8 @@ def test_pause_release_starts_at_next_callback_program_window() -> None:
         if event.get("kind") == "transport-release" and event.get("reason") == "pause"
     )
 
-    assert release_event["release_start_samples"] == clock_after_playing_callback + _FRAMES
+    assert release_event["release_start_samples"] == clock_after_playing_callback
+    assert release_event["release_source"] == "output-tail"
     assert _max_delta(playing, release, after) <= _DELTA_LIMIT
     engine.shutdown()
 

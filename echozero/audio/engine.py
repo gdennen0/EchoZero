@@ -147,7 +147,6 @@ class AudioEngine:
         "_last_status",
         "_last_output_tail",
         "_last_callback_was_playing",
-        "_last_callback_frames",
         "_pending_declick",
         "_pending_declick_reason",
         "_declick_ramp_samples",
@@ -170,6 +169,8 @@ class AudioEngine:
         "_overlay_release_volume",
         "_transport_release_buffer",
         "_transport_release_read_index",
+        "_transport_release_active_frames",
+        "_transport_release_pending_reason",
         "_runtime_event_sequence",
         "_recent_runtime_events",
         "_diagnostics_capture_active",
@@ -237,7 +238,6 @@ class AudioEngine:
         else:
             self._last_output_tail = np.zeros(self._channels, dtype=np.float32)
         self._last_callback_was_playing = False
-        self._last_callback_frames = max(1, int(self._stream_blocksize or self._buffer_size))
         self._pending_declick = True
         self._pending_declick_reason = "engine-startup"
         self._declick_ramp_samples = _declick_ramp_samples(self._output_config.sample_rate)
@@ -291,8 +291,13 @@ class AudioEngine:
         self._overlay_release_buffer: np.ndarray | None = None
         self._overlay_release_read_index = 0
         self._overlay_release_volume = np.float32(1.0)
-        self._transport_release_buffer: np.ndarray | None = None
+        self._transport_release_buffer = _create_audio_buffer(
+            transport_release_samples,
+            self._channels,
+        )
         self._transport_release_read_index = 0
+        self._transport_release_active_frames = 0
+        self._transport_release_pending_reason = ""
         self._runtime_event_sequence = 0
         self._recent_runtime_events = deque(maxlen=_RUNTIME_EVENT_LIMIT)
         self._diagnostics_capture_active = False
@@ -634,7 +639,7 @@ class AudioEngine:
         self._transport.play()
 
     def pause(self) -> None:
-        self._schedule_transport_release_tail("pause")
+        self._request_transport_release("pause")
         self._transport.pause()
         self._last_audible_monotonic_seconds = None
         self._request_declick("pause")
@@ -662,7 +667,7 @@ class AudioEngine:
     def toggle_play_pause(self) -> None:
         self._end_of_content = False
         if self._transport.is_playing:
-            self._schedule_transport_release_tail("toggle-pause")
+            self._request_transport_release("toggle-pause")
             self._transport.toggle_play_pause()
             self._last_audible_monotonic_seconds = None
             self._request_declick("toggle-pause")
@@ -874,8 +879,16 @@ class AudioEngine:
             overlay_frames=int(overlay.shape[0]),
         )
 
-    def _schedule_transport_release_tail(self, reason: str) -> None:
-        if not self._transport.is_playing or self._mixer.track_count <= 0:
+    def _schedule_transport_release_tail(
+        self,
+        reason: str,
+        *,
+        require_playing: bool = True,
+    ) -> None:
+        if not require_playing:
+            self._schedule_transport_release_from_output_tail(reason)
+            return
+        if (require_playing and not self._transport.is_playing) or self._mixer.track_count <= 0:
             self._clear_transport_release()
             return
         release_frames = int(self._transport_release_fade_out.shape[0])
@@ -883,8 +896,8 @@ class AudioEngine:
         if release_frames <= 1:
             self._clear_transport_release()
             return
-        release = _create_audio_buffer(release_frames, self._channels)
-        release_position = int(self._clock.position) + max(0, int(self._last_callback_frames))
+        release = self._transport_release_buffer[:release_frames]
+        release_position = int(self._clock.position)
         self._mixer.read_mix_into(release, release_position, release_frames)
         if not np.any(np.abs(release) > 1e-7):
             self._clear_transport_release()
@@ -894,8 +907,9 @@ class AudioEngine:
             release *= release_ramp
         else:
             release *= release_ramp[:, None]
-        self._transport_release_buffer = release
         self._transport_release_read_index = 0
+        self._transport_release_active_frames = int(release_frames)
+        self._transport_release_pending_reason = ""
         self._record_runtime_event(
             "transport-release",
             reason=str(reason or "transport-release"),
@@ -905,9 +919,45 @@ class AudioEngine:
             peak_abs=float(np.max(np.abs(release))) if release.size else 0.0,
         )
 
-    def _clear_transport_release(self) -> None:
-        self._transport_release_buffer = None
+    def _schedule_transport_release_from_output_tail(self, reason: str) -> None:
+        release_frames = int(self._transport_release_fade_out.shape[0])
+        release_frames = min(release_frames, int(self._pre_scratch.shape[0]))
+        if release_frames <= 1:
+            self._clear_transport_release()
+            return
+        tail = np.asarray(self._last_output_tail, dtype=np.float32)
+        if not np.any(np.abs(tail) > 1e-7):
+            self._clear_transport_release()
+            return
+        release = self._transport_release_buffer[:release_frames]
+        release_ramp = self._transport_release_fade_out[:release_frames]
+        if release.ndim == 1:
+            release[:] = np.float32(tail[0]) * release_ramp
+        else:
+            release[:] = tail[None, :] * release_ramp[:, None]
         self._transport_release_read_index = 0
+        self._transport_release_active_frames = int(release_frames)
+        self._transport_release_pending_reason = ""
+        self._record_runtime_event(
+            "transport-release",
+            reason=str(reason or "transport-release"),
+            release_source="output-tail",
+            release_frames=int(release_frames),
+            clock_samples=int(self._clock.position),
+            release_start_samples=int(self._clock.position),
+            peak_abs=float(np.max(np.abs(release))) if release.size else 0.0,
+        )
+
+    def _request_transport_release(self, reason: str) -> None:
+        if self._transport.is_playing and self._mixer.track_count > 0:
+            self._transport_release_pending_reason = str(reason or "transport-release")
+            return
+        self._clear_transport_release()
+
+    def _clear_transport_release(self) -> None:
+        self._transport_release_read_index = 0
+        self._transport_release_active_frames = 0
+        self._transport_release_pending_reason = ""
 
     def _open_stream(self) -> None:
         if self._active:
@@ -937,13 +987,17 @@ class AudioEngine:
                 f"callback_frames_exceeded_scratch:{frames}>{len(self._output_scratch)}"
             )
             return
-        self._last_callback_frames = max(1, int(frames))
         mixed = self._output_scratch[:frames]
         end_fade_position = -1
         end_fade_duration = 0
         callback_is_playing = bool(self._transport.is_playing)
         transport_state_changed = callback_is_playing != bool(self._last_callback_was_playing)
         if not callback_is_playing:
+            if self._transport_release_pending_reason:
+                self._schedule_transport_release_tail(
+                    self._transport_release_pending_reason,
+                    require_playing=False,
+                )
             mixed[:] = 0.0
         else:
             position = self._clock.advance(frames)
@@ -1121,13 +1175,14 @@ class AudioEngine:
 
     def _mix_transport_release_into(self, mixed: np.ndarray, frames: int) -> None:
         release = self._transport_release_buffer
-        if release is None:
+        active_frames = int(self._transport_release_active_frames)
+        if active_frames <= 0:
             return
         start = int(self._transport_release_read_index)
-        if start >= int(release.shape[0]):
+        if start >= active_frames:
             self._clear_transport_release()
             return
-        available = int(release.shape[0]) - start
+        available = active_frames - start
         chunk_frames = min(int(frames), available)
         if chunk_frames <= 0:
             self._clear_transport_release()
@@ -1144,7 +1199,7 @@ class AudioEngine:
                 mixed[:chunk_frames, : release_view.shape[1]] += release_view
         self._transport_release_read_index = start + chunk_frames
         self._last_ramp_reason = "transport-release"
-        if self._transport_release_read_index >= int(release.shape[0]):
+        if self._transport_release_read_index >= active_frames:
             self._clear_transport_release()
 
     def _apply_end_of_content_fade(
