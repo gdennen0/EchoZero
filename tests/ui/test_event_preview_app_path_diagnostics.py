@@ -56,6 +56,7 @@ def test_event_preview_diagnostics_real_project_from_env(tmp_path: Path) -> None
     assert result.clip_frame_count > 0
     assert result.rendered_blocks
     assert max(float(block["peak_abs"]) for block in result.rendered_blocks) >= 0.0
+    assert max(float(block["max_discontinuity"]) for block in result.rendered_blocks) <= 0.35
     assert {event.get("kind") for event in result.runtime_events} >= {
         "preview-start",
         "overlay-start",

@@ -30,6 +30,8 @@ from echozero.audio.transport import Transport
 
 DEFAULT_SCRATCH_FRAMES = 32768
 _DECLICK_DURATION_SECONDS = 0.004
+_OVERLAY_EDGE_FADE_SECONDS = 0.008
+_TRANSPORT_RELEASE_DURATION_SECONDS = 0.012
 _DECLICK_DELTA_THRESHOLD = 0.05
 _RUNTIME_EVENT_LIMIT = 32
 
@@ -150,6 +152,9 @@ class AudioEngine:
         "_declick_ramp_samples",
         "_declick_fade_in",
         "_declick_fade_out",
+        "_overlay_edge_fade_in",
+        "_overlay_edge_fade_out",
+        "_transport_release_fade_out",
         "_declick_correction_delta",
         "_declick_correction_total",
         "_declick_correction_remaining",
@@ -162,6 +167,8 @@ class AudioEngine:
         "_overlay_release_buffer",
         "_overlay_release_read_index",
         "_overlay_release_volume",
+        "_transport_release_buffer",
+        "_transport_release_read_index",
         "_runtime_event_sequence",
         "_recent_runtime_events",
         "_diagnostics_capture_active",
@@ -244,6 +251,32 @@ class AudioEngine:
             self._declick_ramp_samples,
             dtype=np.float32,
         )
+        overlay_edge_fade_samples = max(
+            self._declick_ramp_samples,
+            int(round(self._output_config.sample_rate * _OVERLAY_EDGE_FADE_SECONDS)),
+        )
+        self._overlay_edge_fade_in = np.linspace(
+            0.0,
+            1.0,
+            overlay_edge_fade_samples,
+            dtype=np.float32,
+        )
+        self._overlay_edge_fade_out = np.linspace(
+            1.0,
+            0.0,
+            overlay_edge_fade_samples,
+            dtype=np.float32,
+        )
+        transport_release_samples = max(
+            2,
+            int(round(self._output_config.sample_rate * _TRANSPORT_RELEASE_DURATION_SECONDS)),
+        )
+        self._transport_release_fade_out = np.linspace(
+            1.0,
+            0.0,
+            transport_release_samples,
+            dtype=np.float32,
+        )
         self._declick_correction_delta = np.zeros_like(self._last_output_tail)
         self._declick_correction_total = 0
         self._declick_correction_remaining = 0
@@ -256,6 +289,8 @@ class AudioEngine:
         self._overlay_release_buffer: np.ndarray | None = None
         self._overlay_release_read_index = 0
         self._overlay_release_volume = np.float32(1.0)
+        self._transport_release_buffer: np.ndarray | None = None
+        self._transport_release_read_index = 0
         self._runtime_event_sequence = 0
         self._recent_runtime_events = deque(maxlen=_RUNTIME_EVENT_LIMIT)
         self._diagnostics_capture_active = False
@@ -590,18 +625,21 @@ class AudioEngine:
 
     def play(self) -> None:
         self._end_of_content = False
+        self._clear_transport_release()
         if not self._active:
             self._open_stream()
         self._request_declick("play")
         self._transport.play()
 
     def pause(self) -> None:
+        self._schedule_transport_release_tail("pause")
         self._transport.pause()
         self._last_audible_monotonic_seconds = None
         self._request_declick("pause")
 
     def stop(self) -> None:
         self._end_of_content = False
+        self._schedule_transport_release_tail("stop")
         self._transport.stop()
         self._last_audible_time_seconds = 0.0
         self._last_audible_monotonic_seconds = None
@@ -610,6 +648,7 @@ class AudioEngine:
 
     def seek(self, position_samples: int) -> None:
         self._end_of_content = False
+        self._clear_transport_release()
         self._transport.seek(position_samples)
         self._last_audible_time_seconds = self._clock.position_seconds
         self._last_audible_monotonic_seconds = None
@@ -621,12 +660,14 @@ class AudioEngine:
     def toggle_play_pause(self) -> None:
         self._end_of_content = False
         if self._transport.is_playing:
+            self._schedule_transport_release_tail("toggle-pause")
             self._transport.toggle_play_pause()
             self._last_audible_monotonic_seconds = None
             self._request_declick("toggle-pause")
             return
         if not self._active:
             self._open_stream()
+        self._clear_transport_release()
         self._request_declick("toggle-play")
         self._transport.toggle_play_pause()
 
@@ -642,6 +683,7 @@ class AudioEngine:
         self._last_audible_monotonic_seconds = None
         self._request_declick("shutdown")
         self.stop_overlay()
+        self._clear_transport_release()
 
     def request_declick(self) -> None:
         """Force one output-boundary declick on next callback buffer."""
@@ -758,8 +800,8 @@ class AudioEngine:
                 prepared = np.asarray(prepared[:, : self._channels], dtype=np.float32)
         playback = _copy_with_edge_declick_fades(
             prepared,
-            self._declick_fade_in,
-            self._declick_fade_out,
+            self._overlay_edge_fade_in,
+            self._overlay_edge_fade_out,
         )
         self._schedule_overlay_release_tail()
         self._overlay_buffer = source
@@ -807,12 +849,12 @@ class AudioEngine:
         if overlay is None or start <= 0 or start >= int(overlay.shape[0]):
             return
         available = int(overlay.shape[0]) - start
-        release_frames = min(available, int(self._declick_ramp_samples))
+        release_frames = min(available, int(self._overlay_edge_fade_out.shape[0]))
         if release_frames <= 1:
             return
         release = np.array(overlay[start : start + release_frames], dtype=np.float32, copy=True)
-        if release_frames == int(self._declick_fade_out.shape[0]):
-            release_ramp = self._declick_fade_out[:release_frames]
+        if release_frames == int(self._overlay_edge_fade_out.shape[0]):
+            release_ramp = self._overlay_edge_fade_out[:release_frames]
         else:
             release_ramp = np.linspace(1.0, 0.0, release_frames, dtype=np.float32)
         if release.ndim == 1:
@@ -829,6 +871,39 @@ class AudioEngine:
             overlay_read_index=int(start),
             overlay_frames=int(overlay.shape[0]),
         )
+
+    def _schedule_transport_release_tail(self, reason: str) -> None:
+        if not self._transport.is_playing or self._mixer.track_count <= 0:
+            self._clear_transport_release()
+            return
+        release_frames = int(self._transport_release_fade_out.shape[0])
+        release_frames = min(release_frames, int(self._pre_scratch.shape[0]))
+        if release_frames <= 1:
+            self._clear_transport_release()
+            return
+        release = _create_audio_buffer(release_frames, self._channels)
+        self._mixer.read_mix_into(release, int(self._clock.position), release_frames)
+        if not np.any(np.abs(release) > 1e-7):
+            self._clear_transport_release()
+            return
+        release_ramp = self._transport_release_fade_out[:release_frames]
+        if release.ndim == 1:
+            release *= release_ramp
+        else:
+            release *= release_ramp[:, None]
+        self._transport_release_buffer = release
+        self._transport_release_read_index = 0
+        self._record_runtime_event(
+            "transport-release",
+            reason=str(reason or "transport-release"),
+            release_frames=int(release_frames),
+            clock_samples=int(self._clock.position),
+            peak_abs=float(np.max(np.abs(release))) if release.size else 0.0,
+        )
+
+    def _clear_transport_release(self) -> None:
+        self._transport_release_buffer = None
+        self._transport_release_read_index = 0
 
     def _open_stream(self) -> None:
         if self._active:
@@ -915,6 +990,7 @@ class AudioEngine:
                     end_fade_position = int(position)
                     end_fade_duration = int(duration)
 
+        self._mix_transport_release_into(mixed, frames)
         self._mix_overlay_release_into(mixed, frames)
         self._mix_overlay_into(mixed, frames)
 
@@ -1037,6 +1113,34 @@ class AudioEngine:
         self._last_ramp_reason = "overlay-release"
         if self._overlay_release_read_index >= int(release.shape[0]):
             self._clear_overlay_release()
+
+    def _mix_transport_release_into(self, mixed: np.ndarray, frames: int) -> None:
+        release = self._transport_release_buffer
+        if release is None:
+            return
+        start = int(self._transport_release_read_index)
+        if start >= int(release.shape[0]):
+            self._clear_transport_release()
+            return
+        available = int(release.shape[0]) - start
+        chunk_frames = min(int(frames), available)
+        if chunk_frames <= 0:
+            self._clear_transport_release()
+            return
+        release_view = release[start : start + chunk_frames]
+        if mixed.ndim == 1:
+            if release_view.ndim == 2:
+                release_view = release_view[:, 0]
+            mixed[:chunk_frames] += release_view
+        else:
+            if release_view.ndim == 1:
+                mixed[:chunk_frames, :] += release_view[:, None]
+            else:
+                mixed[:chunk_frames, : release_view.shape[1]] += release_view
+        self._transport_release_read_index = start + chunk_frames
+        self._last_ramp_reason = "transport-release"
+        if self._transport_release_read_index >= int(release.shape[0]):
+            self._clear_transport_release()
 
     def _apply_end_of_content_fade(
         self,

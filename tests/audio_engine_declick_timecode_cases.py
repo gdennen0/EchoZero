@@ -51,7 +51,13 @@ def test_transport_transitions_are_declick_safe_for_synthetic_step_waveform() ->
     assert _max_delta(pause_chunk) <= _DELTA_LIMIT
     assert _max_delta(resume_chunk) <= _DELTA_LIMIT
     assert _max_delta(stop_chunk) <= _DELTA_LIMIT
-    assert engine.last_ramp_reason in {"play", "pause", "stop", "overlay-stop"}
+    assert engine.last_ramp_reason in {
+        "play",
+        "pause",
+        "stop",
+        "overlay-stop",
+        "transport-release",
+    }
     engine.shutdown()
 
 
@@ -71,7 +77,28 @@ def test_toggle_play_pause_uses_transport_declick_path() -> None:
 
     assert _max_delta(play_a, play_b) <= _DELTA_LIMIT
     assert _max_delta(pause_a, pause_b) <= _DELTA_LIMIT
-    assert engine.last_ramp_reason == "toggle-pause"
+    assert engine.last_ramp_reason == "transport-release"
+    engine.shutdown()
+
+
+def test_pause_renders_program_release_tail_before_silence() -> None:
+    engine = AudioEngine(sample_rate=_SAMPLE_RATE, channels=1, stream_factory=fake_stream_factory)
+    samples = np.sin(np.linspace(0.0, 80.0, _SAMPLE_RATE, dtype=np.float32))
+    engine.replace_tracks([engine.create_track("bed", samples, _SAMPLE_RATE)])
+
+    engine.play()
+    playing = _callback(engine)
+    engine.pause()
+    release = _callback(engine)
+    after = _callback(engine, frames=1024)
+
+    assert float(np.max(np.abs(release))) > 0.001
+    assert float(np.max(np.abs(after[-128:]))) <= 1e-5
+    assert _max_delta(playing, release, after) <= _DELTA_LIMIT
+    assert any(
+        event.get("kind") == "transport-release" and event.get("reason") == "pause"
+        for event in engine.recent_runtime_events
+    )
     engine.shutdown()
 
 
