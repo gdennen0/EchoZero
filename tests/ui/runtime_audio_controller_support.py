@@ -262,12 +262,20 @@ def test_audio_engine_paused_mute_does_not_leak_previous_tail_on_play():
         assert float(np.max(np.abs(audible))) > 0.0
 
         engine.pause()
+        paused_tail = audible[-1:]
+        for _ in range(16):
+            if not engine.transport.is_playing:
+                break
+            draining = np.zeros((256, 1), dtype=np.float32)
+            engine._audio_callback(draining, 256, None, None)
+            paused_tail = draining[-1:]
+        assert engine.transport.is_playing is False
         engine.apply_track_mix_updates({"bed": (True, 1.0, None)})
         engine.play()
         resumed = np.zeros((256, 1), dtype=np.float32)
         engine._audio_callback(resumed, 256, None, None)
 
-        boundary = np.concatenate((audible[-1:], resumed), axis=0)
+        boundary = np.concatenate((paused_tail, resumed), axis=0)
         assert float(np.max(np.abs(np.diff(boundary, axis=0)))) <= 0.18
         assert float(np.max(np.abs(resumed[-32:]))) == pytest.approx(0.0)
     finally:

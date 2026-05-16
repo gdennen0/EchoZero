@@ -156,6 +156,10 @@ class AudioEngine:
         "_last_status",
         "_last_output_tail",
         "_last_callback_was_playing",
+        "_pending_pause_reason",
+        "_pending_pause_fade_index",
+        "_pending_pause_bridge_delta",
+        "_pending_pause_bridge_active",
         "_pending_declick",
         "_pending_declick_reason",
         "_declick_ramp_samples",
@@ -179,7 +183,6 @@ class AudioEngine:
         "_transport_release_buffer",
         "_transport_release_read_index",
         "_transport_release_active_frames",
-        "_transport_release_pending_reason",
         "_runtime_event_sequence",
         "_recent_runtime_events",
         "_diagnostics_capture_active",
@@ -247,6 +250,10 @@ class AudioEngine:
         else:
             self._last_output_tail = np.zeros(self._channels, dtype=np.float32)
         self._last_callback_was_playing = False
+        self._pending_pause_reason = ""
+        self._pending_pause_fade_index = 0
+        self._pending_pause_bridge_delta = np.zeros_like(self._last_output_tail)
+        self._pending_pause_bridge_active = False
         self._pending_declick = True
         self._pending_declick_reason = "engine-startup"
         self._declick_ramp_samples = _declick_ramp_samples(self._output_config.sample_rate)
@@ -301,7 +308,6 @@ class AudioEngine:
         )
         self._transport_release_read_index = 0
         self._transport_release_active_frames = 0
-        self._transport_release_pending_reason = ""
         self._runtime_event_sequence = 0
         self._recent_runtime_events = deque(maxlen=_RUNTIME_EVENT_LIMIT)
         self._diagnostics_capture_active = False
@@ -435,9 +441,14 @@ class AudioEngine:
         """Return current declick/gain ramp samples left for diagnostics."""
 
         pending_declick = self._declick_ramp_samples if self._pending_declick else 0
+        pending_pause = 0
+        if self._pending_pause_reason:
+            pending_pause = int(self._transport_release_fade_out.shape[0]) - int(
+                self._pending_pause_fade_index
+            )
         correction_remaining = int(self._declick_correction_remaining)
         mixer_remaining = int(getattr(self._mixer, "ramp_samples_remaining", 0))
-        return max(0, pending_declick, correction_remaining, mixer_remaining)
+        return max(0, pending_declick, pending_pause, correction_remaining, mixer_remaining)
 
     @property
     def last_discontinuity_reason(self) -> str | None:
@@ -636,6 +647,7 @@ class AudioEngine:
 
     def play(self) -> None:
         self._end_of_content = False
+        self._clear_pending_pause()
         self._clear_transport_release()
         if not self._active:
             self._open_stream()
@@ -643,13 +655,11 @@ class AudioEngine:
         self._transport.play()
 
     def pause(self) -> None:
-        self._request_transport_release("pause")
-        self._transport.pause()
-        self._last_audible_monotonic_seconds = None
-        self._request_declick("pause")
+        self._request_pending_pause("pause")
 
     def stop(self) -> None:
         self._end_of_content = False
+        self._clear_pending_pause()
         self._schedule_transport_release_tail("stop")
         self._transport.stop()
         self._last_audible_time_seconds = 0.0
@@ -659,6 +669,7 @@ class AudioEngine:
 
     def seek(self, position_samples: int) -> None:
         self._end_of_content = False
+        self._clear_pending_pause()
         self._clear_transport_release()
         self._transport.seek(position_samples)
         self._last_audible_time_seconds = self._clock.position_seconds
@@ -671,18 +682,23 @@ class AudioEngine:
     def toggle_play_pause(self) -> None:
         self._end_of_content = False
         if self._transport.is_playing:
-            self._request_transport_release("toggle-pause")
-            self._transport.toggle_play_pause()
-            self._last_audible_monotonic_seconds = None
-            self._request_declick("toggle-pause")
+            if self._pending_pause_reason:
+                self._clear_pending_pause()
+                self._last_discontinuity_reason = "toggle-play"
+                self._last_ramp_reason = "pending-pause-cancelled"
+                self._request_declick("toggle-play")
+                return
+            self._request_pending_pause("toggle-pause")
             return
         if not self._active:
             self._open_stream()
+        self._clear_pending_pause()
         self._clear_transport_release()
         self._request_declick("toggle-play")
         self._transport.toggle_play_pause()
 
     def shutdown(self) -> None:
+        self._clear_pending_pause()
         self._transport.stop()
         if self._stream is not None:
             self._stream.stop()
@@ -694,6 +710,7 @@ class AudioEngine:
         self._last_audible_monotonic_seconds = None
         self._request_declick("shutdown")
         self.stop_overlay()
+        self._clear_pending_pause()
         self._clear_transport_release()
 
     def request_declick(self) -> None:
@@ -886,13 +903,8 @@ class AudioEngine:
     def _schedule_transport_release_tail(
         self,
         reason: str,
-        *,
-        require_playing: bool = True,
     ) -> None:
-        if not require_playing:
-            self._schedule_transport_release_from_output_tail(reason)
-            return
-        if (require_playing and not self._transport.is_playing) or self._mixer.track_count <= 0:
+        if not self._transport.is_playing or self._mixer.track_count <= 0:
             self._clear_transport_release()
             return
         release_frames = int(self._transport_release_fade_out.shape[0])
@@ -913,7 +925,6 @@ class AudioEngine:
             release *= release_ramp[:, None]
         self._transport_release_read_index = 0
         self._transport_release_active_frames = int(release_frames)
-        self._transport_release_pending_reason = ""
         self._record_runtime_event(
             "transport-release",
             reason=str(reason or "transport-release"),
@@ -923,69 +934,132 @@ class AudioEngine:
             peak_abs=float(np.max(np.abs(release))) if release.size else 0.0,
         )
 
-    def _schedule_transport_release_from_output_tail(self, reason: str) -> None:
-        release_frames = int(self._transport_release_fade_out.shape[0])
-        release_frames = min(release_frames, int(self._pre_scratch.shape[0]))
-        if release_frames <= 1:
-            self._clear_transport_release()
+    def _request_pending_pause(self, reason: str) -> None:
+        if not self._transport.is_playing:
+            self._transport.pause()
+            self._clear_pending_pause()
             return
-        tail = np.asarray(self._last_output_tail, dtype=np.float32)
-        release = self._transport_release_buffer[:release_frames]
-        release_position = int(self._clock.position)
-        self._mixer.read_mix_into(release, release_position, release_frames)
-        release_source = "program-continuation"
-        if not np.any(np.abs(release) > 1e-7):
-            if not np.any(np.abs(tail) > 1e-7):
-                self._clear_transport_release()
-                return
-            release_source = "output-tail"
-            if release.ndim == 1:
-                release[:] = np.float32(tail[0])
-            else:
-                release[:] = tail[None, :]
-        elif np.any(np.abs(tail) > 1e-7):
-            bridge_frames = min(
-                int(self._declick_ramp_samples),
-                int(release_frames),
-                int(self._declick_fade_out.shape[0]),
+        if not self._active:
+            self._open_stream()
+        if not self._pending_pause_reason:
+            self._pending_pause_fade_index = 0
+        self._pending_pause_reason = str(reason or "pause")
+        self._pending_declick = False
+        self._pending_declick_reason = ""
+        self._clear_declick_correction()
+        self._last_discontinuity_reason = self._pending_pause_reason
+        self._last_ramp_reason = "pending-pause"
+        self._record_runtime_event(
+            "pending-pause-request",
+            reason=self._pending_pause_reason,
+            clock_samples=int(self._clock.position),
+            fade_frames=int(self._transport_release_fade_out.shape[0]),
+        )
+
+    def _clear_pending_pause(self) -> None:
+        self._pending_pause_reason = ""
+        self._pending_pause_fade_index = 0
+        self._pending_pause_bridge_delta[:] = 0.0
+        self._pending_pause_bridge_active = False
+
+    def _clear_declick_correction(self) -> None:
+        self._declick_correction_total = 0
+        self._declick_correction_remaining = 0
+        self._declick_correction_delta = np.zeros_like(self._last_output_tail)
+
+    def _apply_pending_pause_envelope(
+        self,
+        mixed: np.ndarray,
+        *,
+        frames: int,
+        position: int,
+    ) -> None:
+        if not self._pending_pause_reason or frames <= 0:
+            return
+        start = int(self._pending_pause_fade_index)
+        total = int(self._transport_release_fade_out.shape[0])
+        if start <= 0:
+            self._record_runtime_event(
+                "pending-pause-start",
+                reason=self._pending_pause_reason,
+                clock_samples=int(self._clock.position),
+                fade_start_samples=int(position),
+                fade_frames=int(total),
             )
-            if bridge_frames > 1:
-                bridge = self._declick_fade_out[:bridge_frames]
-                if release.ndim == 1:
-                    delta = np.float32(release[0]) - np.float32(tail[0])
-                    release[:bridge_frames] -= delta * bridge
-                else:
-                    delta = np.asarray(release[0], dtype=np.float32) - tail
-                    release[:bridge_frames] -= delta[None, :] * bridge[:, None]
-
-        release_ramp = self._transport_release_fade_out[:release_frames]
-        if release.ndim == 1:
-            release *= release_ramp
+            self._capture_pending_pause_bridge(mixed)
+        if start >= total:
+            self._finish_pending_pause(frames=0)
+            return
+        fade_frames = min(int(frames), total - start)
+        self._apply_pending_pause_bridge(mixed, start=start, frames=fade_frames)
+        ramp = self._transport_release_fade_out[start : start + fade_frames]
+        if mixed.ndim == 1:
+            mixed[:fade_frames] *= ramp
         else:
-            release *= release_ramp[:, None]
-        self._transport_release_read_index = 0
-        self._transport_release_active_frames = int(release_frames)
-        self._transport_release_pending_reason = ""
+            mixed[:fade_frames] *= ramp[:, None]
+        self._pending_pause_fade_index = start + fade_frames
+        self._last_ramp_reason = "pending-pause"
+        if fade_frames < int(frames):
+            mixed[fade_frames:frames] = 0.0
+            self._finish_pending_pause(frames=fade_frames)
+        elif self._pending_pause_fade_index >= total:
+            self._finish_pending_pause(frames=fade_frames)
+
+    def _finish_pending_pause(self, *, frames: int) -> None:
+        reason = self._pending_pause_reason or "pause"
+        total = int(self._transport_release_fade_out.shape[0])
+        self._transport.pause()
+        self._last_audible_monotonic_seconds = None
         self._record_runtime_event(
-            "transport-release",
-            reason=str(reason or "transport-release"),
-            release_source=release_source,
-            release_frames=int(release_frames),
+            "pending-pause-complete",
+            reason=reason,
             clock_samples=int(self._clock.position),
-            release_start_samples=int(release_position),
-            peak_abs=float(np.max(np.abs(release))) if release.size else 0.0,
+            fade_frames=int(total),
+            rendered_frames=int(frames),
+        )
+        self._clear_pending_pause()
+
+    def _capture_pending_pause_bridge(self, mixed: np.ndarray) -> None:
+        tail = np.asarray(self._last_output_tail, dtype=np.float32)
+        if mixed.ndim == 1:
+            delta_sample = np.float32(mixed[0]) - np.float32(tail[0])
+            if abs(float(delta_sample)) < _DECLICK_DELTA_THRESHOLD:
+                return
+            self._pending_pause_bridge_delta[0] = delta_sample
+            peak_delta = abs(float(delta_sample))
+        else:
+            delta = np.asarray(mixed[0], dtype=np.float32) - tail
+            if not bool(np.any(np.abs(delta) >= _DECLICK_DELTA_THRESHOLD)):
+                return
+            self._pending_pause_bridge_delta[:] = delta
+            peak_delta = float(np.max(np.abs(delta)))
+        self._pending_pause_bridge_active = True
+        self._last_ramp_reason = "pending-pause-bridge"
+        self._record_runtime_event(
+            "pending-pause-bridge",
+            reason=self._pending_pause_reason,
+            frames=int(self._transport_release_fade_out.shape[0]),
+            peak_delta=peak_delta,
         )
 
-    def _request_transport_release(self, reason: str) -> None:
-        if self._transport.is_playing and self._mixer.track_count > 0:
-            self._transport_release_pending_reason = str(reason or "transport-release")
+    def _apply_pending_pause_bridge(
+        self,
+        mixed: np.ndarray,
+        *,
+        start: int,
+        frames: int,
+    ) -> None:
+        if not self._pending_pause_bridge_active or frames <= 0:
             return
-        self._clear_transport_release()
+        bridge = self._transport_release_fade_out[start : start + frames]
+        if mixed.ndim == 1:
+            mixed[:frames] -= self._pending_pause_bridge_delta[0] * bridge
+            return
+        mixed[:frames] -= self._pending_pause_bridge_delta[None, :] * bridge[:, None]
 
     def _clear_transport_release(self) -> None:
         self._transport_release_read_index = 0
         self._transport_release_active_frames = 0
-        self._transport_release_pending_reason = ""
 
     def _open_stream(self) -> None:
         if self._active:
@@ -1018,17 +1092,16 @@ class AudioEngine:
         mixed = self._output_scratch[:frames]
         end_fade_position = -1
         end_fade_duration = 0
+        render_position = int(self._clock.position)
         callback_is_playing = bool(self._transport.is_playing)
         transport_state_changed = callback_is_playing != bool(self._last_callback_was_playing)
         if not callback_is_playing:
-            if self._transport_release_pending_reason:
-                self._schedule_transport_release_tail(
-                    self._transport_release_pending_reason,
-                    require_playing=False,
-                )
+            if self._pending_pause_reason:
+                self._clear_pending_pause()
             mixed[:] = 0.0
         else:
             position = self._clock.advance(frames)
+            render_position = int(position)
             self._update_callback_timing_snapshot(time_info)
             duration = self._mixer.duration_samples
             if duration > 0 and not self._clock.loop_enabled and position >= duration:
@@ -1080,6 +1153,11 @@ class AudioEngine:
         self._mix_transport_release_into(mixed, frames)
         self._mix_overlay_release_into(mixed, frames)
         self._mix_overlay_into(mixed, frames)
+        self._apply_pending_pause_envelope(
+            mixed,
+            frames=frames,
+            position=render_position,
+        )
 
         self._sanitize_output_samples(mixed, frames)
         boundary_declick_reason = self._pending_declick_reason
@@ -1100,7 +1178,7 @@ class AudioEngine:
                 duration=end_fade_duration,
             )
         self._pending_declick = False
-        self._last_callback_was_playing = callback_is_playing
+        self._last_callback_was_playing = bool(self._transport.is_playing)
         self._capture_output_callback_block(mixed, frames=frames)
         if self._channels == 1:
             outdata[:, 0] = mixed if mixed.ndim == 1 else mixed[:, 0]

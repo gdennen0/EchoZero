@@ -29,6 +29,16 @@ def _max_delta(*chunks: np.ndarray) -> float:
     return float(np.max(np.abs(np.diff(joined, axis=0))))
 
 
+def _drain_until_paused(engine: AudioEngine, *, max_blocks: int = 16) -> list[np.ndarray]:
+    chunks: list[np.ndarray] = []
+    for _ in range(max_blocks):
+        if not engine.transport.is_playing:
+            break
+        chunks.append(_callback(engine))
+    assert engine.transport.is_playing is False
+    return chunks
+
+
 def _constant_track(engine: AudioEngine, track_id: str = "bed", value: float = 1.0) -> AudioLayer:
     samples = np.full(_SAMPLE_RATE, value, dtype=np.float32)
     return engine.create_track(track_id, samples, _SAMPLE_RATE, output_bus="outputs_1_2")
@@ -77,11 +87,13 @@ def test_toggle_play_pause_uses_transport_declick_path() -> None:
 
     assert _max_delta(play_a, play_b) <= _DELTA_LIMIT
     assert _max_delta(pause_a, pause_b) <= _DELTA_LIMIT
-    assert engine.last_ramp_reason == "transport-release"
+    assert engine.transport.is_playing is True
+    _drain_until_paused(engine)
+    assert engine.last_ramp_reason == "pending-pause"
     engine.shutdown()
 
 
-def test_pause_renders_output_tail_release_before_silence() -> None:
+def test_pause_renders_callback_owned_program_fade_before_silence() -> None:
     engine = AudioEngine(sample_rate=_SAMPLE_RATE, channels=1, stream_factory=fake_stream_factory)
     samples = np.sin(np.linspace(0.0, 80.0, _SAMPLE_RATE, dtype=np.float32))
     engine.replace_tracks([engine.create_track("bed", samples, _SAMPLE_RATE)])
@@ -89,14 +101,15 @@ def test_pause_renders_output_tail_release_before_silence() -> None:
     engine.play()
     playing = _callback(engine)
     engine.pause()
-    release = _callback(engine)
+    assert engine.transport.is_playing is True
+    fade_chunks = _drain_until_paused(engine)
     after = _callback(engine, frames=1024)
 
-    assert float(np.max(np.abs(release))) > 0.001
+    assert float(np.max(np.abs(fade_chunks[0]))) > 0.001
     assert float(np.max(np.abs(after[-128:]))) <= 1e-5
-    assert _max_delta(playing, release, after) <= _DELTA_LIMIT
+    assert _max_delta(playing, *fade_chunks, after) <= _DELTA_LIMIT
     assert any(
-        event.get("kind") == "transport-release" and event.get("reason") == "pause"
+        event.get("kind") == "pending-pause-complete" and event.get("reason") == "pause"
         for event in engine.recent_runtime_events
     )
     engine.shutdown()
@@ -137,16 +150,36 @@ def test_pause_release_starts_at_clock_position_after_completed_callback() -> No
     clock_after_playing_callback = int(engine.clock.position)
     engine.pause()
     release = _callback(engine)
+    fade_chunks = [release, *_drain_until_paused(engine)]
     after = _callback(engine, frames=1024)
-    release_event = next(
+    fade_event = next(
         event
         for event in engine.recent_runtime_events
-        if event.get("kind") == "transport-release" and event.get("reason") == "pause"
+        if event.get("kind") == "pending-pause-start" and event.get("reason") == "pause"
     )
 
-    assert release_event["release_start_samples"] == clock_after_playing_callback
-    assert release_event["release_source"] == "program-continuation"
-    assert _max_delta(playing, release, after) <= _DELTA_LIMIT
+    assert fade_event["fade_start_samples"] == clock_after_playing_callback
+    assert _max_delta(playing, *fade_chunks, after) <= _DELTA_LIMIT
+    engine.shutdown()
+
+
+def test_play_cancels_pending_pause_without_boundary_jump() -> None:
+    engine = AudioEngine(sample_rate=_SAMPLE_RATE, channels=1, stream_factory=fake_stream_factory)
+    engine.replace_tracks([_constant_track(engine)])
+
+    engine.play()
+    playing = _callback(engine)
+    while engine.ramp_samples_remaining > 0:
+        playing = _callback(engine)
+
+    engine.pause()
+    fading = _callback(engine)
+    assert engine.transport.is_playing is True
+    engine.play()
+    resumed = _callback(engine)
+
+    assert engine.transport.is_playing is True
+    assert _max_delta(playing, fading, resumed) <= _DELTA_LIMIT
     engine.shutdown()
 
 
@@ -197,12 +230,13 @@ def test_paused_mute_declicks_from_last_audible_tail_to_silence() -> None:
             previous = _callback(engine)
 
         engine.pause()
+        fade_chunks = _drain_until_paused(engine)
         engine.apply_track_mix_updates({"bed": (True, 1.0, None)})
         engine.play()
         resumed = _callback(engine)
         settled = _callback(engine)
 
-        assert _max_delta(previous[-1:], resumed, settled) <= _DELTA_LIMIT
+        assert _max_delta(previous[-1:], *fade_chunks, resumed, settled) <= _DELTA_LIMIT
         assert float(np.max(np.abs(settled[-32:]))) <= 1e-5
     finally:
         engine.shutdown()
