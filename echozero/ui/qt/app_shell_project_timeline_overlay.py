@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from echozero.application.playback.timecode import format_clock_label
+from echozero.application.playback.timecode import format_transport_clock_label
 from echozero.application.presentation.models import (
     LayerPresentation,
     SongOptionPresentation,
@@ -133,7 +133,7 @@ def layer_badges(
 def format_time(seconds: float) -> str:
     """Format seconds for the timeline shell time labels."""
 
-    return format_clock_label(seconds)
+    return format_transport_clock_label(seconds)
 
 
 def available_song_options(

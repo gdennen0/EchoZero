@@ -11,6 +11,7 @@ from echozero.application.playback.timecode import (
     TimecodeDisplayPolicy,
     TimecodeMode,
     format_clock_label,
+    format_transport_clock_label,
 )
 
 
@@ -146,6 +147,12 @@ def test_clock_display_policy_uses_same_authority_for_label_generation() -> None
 def test_clock_label_formatter_clamps_negative_seconds() -> None:
     assert format_clock_label(-1.0) == "00:00.00"
     assert format_clock_label(61.25) == "01:01.25"
+
+
+def test_transport_clock_label_formatter_includes_hour_field() -> None:
+    assert format_transport_clock_label(-1.0) == "00:00:00.00"
+    assert format_transport_clock_label(106.0) == "00:01:46.00"
+    assert format_transport_clock_label(262.0) == "00:04:22.00"
 
 
 def test_display_policy_can_be_explicitly_set() -> None:

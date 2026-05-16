@@ -39,7 +39,7 @@ def test_widget_runtime_tick_tracks_provider_smoothly_without_seek_dispatch():
         assert first == 1.015
         assert second == 1.033
         assert 0.0 < second - first < 0.03
-        assert widget.presentation.current_time_label == "00:01.03"
+        assert widget.presentation.current_time_label == "00:00:01.03"
     finally:
         widget.close()
         app.processEvents()
@@ -75,7 +75,7 @@ def test_widget_runtime_tick_extrapolates_from_backend_timing_snapshot(monkeypat
 
         assert dispatched == []
         assert widget.presentation.playhead == pytest.approx(1.08)
-        assert widget.presentation.current_time_label == "00:01.08"
+        assert widget.presentation.current_time_label == "00:00:01.08"
     finally:
         widget.close()
         app.processEvents()
@@ -147,7 +147,7 @@ def test_widget_dispatch_preserves_runtime_playhead_on_audio_route_update():
 
         assert widget.presentation.playhead == 4.25
         assert widget.presentation.is_playing is True
-        assert widget.presentation.current_time_label == "00:04.25"
+        assert widget.presentation.current_time_label == "00:00:04.25"
     finally:
         widget.close()
         app.processEvents()
@@ -167,7 +167,7 @@ def test_widget_dispatch_uses_exact_runtime_clock_time_when_pausing():
                 presentation,
                 playhead=4.25,
                 is_playing=False,
-                current_time_label="00:04.25",
+                current_time_label="00:00:04.25",
             )
         return presentation
 
@@ -182,7 +182,7 @@ def test_widget_dispatch_uses_exact_runtime_clock_time_when_pausing():
 
         assert widget.presentation.playhead == 4.257
         assert widget.presentation.is_playing is False
-        assert widget.presentation.current_time_label == "00:04.26"
+        assert widget.presentation.current_time_label == "00:00:04.26"
     finally:
         widget.close()
         app.processEvents()
@@ -194,7 +194,7 @@ def test_widget_runtime_tick_preserves_paused_playhead_when_backend_visually_reg
         _audio_presentation(),
         is_playing=True,
         playhead=4.257,
-        current_time_label="00:04.26",
+        current_time_label="00:00:04.26",
     )
     runtime_audio = FakeRuntimeAudio()
     runtime_audio.playing = False
@@ -215,7 +215,7 @@ def test_widget_runtime_tick_preserves_paused_playhead_when_backend_visually_reg
 
         assert widget.presentation.playhead == pytest.approx(4.257)
         assert widget.presentation.is_playing is False
-        assert widget.presentation.current_time_label == "00:04.26"
+        assert widget.presentation.current_time_label == "00:00:04.26"
     finally:
         widget.close()
         app.processEvents()
@@ -675,7 +675,7 @@ def test_widget_runtime_ticks_do_not_snap_backward_during_audio_route_churn():
 
         assert samples == sorted(samples)
         assert widget.presentation.playhead == 4.083
-        assert widget.presentation.current_time_label == "00:04.08"
+        assert widget.presentation.current_time_label == "00:00:04.08"
     finally:
         widget.close()
         app.processEvents()
@@ -704,7 +704,7 @@ def test_widget_seek_churn_keeps_seek_anchor_through_stale_runtime_samples():
                 current,
                 is_playing=True,
                 playhead=float(intent.position),
-                current_time_label="00:00.75",
+                current_time_label="00:00:00.75",
             )
         elif isinstance(intent, SetLayerMute):
             updated = replace(
@@ -745,7 +745,7 @@ def test_widget_seek_churn_keeps_seek_anchor_through_stale_runtime_samples():
 
         widget._dispatch(Seek(0.75))
         assert widget.presentation.playhead == 0.75
-        assert widget.presentation.current_time_label == "00:00.75"
+        assert widget.presentation.current_time_label == "00:00:00.75"
 
         runtime_audio.current_time = 0.710
         widget._on_runtime_tick()
@@ -762,7 +762,40 @@ def test_widget_seek_churn_keeps_seek_anchor_through_stale_runtime_samples():
         runtime_audio.current_time = 0.810
         widget._on_runtime_tick()
         assert widget.presentation.playhead == 0.81
-        assert widget.presentation.current_time_label == "00:00.81"
+        assert widget.presentation.current_time_label == "00:00:00.81"
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_widget_seek_local_label_uses_transport_clock_shape_before_snapshot_refresh():
+    app = QApplication.instance() or QApplication([])
+    base_presentation = replace(
+        _audio_presentation(),
+        end=262.0,
+        end_time_label="00:04:22.00",
+    )
+    runtime_audio = FakeRuntimeAudio()
+
+    def _on_intent(intent):
+        if isinstance(intent, Seek):
+            runtime_audio.seek(intent.position)
+            return replace(
+                base_presentation,
+                is_playing=True,
+                playhead=float(intent.position),
+                current_time_label="01:46.00",
+            )
+        return base_presentation
+
+    widget = TimelineWidget(base_presentation, on_intent=_on_intent, runtime_audio=runtime_audio)
+    widget._runtime_timer.stop()
+    try:
+        widget._dispatch(Seek(106.0))
+
+        assert widget.presentation.playhead == 106.0
+        assert widget.presentation.current_time_label == "00:01:46.00"
+        assert widget.presentation.end_time_label == "00:04:22.00"
     finally:
         widget.close()
         app.processEvents()

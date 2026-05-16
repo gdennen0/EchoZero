@@ -14,7 +14,7 @@ from typing import Protocol, cast
 from PyQt6.QtGui import QResizeEvent
 from PyQt6.QtWidgets import QFrame, QLabel, QScrollArea, QScrollBar, QWidget
 
-from echozero.application.playback.timecode import format_clock_label
+from echozero.application.playback.timecode import format_transport_clock_label
 from echozero.application.playback.sync_delta import (
     PlaybackChangeKind,
     PlaybackSyncDelta,
@@ -1071,7 +1071,7 @@ class TimelineWidgetRuntimeMixin:
 
 
 def _format_time_label(seconds: float) -> str:
-    return format_clock_label(seconds)
+    return format_transport_clock_label(seconds)
 
 
 def _preserve_paused_playhead_on_visual_regression(

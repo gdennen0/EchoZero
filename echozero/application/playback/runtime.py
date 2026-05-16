@@ -196,6 +196,18 @@ class PlaybackController:
         started = time.perf_counter()
         self._engine.seek_seconds(position_seconds)
         self._rt_last_seek_apply_latency_ms = max(0.0, (time.perf_counter() - started) * 1000.0)
+        self._record_runtime_event(
+            "seek",
+            position_seconds=max(0.0, float(position_seconds)),
+            output_sample_rate=int(self._engine.sample_rate),
+            output_channels=int(self._engine.output_channels),
+            stream_blocksize=int(self._engine.stream_blocksize),
+            stream_latency=self._engine.stream_latency,
+            glitch_count=int(self._engine.glitch_count),
+            last_discontinuity_reason=self._engine.last_discontinuity_reason,
+            last_ramp_reason=self._engine.last_ramp_reason,
+            rt_last_seek_apply_latency_ms=float(self._rt_last_seek_apply_latency_ms),
+        )
 
     def current_time_seconds(self) -> float:
         self.drain_pending_structure_sync()
@@ -345,6 +357,19 @@ class PlaybackController:
                 duration_seconds=max(0.0, float(end_seconds) - float(start_seconds)),
                 frames=int(preview_buffer.shape[0]),
                 sample_rate=int(sample_rate),
+                output_sample_rate=int(self._engine.sample_rate),
+                output_channels=int(self._engine.output_channels),
+                source_channels=self._buffer_channel_count(preview_buffer),
+                resampled=bool(int(sample_rate) != int(self._engine.sample_rate)),
+                resample_source_rate=int(sample_rate),
+                resample_target_rate=int(self._engine.sample_rate),
+                stream_blocksize=int(self._engine.stream_blocksize),
+                stream_latency=self._engine.stream_latency,
+                output_device=self._format_output_device(self._engine.output_device),
+                resolved_output_device=self._format_output_device(
+                    self._engine.resolved_output_device
+                ),
+                output_bus=self._preview_output_bus_for_source(source_path),
             )
         return bool(played)
 
@@ -652,6 +677,30 @@ class PlaybackController:
             events = [dict(event) for event in self._recent_runtime_events]
         events.sort(key=lambda event: float(event.get("monotonic_seconds", 0.0) or 0.0))
         return tuple(events[-_RUNTIME_EVENT_LIMIT:])
+
+    @staticmethod
+    def _buffer_channel_count(buffer: np.ndarray) -> int:
+        if buffer.ndim <= 1:
+            return 1
+        return int(buffer.shape[1])
+
+    def _preview_output_bus_for_source(self, source_ref: str) -> str:
+        presentation = self._latest_presentation
+        if presentation is None:
+            return str(self._engine.master_output_bus or "")
+        for layer in presentation.layers:
+            candidates = [
+                layer.playback_source_ref,
+                layer.source_audio_path,
+            ]
+            candidates.extend(
+                take.playback_source_ref or take.source_audio_path for take in layer.takes
+            )
+            if source_ref not in {str(candidate) for candidate in candidates if candidate}:
+                continue
+            output_bus = str(layer.output_bus or self._engine.master_output_bus or "")
+            return output_bus
+        return str(self._engine.master_output_bus or "")
 
     def _transition_state(self) -> str:
         if self._preview_active:

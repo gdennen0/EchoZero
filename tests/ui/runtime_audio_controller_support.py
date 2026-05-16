@@ -150,6 +150,15 @@ def test_runtime_controller_seek_while_playing_keeps_transport_running():
     assert controller.is_playing() is True
     assert engine.transport.is_playing is True
     assert engine.clock.position_seconds == pytest.approx(4.25)
+    state = controller.snapshot_state(presentation)
+    seek_event = next(
+        event
+        for event in state.diagnostics.recent_audio_runtime_events
+        if event.get("kind") == "seek"
+    )
+    assert seek_event["position_seconds"] == 4.25
+    assert seek_event["output_sample_rate"] == engine.sample_rate
+    assert seek_event["glitch_count"] == 0
     controller.shutdown()
 
 
@@ -789,6 +798,11 @@ def test_runtime_controller_snapshot_exposes_preview_audio_runtime_sensor_events
 
     assert "preview-start" in kinds
     assert "overlay-start" in kinds
+    preview_event = next(event for event in events if event.get("kind") == "preview-start")
+    assert preview_event["sample_rate"] == 10
+    assert preview_event["output_sample_rate"] == 10
+    assert preview_event["resampled"] is False
+    assert preview_event["stream_blocksize"] == engine.stream_blocksize
     assert any(event.get("source") == "audio_engine" for event in events)
     assert any(event.get("source") == "playback_controller" for event in events)
     controller.shutdown()
@@ -847,7 +861,9 @@ def test_runtime_controller_rapid_preview_replacement_is_declick_safe_and_non_mu
     first = np.zeros((128, 1), dtype=np.float32)
     engine._audio_callback(first, 128, None, None)
 
-    assert controller.preview_clip("events.wav", start_seconds=512 / 48000, end_seconds=1024 / 48000)
+    assert controller.preview_clip(
+        "events.wav", start_seconds=512 / 48000, end_seconds=1024 / 48000
+    )
     replaced = np.zeros((128, 1), dtype=np.float32)
     continued = np.zeros((128, 1), dtype=np.float32)
     engine._audio_callback(replaced, 128, None, None)

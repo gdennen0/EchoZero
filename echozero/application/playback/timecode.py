@@ -395,6 +395,16 @@ def format_clock_label(seconds: float) -> str:
     return f"{mins:02d}:{secs:05.2f}"
 
 
+def format_transport_clock_label(seconds: float) -> str:
+    """Format an HH:MM:SS.ss readout for transport current/end labels."""
+
+    clamped = max(0.0, float(seconds))
+    hours = int(clamped // 3600)
+    minutes = int((clamped - (hours * 3600)) // 60)
+    secs = clamped - (hours * 3600) - (minutes * 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:05.2f}"
+
+
 __all__ = [
     "GeneratedTimecodeSnapshot",
     "PlaybackTimecodeAuthority",
@@ -404,4 +414,5 @@ __all__ = [
     "TimecodeDisplayPolicy",
     "TimecodeMode",
     "format_clock_label",
+    "format_transport_clock_label",
 ]

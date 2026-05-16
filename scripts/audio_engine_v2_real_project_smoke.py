@@ -33,90 +33,16 @@ from echozero.application.timeline.intents import (
     SetLayerOutputBus,
     Stop,
 )
-from echozero.audio.output_backend import AudioOutputConfig, StreamCallback
 from echozero.persistence.session import ProjectStorage
+from echozero.testing.fake_output_backend import (
+    DEFAULT_FAKE_BLOCK_FRAMES,
+    FakeOutputBackend,
+    FakeOutputStream,
+)
 from echozero.ui.qt.app_shell_runtime_services import build_runtime_timeline_application
 from echozero.ui.qt.timeline.runtime_audio import TimelineRuntimeAudioController
 
-_DEFAULT_BLOCK_FRAMES = 256
-
-
-class FakeOutputStream:
-    """In-process output stream that exposes the engine callback for smoke tests."""
-
-    def __init__(self, callback: StreamCallback, *, latency: str | float = 0.0) -> None:
-        self.callback = callback
-        self.latency = latency
-        self.started = False
-        self.closed = False
-
-    def start(self) -> None:
-        """Mark the fake stream active."""
-
-        self.started = True
-
-    def stop(self) -> None:
-        """Mark the fake stream inactive."""
-
-        self.started = False
-
-    def close(self) -> None:
-        """Mark the fake stream closed."""
-
-        self.closed = True
-
-
-class FakeOutputBackend:
-    """Audio backend that resolves a normal output config without opening hardware."""
-
-    name = "fake-output"
-
-    def __init__(self) -> None:
-        self.streams: list[FakeOutputStream] = []
-
-    def resolve_output_config(
-        self,
-        *,
-        sample_rate: int | None,
-        channels: int | None,
-        buffer_size: int,
-        output_device: int | str | None,
-        stream_blocksize: int | None,
-        stream_latency: str | float | None,
-        prime_output_buffers_using_stream_callback: bool,
-    ) -> AudioOutputConfig:
-        """Resolve a deterministic fake output configuration."""
-
-        return AudioOutputConfig(
-            sample_rate=sample_rate or 44100,
-            channels=channels or 2,
-            buffer_size=buffer_size,
-            blocksize=stream_blocksize or _DEFAULT_BLOCK_FRAMES,
-            latency=stream_latency or 0.0,
-            prime_output_buffers_using_stream_callback=(
-                prime_output_buffers_using_stream_callback
-            ),
-            output_device=output_device,
-            requested_output_device=output_device,
-            resolved_output_device=output_device,
-            requested_sample_rate=sample_rate,
-            requested_channels=channels,
-            device_max_output_channels=channels or 2,
-            hardware_resolution_reason="injected-real-project-smoke",
-            sample_rate_resolution_reason="requested" if sample_rate is not None else "default",
-            channel_resolution_reason="requested" if channels is not None else "default",
-        )
-
-    def open_output_stream(
-        self,
-        callback: StreamCallback,
-        config: AudioOutputConfig,
-    ) -> FakeOutputStream:
-        """Create one fake stream and retain it for manual callback execution."""
-
-        stream = FakeOutputStream(callback, latency=config.latency)
-        self.streams.append(stream)
-        return stream
+_DEFAULT_BLOCK_FRAMES = DEFAULT_FAKE_BLOCK_FRAMES
 
 
 @dataclass(slots=True, frozen=True)

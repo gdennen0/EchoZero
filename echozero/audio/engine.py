@@ -736,6 +736,8 @@ class AudioEngine:
         replacing_overlay = self._overlay_playback_buffer is not None
         source = np.array(buffer, dtype=np.float32, copy=True)
         prepared = source
+        source_channel_count = 1 if source.ndim <= 1 else int(source.shape[1])
+        resampled = bool(int(sample_rate) != int(self._clock.sample_rate))
         if int(sample_rate) != int(self._clock.sample_rate):
             prepared = resample_buffer(prepared, int(sample_rate), int(self._clock.sample_rate))
         if prepared.size == 0:
@@ -770,6 +772,12 @@ class AudioEngine:
             source_frames=int(source.shape[0]),
             playback_frames=int(playback.shape[0]),
             sample_rate=int(sample_rate),
+            output_sample_rate=int(self._clock.sample_rate),
+            source_channels=int(source_channel_count),
+            output_channels=int(self._channels),
+            resampled=resampled,
+            resample_source_rate=int(sample_rate),
+            resample_target_rate=int(self._clock.sample_rate),
             volume=float(self._overlay_volume),
         )
         self._request_declick("overlay-start")

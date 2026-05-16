@@ -277,7 +277,7 @@ def test_app_shell_runtime_open_project_replaces_live_project_state():
         assert runtime.project_storage.working_dir.exists()
         assert runtime.presentation().title == "Project A"
         assert runtime.presentation().layers[0].title == "Song A"
-        assert runtime.presentation().end_time_label == "00:00.10"
+        assert runtime.presentation().end_time_label == "00:00:00.10"
         assert runtime.session.project_id == runtime.project_storage.project.id
         assert runtime.session.active_song_id is not None
         assert runtime.session.active_song_version_id is not None
@@ -682,7 +682,7 @@ def test_app_shell_runtime_open_project_failure_keeps_current_project_live(monke
         assert runtime.project_storage.project.id == original_project_id
         assert runtime.presentation().title == original_presentation.title
         assert runtime.presentation().layers[0].title == "Current Song"
-        assert runtime.presentation().end_time_label == "00:00.10"
+        assert runtime.presentation().end_time_label == "00:00:00.10"
         assert runtime.session.project_id == original_project_id
         assert runtime.session.active_song_id is not None
         assert runtime.session.active_song_version_id is not None
@@ -771,7 +771,7 @@ def test_app_shell_runtime_add_song_from_path_updates_presentation():
         assert presentation.layers[0].title == "Imported Song"
         assert presentation.layers[0].kind.name == "AUDIO"
         assert presentation.layers[0].source_audio_path
-        assert presentation.end_time_label == "00:00.10"
+        assert presentation.end_time_label == "00:00:00.10"
         assert runtime.is_dirty is True
     finally:
         runtime.shutdown()
@@ -919,13 +919,13 @@ def test_app_shell_runtime_add_song_version_copies_configs_and_switches_versions
             for config in runtime.project_storage.pipeline_configs.list_by_version(version_2_id)
         } == version_1_templates
         assert runtime.project_storage.songs.get(song_id).active_version_id == version_2_id
-        assert presentation.end_time_label == "00:00.20"
+        assert presentation.end_time_label == "00:00:00.20"
 
         switched = runtime.switch_song_version(version_1_id)
 
         assert runtime.project_storage.songs.get(song_id).active_version_id == version_1_id
         assert str(runtime.session.active_song_version_id) == version_1_id
-        assert switched.end_time_label == "00:00.10"
+        assert switched.end_time_label == "00:00:00.10"
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -992,14 +992,14 @@ def test_app_shell_runtime_select_song_switches_loaded_timeline():
             write_test_wav(temp_root / "fixtures" / "song-2.wav", frames=8820),
         )
         assert runtime.presentation().layers[0].title == "Song Two"
-        assert runtime.presentation().end_time_label == "00:00.20"
+        assert runtime.presentation().end_time_label == "00:00:00.20"
 
         presentation = runtime.select_song(song_1_id)
 
         assert str(runtime.session.active_song_id) == song_1_id
         assert str(runtime.session.active_song_version_id) == version_1_id
         assert presentation.layers[0].title == "Song One"
-        assert presentation.end_time_label == "00:00.10"
+        assert presentation.end_time_label == "00:00:00.10"
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -1301,7 +1301,7 @@ def test_app_shell_widget_contract_switches_song_and_song_version():
         assert str(harness.runtime.session.active_song_id) == song_1_id
         assert str(harness.runtime.session.active_song_version_id) == version_2_id
         assert harness.runtime.presentation().layers[0].title == "Song One"
-        assert harness.runtime.presentation().end_time_label == "00:00.20"
+        assert harness.runtime.presentation().end_time_label == "00:00:00.20"
 
         version_action = next(
             action
@@ -1320,7 +1320,7 @@ def test_app_shell_widget_contract_switches_song_and_song_version():
 
         assert str(harness.runtime.session.active_song_version_id) == version_1_id
         assert harness.runtime.presentation().layers[0].title == "Song One"
-        assert harness.runtime.presentation().end_time_label == "00:00.10"
+        assert harness.runtime.presentation().end_time_label == "00:00:00.10"
     finally:
         harness.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
