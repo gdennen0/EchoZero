@@ -115,6 +115,30 @@ def test_pause_renders_callback_owned_program_fade_before_silence() -> None:
     engine.shutdown()
 
 
+def test_pause_keeps_stream_open_and_feeds_silence_after_envelope() -> None:
+    engine = AudioEngine(sample_rate=_SAMPLE_RATE, channels=1, stream_factory=fake_stream_factory)
+    engine.replace_tracks([_constant_track(engine)])
+
+    engine.play()
+    stream = getattr(engine, "_stream", None)
+    assert stream is not None
+    assert stream.started is True
+    assert stream.closed is False
+
+    playing = _callback(engine)
+    engine.pause()
+    fade_chunks = _drain_until_paused(engine)
+    silence = _callback(engine, frames=512)
+
+    assert getattr(engine, "_stream", None) is stream
+    assert stream.started is True
+    assert stream.closed is False
+    assert float(np.max(np.abs(playing))) > 0.0
+    assert float(np.max(np.abs(fade_chunks[0]))) > 0.0
+    assert float(np.max(np.abs(silence))) <= 1e-5
+    engine.shutdown()
+
+
 def test_pause_release_preserves_waveform_slope_from_last_audible_tail() -> None:
     engine = AudioEngine(sample_rate=_SAMPLE_RATE, channels=1, stream_factory=fake_stream_factory)
     phase = np.arange(_SAMPLE_RATE, dtype=np.float32) * (
