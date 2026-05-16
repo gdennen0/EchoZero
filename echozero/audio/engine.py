@@ -31,7 +31,7 @@ from echozero.audio.transport import Transport
 DEFAULT_SCRATCH_FRAMES = 32768
 _DECLICK_DURATION_SECONDS = 0.004
 _OVERLAY_EDGE_FADE_SECONDS = 0.008
-_TRANSPORT_RELEASE_DURATION_SECONDS = 0.012
+_TRANSPORT_RELEASE_DURATION_SECONDS = 0.02
 _DECLICK_DELTA_THRESHOLD = 0.05
 _RUNTIME_EVENT_LIMIT = 32
 
@@ -40,6 +40,15 @@ def _declick_ramp_samples(sample_rate: int) -> int:
     """Return the standard render-boundary declick length for a sample rate."""
 
     return max(2, int(round(max(1, int(sample_rate)) * _DECLICK_DURATION_SECONDS)))
+
+
+def _smooth_fade_out_curve(samples: int) -> np.ndarray:
+    """Return a transport release fade with zero slope at both ends."""
+
+    sample_count = max(2, int(samples))
+    progress = np.linspace(0.0, 1.0, sample_count, dtype=np.float32)
+    smoothstep = progress * progress * (np.float32(3.0) - (np.float32(2.0) * progress))
+    return (np.float32(1.0) - smoothstep).astype(np.float32, copy=False)
 
 
 def _copy_with_edge_declick_fades(
@@ -273,12 +282,7 @@ class AudioEngine:
             2,
             int(round(self._output_config.sample_rate * _TRANSPORT_RELEASE_DURATION_SECONDS)),
         )
-        self._transport_release_fade_out = np.linspace(
-            1.0,
-            0.0,
-            transport_release_samples,
-            dtype=np.float32,
-        )
+        self._transport_release_fade_out = _smooth_fade_out_curve(transport_release_samples)
         self._declick_correction_delta = np.zeros_like(self._last_output_tail)
         self._declick_correction_total = 0
         self._declick_correction_remaining = 0
@@ -926,25 +930,49 @@ class AudioEngine:
             self._clear_transport_release()
             return
         tail = np.asarray(self._last_output_tail, dtype=np.float32)
-        if not np.any(np.abs(tail) > 1e-7):
-            self._clear_transport_release()
-            return
         release = self._transport_release_buffer[:release_frames]
+        release_position = int(self._clock.position)
+        self._mixer.read_mix_into(release, release_position, release_frames)
+        release_source = "program-continuation"
+        if not np.any(np.abs(release) > 1e-7):
+            if not np.any(np.abs(tail) > 1e-7):
+                self._clear_transport_release()
+                return
+            release_source = "output-tail"
+            if release.ndim == 1:
+                release[:] = np.float32(tail[0])
+            else:
+                release[:] = tail[None, :]
+        elif np.any(np.abs(tail) > 1e-7):
+            bridge_frames = min(
+                int(self._declick_ramp_samples),
+                int(release_frames),
+                int(self._declick_fade_out.shape[0]),
+            )
+            if bridge_frames > 1:
+                bridge = self._declick_fade_out[:bridge_frames]
+                if release.ndim == 1:
+                    delta = np.float32(release[0]) - np.float32(tail[0])
+                    release[:bridge_frames] -= delta * bridge
+                else:
+                    delta = np.asarray(release[0], dtype=np.float32) - tail
+                    release[:bridge_frames] -= delta[None, :] * bridge[:, None]
+
         release_ramp = self._transport_release_fade_out[:release_frames]
         if release.ndim == 1:
-            release[:] = np.float32(tail[0]) * release_ramp
+            release *= release_ramp
         else:
-            release[:] = tail[None, :] * release_ramp[:, None]
+            release *= release_ramp[:, None]
         self._transport_release_read_index = 0
         self._transport_release_active_frames = int(release_frames)
         self._transport_release_pending_reason = ""
         self._record_runtime_event(
             "transport-release",
             reason=str(reason or "transport-release"),
-            release_source="output-tail",
+            release_source=release_source,
             release_frames=int(release_frames),
             clock_samples=int(self._clock.position),
-            release_start_samples=int(self._clock.position),
+            release_start_samples=int(release_position),
             peak_abs=float(np.max(np.abs(release))) if release.size else 0.0,
         )
 

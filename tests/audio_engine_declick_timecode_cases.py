@@ -102,6 +102,29 @@ def test_pause_renders_output_tail_release_before_silence() -> None:
     engine.shutdown()
 
 
+def test_pause_release_preserves_waveform_slope_from_last_audible_tail() -> None:
+    engine = AudioEngine(sample_rate=_SAMPLE_RATE, channels=1, stream_factory=fake_stream_factory)
+    phase = np.arange(_SAMPLE_RATE, dtype=np.float32) * (
+        np.float32(2.0 * np.pi * 880.0) / _SAMPLE_RATE
+    )
+    samples = (0.35 * np.sin(phase)).astype(np.float32)
+    engine.replace_tracks([engine.create_track("bed", samples, _SAMPLE_RATE)])
+
+    engine.play()
+    playing = _callback(engine)
+    while engine.ramp_samples_remaining > 0:
+        playing = _callback(engine)
+
+    prior_slope = float(playing[-1, 0] - playing[-2, 0])
+    engine.pause()
+    release = _callback(engine)
+    release_slope = float(release[1, 0] - release[0, 0])
+
+    assert abs(release_slope - prior_slope) <= 0.015
+    assert _max_delta(playing, release) <= _DELTA_LIMIT
+    engine.shutdown()
+
+
 def test_pause_release_starts_at_clock_position_after_completed_callback() -> None:
     engine = AudioEngine(sample_rate=_SAMPLE_RATE, channels=1, stream_factory=fake_stream_factory)
     samples = np.zeros(_SAMPLE_RATE, dtype=np.float32)
@@ -122,7 +145,7 @@ def test_pause_release_starts_at_clock_position_after_completed_callback() -> No
     )
 
     assert release_event["release_start_samples"] == clock_after_playing_callback
-    assert release_event["release_source"] == "output-tail"
+    assert release_event["release_source"] == "program-continuation"
     assert _max_delta(playing, release, after) <= _DELTA_LIMIT
     engine.shutdown()
 
