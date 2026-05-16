@@ -140,6 +140,42 @@ Seek, pause, stop, preview overlay, device reconfiguration, and process-service
 controller construction now have v2-selected tests with fake streams/backends so
 CI does not require real speakers.
 
+Phase 4c adds a real-project smoke path for local developer fixtures. It opens a
+developer-supplied `.ez` through `ProjectStorage`, builds the runtime
+`TimelinePresentation` through the same app composition used by the Qt shell,
+syncs the selected playback plan into the v2 live adapter, and renders fake
+output callbacks through play, seek, gain, mute, route, pause, stop, and preview
+when an event-backed preview clip is available. The project file stays outside
+git and CI; the archive is unpacked only into a temporary working root.
+
+```bash
+ECHOZERO_AUDIO_ENGINE=v2 \
+ECHOZERO_REAL_PROJECT_SMOKE=/path/to/local-project.ez \
+uv run python scripts/audio_engine_v2_real_project_smoke.py
+```
+
+Multiple projects can be passed as positional arguments:
+
+```bash
+ECHOZERO_AUDIO_ENGINE=v2 uv run python scripts/audio_engine_v2_real_project_smoke.py \
+  /path/to/first.ez /path/to/second.ez
+```
+
+The pytest wrapper is intentionally skipped unless the private fixture path is
+provided:
+
+```bash
+ECHOZERO_AUDIO_ENGINE=v2 \
+ECHOZERO_REAL_PROJECT_SMOKE=/path/to/local-project.ez \
+uv run pytest tests/ui/test_audio_engine_v2_real_project_smoke.py
+```
+
+This smoke uses a fake output backend and does not play speaker audio. For a
+bounded human-path listen, keep monitor volume low and run the desktop app
+manually with `ECHOZERO_AUDIO_ENGINE=v2 uv run python run_echozero.py`, then open
+the local project and try play, seek, mute/gain/route changes, stop, and preview.
+Do not use the fake-output smoke as proof of hardware-device behavior.
+
 Manual bounded smoke for local listening:
 
 ```bash
