@@ -13,6 +13,10 @@ from collections import deque
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+from echozero.application.playback.engine_selection import (
+    RuntimeAudioEngine,
+    build_runtime_audio_engine,
+)
 from echozero.application.playback.models import PlaybackState
 from echozero.application.playback.process_shared import (
     PLAYBACK_IPC_COMMAND_PATH,
@@ -29,7 +33,6 @@ from echozero.application.playback.sync_projection import (
     RuntimeSyncProjection,
 )
 from echozero.application.settings import AudioOutputRuntimeConfig
-from echozero.audio.engine import AudioEngine
 from echozero.errors import InfrastructureError
 
 
@@ -629,8 +632,8 @@ class PlaybackProcessService:
         profile = self._LATENCY_PROFILE_SPECS[self._profile_index]
         base = self._base_audio_config
 
-        def _engine_factory() -> AudioEngine:
-            return AudioEngine(
+        def _engine_factory() -> RuntimeAudioEngine:
+            return build_runtime_audio_engine(
                 sample_rate=(base.sample_rate if base is not None else None),
                 channels=(base.channels if base is not None else None),
                 stream_latency=profile.stream_latency,

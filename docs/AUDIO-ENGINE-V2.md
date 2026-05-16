@@ -126,9 +126,12 @@ parameter changes should ramp where needed to avoid discontinuities.
 Phase 1 exposes mapping hooks from the current `PlaybackTrackPlan` shape into a
 v2 `PreparedGraph`. Phase 2 adds a shadow parity harness from app/runtime
 playback projections into those graph summaries. Phase 3 adds a non-live
-`RtGraph` and offline renderer prototype. These hooks are for tests and later
-migration only. They must not be threaded into the live v1 engine until a later
-phase proves parity through the app path.
+`RtGraph` and offline renderer prototype. Phase 4 starts dev-gated live backend
+wiring: `ECHOZERO_AUDIO_ENGINE=v2` or an explicit test parameter can select a
+v2-backed runtime audio engine while v1 remains the default fallback. The first
+v2 live adapter opens the same output backend contract as v1 and renders callback
+blocks through `PreparedGraph -> RtGraph -> render_offline_block`; MA3, IPC
+payload shape, and operator UI playback behavior stay out of scope.
 
 ## Phase 3 Prototype
 

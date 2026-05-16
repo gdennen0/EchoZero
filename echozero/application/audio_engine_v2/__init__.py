@@ -20,6 +20,7 @@ from echozero.application.audio_engine_v2.graph import (
     replace_track_mix,
     replace_track_route,
 )
+from echozero.application.audio_engine_v2.live_engine import V2LiveAudioEngine
 from echozero.application.audio_engine_v2.offline_render import (
     OfflineRenderMemory,
     OfflineRenderResult,
@@ -108,6 +109,7 @@ __all__ = [
     "TransportCommandKind",
     "TransportPlayState",
     "TransportState",
+    "V2LiveAudioEngine",
     "apply_transport_command",
     "apply_rt_command_batch",
     "build_shadow_graph_from_playback_projection",

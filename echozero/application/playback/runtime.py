@@ -27,6 +27,10 @@ from echozero.application.playback.audio_diagnostics import (
     timestamped_capture_id,
     write_audio_diagnostics_bundle,
 )
+from echozero.application.playback.engine_selection import (
+    RuntimeAudioEngine,
+    build_runtime_audio_engine,
+)
 from echozero.application.playback.timecode import PlaybackTimecodeAuthority, TimebaseSpec
 from echozero.application.playback.tracks import (
     PlaybackMixPlan,
@@ -64,16 +68,16 @@ class PlaybackController:
 
     def __init__(
         self,
-        engine: AudioEngine | None = None,
+        engine: RuntimeAudioEngine | None = None,
         *,
-        engine_factory: Callable[[], AudioEngine] | None = None,
+        engine_factory: Callable[[], RuntimeAudioEngine] | None = None,
         preview_engine: AudioEngine | None = None,
         preview_engine_factory: Callable[[], AudioEngine] | None = None,
         audio_loader: Callable[[str | Path], tuple[np.ndarray, int]] = _load_runtime_audio,
         timebase: TimebaseSpec | None = None,
     ) -> None:
         self._engine = engine or (
-            engine_factory() if engine_factory is not None else AudioEngine()
+            engine_factory() if engine_factory is not None else build_runtime_audio_engine()
         )
         self._engine_factory = engine_factory
         _ = preview_engine
@@ -118,7 +122,7 @@ class PlaybackController:
         self._last_audio_diagnostics_capture_result: dict[str, object] | None = None
 
     @property
-    def engine(self) -> AudioEngine:
+    def engine(self) -> RuntimeAudioEngine:
         return self._engine
 
     def sync_presentation(self, presentation: TimelinePresentation) -> None:
@@ -736,13 +740,13 @@ class PlaybackController:
             return "settings-change"
         return "device-refresh"
 
-    def _build_engine_for_device_spec(self, device_spec: dict[str, object]) -> AudioEngine:
+    def _build_engine_for_device_spec(self, device_spec: dict[str, object]) -> RuntimeAudioEngine:
         if self._engine_factory is not None:
             return self._engine_factory()
         sample_rate = self._optional_int(device_spec.get("sample_rate"))
         channels = self._optional_int(device_spec.get("channels"))
         stream_blocksize = self._optional_int(device_spec.get("stream_blocksize"))
-        return AudioEngine(
+        return build_runtime_audio_engine(
             sample_rate=sample_rate,
             channels=channels,
             buffer_size=self._optional_int(device_spec.get("buffer_size")) or DEFAULT_BUFFER_SIZE,
