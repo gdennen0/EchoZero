@@ -111,6 +111,7 @@ Located in `dev/`:
 | File | Purpose |
 |------|---------|
 | `ma3_harness_cli.py` | Unified ping/version/health/browse/smoke CLI for the MA3 harness |
+| `package_ma3_harness.py` | Builds a transfer-ready MA3 harness/plugin zip with manifest and install notes |
 | `test.lua` | Test plugin for hooking into MA3 objects |
 | `timecode_explorer.lua` | Systematic exploration of timecode structure |
 | `timecode_helper.lua` | Standalone helper functions for timecode work |
@@ -208,6 +209,16 @@ Unified harness smoke:
 ```bash
 python MA3/dev/ma3_harness_cli.py --json smoke
 ```
+
+Build a transfer package for moving the MA3 harness/plugins to another machine:
+```bash
+python MA3/dev/package_ma3_harness.py --json --force
+```
+
+The package is written to `artifacts/ma3-harness-transfer/` by default. It
+contains a copy-ready `grandMA3/datapools/plugins/` payload, the source
+`MA3/plugins` and `MA3/dev` files, `INSTALL.md`, `manifest.json`, and the smoke
+validation command to run after copying it onto the target machine.
 
 Harness result with native terminal feedback sidecar:
 ```bash
