@@ -10,13 +10,14 @@ from collections import deque
 from dataclasses import replace
 from math import log10
 import time
-from typing import Any, Callable, cast
+from typing import Any, Callable
 
 import numpy as np
 
 from echozero.application.audio_engine_v2.mapping import (
     build_prepared_graph_from_playback_plan,
 )
+from echozero.application.audio_engine_v2.graph import MixParameters
 from echozero.application.audio_engine_v2.offline_render import (
     OfflineRenderMemory,
     OfflineRenderState,
@@ -36,7 +37,7 @@ from echozero.application.audio_engine_v2.transport import (
     TransportState,
 )
 from echozero.audio.clock import Clock, ClockSubscriber
-from echozero.audio.layer import AudioTrack
+from echozero.audio.layer import AudioTrack, resample_buffer
 from echozero.audio.output_backend import (
     DEFAULT_BUFFER_SIZE,
     AudioOutputBackend,
@@ -141,6 +142,10 @@ class V2LiveAudioEngine:
         self._last_status: Any = None
         self._last_discontinuity_reason: str | None = "v2-engine-startup"
         self._last_ramp_reason: str | None = None
+        self._overlay_buffer: np.ndarray | None = None
+        self._overlay_playback_buffer: np.ndarray | None = None
+        self._overlay_read_index = 0
+        self._overlay_volume = np.float32(1.0)
         self._runtime_event_sequence = 0
         self._recent_runtime_events: deque[dict[str, object]] = deque(
             maxlen=_RUNTIME_EVENT_LIMIT
@@ -226,7 +231,7 @@ class V2LiveAudioEngine:
 
     @property
     def output_device(self) -> int | str | None:
-        return cast(int | str | None, self._output_device)
+        return self._output_device
 
     @property
     def output_config(self) -> AudioOutputConfig:
@@ -234,15 +239,15 @@ class V2LiveAudioEngine:
 
     @property
     def resolved_output_device(self) -> int | str | None:
-        return cast(int | str | None, self._output_config.resolved_output_device)
+        return self._output_config.resolved_output_device
 
     @property
     def resolved_output_device_name(self) -> str | None:
-        return cast(str | None, self._output_config.resolved_output_device_name)
+        return self._output_config.resolved_output_device_name
 
     @property
     def stream_latency(self) -> str | float | None:
-        return cast(str | float | None, self._stream_latency)
+        return self._stream_latency
 
     @property
     def stream_blocksize(self) -> int:
@@ -270,7 +275,7 @@ class V2LiveAudioEngine:
 
     @property
     def overlay_active(self) -> bool:
-        return False
+        return self._overlay_playback_buffer is not None
 
     @property
     def rt_graph_identity_full_hash(self) -> str:
@@ -357,6 +362,7 @@ class V2LiveAudioEngine:
                 sample_rate=int(track.sample_rate),
                 offset=int(track.offset),
                 volume=float(volume),
+                engine_sample_rate=self.sample_rate,
                 output_bus=output_bus,
             )
             cloned.muted = bool(muted)
@@ -364,8 +370,17 @@ class V2LiveAudioEngine:
             next_tracks.append(cloned)
             changed = True
         if changed:
+            route_changed = any(
+                str(track.id) in updates and track.output_bus != updates[str(track.id)][2]
+                for track in self._tracks
+            )
             self._tracks = tuple(next_tracks)
-            self._commit_current_tracks(reason="mix-update")
+            if route_changed:
+                self._commit_current_tracks(reason="route-update")
+            else:
+                self._queue_track_mix_commands(tuple(next_tracks))
+                self._last_discontinuity_reason = "mix-update"
+                self._last_ramp_reason = "mix-update"
         return bool(changed)
 
     def clear_tracks(self) -> None:
@@ -425,6 +440,7 @@ class V2LiveAudioEngine:
     def stop(self) -> None:
         self._end_of_content = False
         self._transport.stop()
+        self._render_state = replace(self._render_state, frame_position=0)
         self._last_audible_time_seconds = 0.0
         self._last_audible_monotonic_seconds = None
         self._queue_transport_command(TransportCommand.stop(self._next_sequence()))
@@ -461,6 +477,7 @@ class V2LiveAudioEngine:
         self._reported_output_latency_seconds = 0.0
         self._last_audible_time_seconds = None
         self._last_audible_monotonic_seconds = None
+        self._clear_overlay()
         self._last_discontinuity_reason = "shutdown"
 
     def request_declick(self) -> None:
@@ -473,11 +490,38 @@ class V2LiveAudioEngine:
         *,
         volume: float = 1.0,
     ) -> bool:
-        _ = (buffer, sample_rate, volume)
-        return False
+        if buffer.size == 0 or sample_rate <= 0:
+            self.stop_overlay()
+            return False
+        replacing_overlay = self._overlay_playback_buffer is not None
+        source = np.array(buffer, dtype=np.float32, copy=True)
+        playback = self._prepare_overlay_buffer(source, sample_rate=sample_rate)
+        if playback.size == 0:
+            self.stop_overlay()
+            return False
+        self._overlay_buffer = source
+        self._overlay_playback_buffer = playback
+        self._overlay_read_index = 0
+        self._overlay_volume = np.float32(max(0.0, float(volume)))
+        self._record_runtime_event(
+            "overlay-replace" if replacing_overlay else "overlay-start",
+            reason="play-overlay",
+            source_frames=int(source.shape[0]),
+            playback_frames=int(playback.shape[0]),
+            sample_rate=int(sample_rate),
+            volume=float(self._overlay_volume),
+        )
+        self._last_ramp_reason = "overlay-start"
+        if not self._active:
+            self._open_stream()
+        return True
 
     def stop_overlay(self) -> None:
-        return None
+        stopping_overlay = self._overlay_playback_buffer is not None
+        self._clear_overlay()
+        if stopping_overlay:
+            self._record_runtime_event("overlay-stop", reason="stop-overlay")
+        self._last_ramp_reason = "overlay-stop"
 
     def start_diagnostics_capture(
         self,
@@ -556,6 +600,7 @@ class V2LiveAudioEngine:
         self._update_callback_timing_snapshot(time_info)
 
         block = result.block
+        self._mix_overlay_into(block, frames)
         self._sanitize_output_samples(block)
         self._capture_output_callback_block(block, frames=frames)
         if self._channels == 1:
@@ -578,6 +623,21 @@ class V2LiveAudioEngine:
         )
         self._queue_command(RtCommand.commit_graph(self._next_sequence(), self._prepared_graph))
         self._last_discontinuity_reason = reason
+        self._last_ramp_reason = reason
+
+    def _queue_track_mix_commands(self, tracks: tuple[AudioTrack, ...]) -> None:
+        for track in tracks:
+            self._queue_command(
+                RtCommand.track_mix(
+                    self._next_sequence(),
+                    track_id=str(track.id),
+                    mix=MixParameters(
+                        gain_db=self._linear_to_db(float(track.volume)),
+                        muted=bool(track.muted),
+                        soloed=bool(track.solo),
+                    ),
+                )
+            )
 
     def _build_prepared_graph(self, tracks: tuple[AudioTrack, ...]) -> Any:
         plan_tracks = tuple(
@@ -663,6 +723,7 @@ class V2LiveAudioEngine:
                 "channels": int(self._channels),
                 "sample_rate": int(self.sample_rate),
                 "is_playing": bool(self._transport.is_playing),
+                "overlay_active": bool(self.overlay_active),
                 "peak_abs": float(np.max(np.abs(captured))) if captured.size else 0.0,
                 "rms": float(np.sqrt(np.mean(np.square(captured)))) if captured.size else 0.0,
                 "samples": captured,
@@ -714,6 +775,63 @@ class V2LiveAudioEngine:
             return None
         return max(0.0, output_dac_time - current_time)
 
+    def _prepare_overlay_buffer(self, source: np.ndarray, *, sample_rate: int) -> np.ndarray:
+        prepared: np.ndarray = source
+        if int(sample_rate) != int(self.sample_rate):
+            prepared = resample_buffer(prepared, int(sample_rate), int(self.sample_rate))
+        prepared = np.asarray(prepared, dtype=np.float32)
+        if self._channels <= 1:
+            if prepared.ndim == 2:
+                prepared = np.asarray(
+                    np.mean(prepared, axis=1, dtype=np.float32),
+                    dtype=np.float32,
+                )
+            return _copy_with_edge_fades(prepared, self._policy.ramp_frames)
+        if prepared.ndim == 1:
+            prepared = np.repeat(prepared[:, None], self._channels, axis=1)
+        elif prepared.shape[1] < self._channels:
+            pad_channels = self._channels - int(prepared.shape[1])
+            pad = np.repeat(prepared[:, -1:], pad_channels, axis=1)
+            prepared = np.concatenate((prepared, pad), axis=1)
+        elif prepared.shape[1] > self._channels:
+            prepared = np.asarray(prepared[:, : self._channels], dtype=np.float32)
+        return _copy_with_edge_fades(prepared, self._policy.ramp_frames)
+
+    def _mix_overlay_into(self, block: np.ndarray, frames: int) -> None:
+        overlay = self._overlay_playback_buffer
+        if overlay is None:
+            return
+        start = int(self._overlay_read_index)
+        if start >= int(overlay.shape[0]):
+            self._clear_overlay()
+            return
+        chunk_frames = min(int(frames), int(overlay.shape[0]) - start)
+        if chunk_frames <= 0:
+            self._clear_overlay()
+            return
+        overlay_view = overlay[start : start + chunk_frames]
+        if block.ndim == 1:
+            if overlay_view.ndim == 2:
+                overlay_view = overlay_view[:, 0]
+            block[:chunk_frames] += overlay_view * self._overlay_volume
+        else:
+            if overlay_view.ndim == 1:
+                block[:chunk_frames, :] += overlay_view[:, None] * self._overlay_volume
+            else:
+                block[:chunk_frames, : overlay_view.shape[1]] += (
+                    overlay_view * self._overlay_volume
+                )
+        self._overlay_read_index = start + chunk_frames
+        if self._overlay_read_index >= int(overlay.shape[0]):
+            self._last_ramp_reason = "overlay-end"
+            self._clear_overlay()
+
+    def _clear_overlay(self) -> None:
+        self._overlay_buffer = None
+        self._overlay_playback_buffer = None
+        self._overlay_read_index = 0
+        self._overlay_volume = np.float32(1.0)
+
 
 class _PlaybackTrackView:
     def __init__(self, track: AudioTrack, source_key: str) -> None:
@@ -751,6 +869,25 @@ def _coerce_callback_time_value(time_info: Any, field: str) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _copy_with_edge_fades(buffer: np.ndarray, ramp_frames: int) -> np.ndarray:
+    faded = np.array(buffer, dtype=np.float32, copy=True)
+    if faded.size == 0 or int(faded.shape[0]) <= 1:
+        return faded
+    frames = int(faded.shape[0])
+    fade_frames = min(frames // 2, max(0, int(ramp_frames)))
+    if fade_frames <= 1:
+        return faded
+    fade_in = np.linspace(0.0, 1.0, fade_frames, dtype=np.float32)
+    fade_out = np.linspace(1.0, 0.0, fade_frames, dtype=np.float32)
+    if faded.ndim == 1:
+        faded[:fade_frames] *= fade_in
+        faded[frames - fade_frames : frames] *= fade_out
+    else:
+        faded[:fade_frames] *= fade_in[:, None]
+        faded[frames - fade_frames : frames] *= fade_out[:, None]
+    return faded
 
 
 __all__ = ["V2LiveAudioEngine"]

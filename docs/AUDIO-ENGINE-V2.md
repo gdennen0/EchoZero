@@ -133,6 +133,25 @@ v2 live adapter opens the same output backend contract as v1 and renders callbac
 blocks through `PreparedGraph -> RtGraph -> render_offline_block`; MA3, IPC
 payload shape, and operator UI playback behavior stay out of scope.
 
+Phase 4b hardens the selected live path without making v2 the default. Mix-only
+runtime edits lower to RT track-mix commands and ramp in the renderer; route
+edits still commit a prepared graph and use the existing graph crossfade.
+Seek, pause, stop, preview overlay, device reconfiguration, and process-service
+controller construction now have v2-selected tests with fake streams/backends so
+CI does not require real speakers.
+
+Manual bounded smoke for local listening:
+
+```bash
+ECHOZERO_AUDIO_ENGINE=v2 uv run --with pytest pytest tests/ui/test_runtime_audio_v2_live_backend.py
+```
+
+For a human-path app listen, launch the desktop app with
+`ECHOZERO_AUDIO_ENGINE=v2 uv run python run_echozero.py`, open a small project or
+import one audio file, play for a few seconds, try mute/gain/output-route
+changes, seek, pause, stop, and preview an event clip. Keep monitor volume low;
+automated tests use fake output and do not prove speaker hardware behavior.
+
 ## Phase 3 Prototype
 
 The Phase 3 RT graph prototype lives under
