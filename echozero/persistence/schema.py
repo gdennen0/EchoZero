@@ -13,7 +13,7 @@ import json
 
 from echozero.errors import PersistenceError
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 OBJECT_CONTENT_SCHEMA_VERSION = 10
 
 _DDL = """\
@@ -156,6 +156,26 @@ CREATE TABLE IF NOT EXISTS song_default_pipeline_configs (
 
 CREATE INDEX IF NOT EXISTS idx_song_default_configs_song ON song_default_pipeline_configs(song_id);
 CREATE INDEX IF NOT EXISTS idx_song_default_configs_template ON song_default_pipeline_configs(template_id);
+
+CREATE TABLE IF NOT EXISTS song_video_attachments (
+    id TEXT PRIMARY KEY,
+    song_id TEXT NOT NULL UNIQUE REFERENCES songs(id) ON DELETE CASCADE,
+    video_file TEXT NOT NULL,
+    video_hash TEXT NOT NULL,
+    duration_seconds REAL NOT NULL,
+    extracted_audio_file TEXT,
+    extracted_audio_hash TEXT,
+    width INTEGER,
+    height INTEGER,
+    fps REAL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS song_video_placements (
+    song_version_id TEXT PRIMARY KEY REFERENCES song_versions(id) ON DELETE CASCADE,
+    video_start_seconds REAL NOT NULL DEFAULT 0.0
+);
 """
 
 
@@ -347,6 +367,29 @@ def _migrate_v10_to_v11(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE song_versions ADD COLUMN beat_anchor_seconds REAL ")
 
 
+def _migrate_v11_to_v12(conn: sqlite3.Connection) -> None:
+    conn.executescript("""\
+        CREATE TABLE IF NOT EXISTS song_video_attachments (
+            id TEXT PRIMARY KEY,
+            song_id TEXT NOT NULL UNIQUE REFERENCES songs(id) ON DELETE CASCADE,
+            video_file TEXT NOT NULL,
+            video_hash TEXT NOT NULL,
+            duration_seconds REAL NOT NULL,
+            extracted_audio_file TEXT,
+            extracted_audio_hash TEXT,
+            width INTEGER,
+            height INTEGER,
+            fps REAL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS song_video_placements (
+            song_version_id TEXT PRIMARY KEY REFERENCES song_versions(id) ON DELETE CASCADE,
+            video_start_seconds REAL NOT NULL DEFAULT 0.0
+        );
+    """)
+
+
 _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _migrate_v1_to_v2,
     3: _migrate_v2_to_v3,
@@ -373,6 +416,7 @@ _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     9: _migrate_v8_to_v9,
     10: _migrate_v9_to_v10,
     11: _migrate_v10_to_v11,
+    12: _migrate_v11_to_v12,
 }
 
 

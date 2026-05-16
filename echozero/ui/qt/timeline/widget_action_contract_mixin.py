@@ -404,6 +404,15 @@ class TimelineWidgetContractActionMixin:
             if isinstance(time_seconds, (int, float)):
                 host._dispatch(Seek(float(time_seconds)))
             return
+        if action_id in {
+            "video.import",
+            "video.replace",
+            "video.remove",
+            "video.reset_offset",
+            "video.open_window",
+        }:
+            self._run_video_reference_action(action_id)
+            return
         if action_id == "timeline.nudge_selection":
             raw_direction = params.get("direction", "left")
             direction = 1 if raw_direction in {1, "1", "right"} else -1
@@ -893,6 +902,49 @@ class TimelineWidgetContractActionMixin:
             )
         )
         return options
+
+    def _run_video_reference_action(self, action_id: str) -> None:
+        host = cast(_ContractActionHost, self)
+        runtime = host._resolve_runtime_shell()
+        if runtime is None:
+            return
+        try:
+            if action_id in {"video.import", "video.replace"}:
+                selected, _ = host._file_dialog.getOpenFileName(
+                    host._widget,
+                    "Select Video File",
+                    "",
+                    "Video Files (*.mov *.mp4 *.m4v *.avi *.mkv);;All Files (*)",
+                )
+                if not selected:
+                    return
+                importer = getattr(runtime, "import_or_replace_song_video", None)
+                if callable(importer):
+                    updated = importer(selected)
+                    if updated is not None:
+                        host._set_presentation(updated)
+                return
+            if action_id == "video.remove":
+                remover = getattr(runtime, "remove_active_song_video", None)
+                if callable(remover):
+                    updated = remover()
+                    if updated is not None:
+                        host._set_presentation(updated)
+                return
+            if action_id == "video.reset_offset":
+                setter = getattr(runtime, "set_active_song_video_start_seconds", None)
+                if callable(setter):
+                    updated = setter(0.0)
+                    if updated is not None:
+                        host._set_presentation(updated)
+                return
+            if action_id == "video.open_window":
+                opener = getattr(runtime, "open_video_window", None)
+                if callable(opener):
+                    opener()
+                return
+        except Exception as exc:
+            host._message_box.warning(host._widget, "Video Reference", str(exc))
 
     def _run_add_song_from_path_action(self, params: dict[str, object] | None = None) -> None:
         host = cast(_ContractActionHost, self)

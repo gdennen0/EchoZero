@@ -8,7 +8,7 @@ import numpy as np
 
 from echozero.application.playback.tracks import PlaybackTrackBuilder
 from echozero.application.shared.ids import ObjectContentId, ObjectRevisionId, TimelineObjectId
-from echozero.application.shared.enums import PlaybackMode
+from echozero.application.shared.enums import LayerKind, PlaybackMode
 from echozero.application.timeline.object_content import SourceRef
 
 
@@ -92,6 +92,33 @@ def test_playback_track_builder_ignores_event_layer_source_audio_when_event_play
             )
         ],
         selected_layer_id="layer_event",
+        selected_take_id=None,
+        playback_output_channels=2,
+    )
+
+    plan = builder.build_track_plan(presentation)
+
+    assert len(plan.tracks) == 0
+
+
+def test_playback_track_builder_ignores_reference_layer_video_audio() -> None:
+    builder = PlaybackTrackBuilder(
+        lambda _path: (np.array([0.25, -0.25], dtype=np.float32), 44100)
+    )
+    presentation = SimpleNamespace(
+        layers=[
+            SimpleNamespace(
+                layer_id="layer_video",
+                title="Video Reference",
+                kind=LayerKind.REFERENCE,
+                source_audio_path="video-ref.wav",
+                output_bus=None,
+                muted=False,
+                soloed=False,
+                takes=[],
+            )
+        ],
+        selected_layer_id="layer_video",
         selected_take_id=None,
         playback_output_channels=2,
     )

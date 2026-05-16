@@ -24,6 +24,15 @@ class AudioPresentationFields:
 
 
 @dataclass(slots=True)
+class VideoPresentationFields:
+    """Video reference presentation fields layered onto the synthetic video row."""
+
+    video_path: str
+    video_start_seconds: float
+    video_duration_seconds: float
+
+
+@dataclass(slots=True)
 class TimelinePresentationOverlay:
     """Presentation overlay fields applied after baseline timeline assembly."""
 
@@ -34,6 +43,7 @@ class TimelinePresentationOverlay:
     beat_anchor_seconds: float | None
     layer_audio: dict[LayerId, AudioPresentationFields]
     take_audio: dict[TakeId, AudioPresentationFields]
+    layer_video: dict[LayerId, VideoPresentationFields] | None = None
     active_song_id: str = ""
     active_song_title: str = ""
     active_song_version_id: str = ""
@@ -47,3 +57,5 @@ class TimelinePresentationOverlay:
             self.available_songs = []
         if self.available_song_versions is None:
             self.available_song_versions = []
+        if self.layer_video is None:
+            self.layer_video = {}

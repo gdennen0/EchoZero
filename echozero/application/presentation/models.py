@@ -479,6 +479,10 @@ class LayerPresentation:
     waveform_key: str | None = None
     source_audio_path: str | None = None
     playback_source_ref: str | None = None
+    reference_kind: str | None = None
+    video_path: str | None = None
+    video_start_seconds: float = 0.0
+    video_duration_seconds: float = 0.0
     status: LayerStatusPresentation = field(default_factory=LayerStatusPresentation)
     sync_target_channel_no: int | None = None
     object_id: TimelineObjectId | None = None

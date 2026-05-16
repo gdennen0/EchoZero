@@ -118,6 +118,7 @@ class _TimelineCanvasPaintMixin:
             self._row_body_select_rects.clear()
             self._header_hover_rects.clear()
             self._event_drop_rects.clear()
+            self._video_clip_rects.clear()
             self._layer_row_resize_hit_rects.clear()
             with timed("timeline.paint.layers"):
                 self._draw_layers(painter)
@@ -494,6 +495,14 @@ class _TimelineCanvasPaintMixin:
                     row_height=float(row_height),
                     dimmed=dimmed,
                 )
+            elif layer.kind is LayerKind.REFERENCE and layer.reference_kind == "video":
+                self._draw_video_reference_lane(
+                    painter,
+                    layer=layer,
+                    top=top,
+                    row_height=row_height,
+                    dimmed=dimmed,
+                )
             else:
                 if layer.kind is not LayerKind.SECTION:
                     visible_events = self._visible_lane_events(layer.events)
@@ -548,6 +557,67 @@ class _TimelineCanvasPaintMixin:
 
         finally:
             painter.restore()
+
+    def _draw_video_reference_lane(
+        self: Any,
+        painter: QPainter,
+        *,
+        layer: LayerPresentation,
+        top: int,
+        row_height: int,
+        dimmed: bool,
+    ) -> None:
+        start = float(layer.video_start_seconds)
+        duration = max(0.0, float(layer.video_duration_seconds))
+        pps = max(1.0, float(self.presentation.pixels_per_second))
+        content_left = float(self._header_width)
+        content_right = float(max(self._header_width + 1, self.width()))
+        clip_x = content_left + (start * pps) - float(self.presentation.scroll_x)
+        clip_w = max(2.0, duration * pps)
+        clip_rect = QRectF(
+            clip_x,
+            float(top) + 5.0,
+            clip_w,
+            max(12.0, float(row_height) - 10.0),
+        )
+        visible_rect = clip_rect.intersected(
+            QRectF(content_left, float(top), content_right - content_left, float(row_height))
+        )
+        fill = QColor(layer.color or "#8f8a82")
+        fill.setAlpha(66 if dimmed else 92)
+        outline = QColor("#c0b8ad")
+        outline.setAlpha(110 if dimmed else 150)
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(QPen(outline, 1))
+        painter.setBrush(QBrush(fill))
+        if not visible_rect.isEmpty():
+            painter.drawRoundedRect(visible_rect, 3.0, 3.0)
+        self._waveform_block.paint(
+            painter,
+            top,
+            WaveformLanePresentation(
+                color_hex=layer.color or self._style.fixture.fallback_audio_lane_hex,
+                row_height=row_height,
+                pixels_per_second=self.presentation.pixels_per_second,
+                scroll_x=self.presentation.scroll_x,
+                header_width=self._header_width,
+                width=self.width(),
+                dimmed=dimmed,
+                waveform_key=layer.waveform_key,
+                source_audio_path=layer.source_audio_path,
+                unavailable_reason="Video audio unavailable",
+                time_offset_seconds=start,
+            ),
+        )
+        painter.restore()
+        self._video_clip_rects.append(
+            (
+                visible_rect if not visible_rect.isEmpty() else clip_rect,
+                layer.layer_id,
+                start,
+            )
+        )
 
     def _is_take_options_open(self: Any, layer_id: LayerId, take_id: TakeId) -> bool:
         return (layer_id, take_id) in self._open_take_options

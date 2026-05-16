@@ -207,6 +207,7 @@ class StageZeroRuntimeController(
         self._is_dirty = False
         self._draft_layers: list[Layer] = []
         self._event_clipboard = []
+        self._video_playback_controller = None
         self._staged_project_runtime_presentation: TimelinePresentation | None = None
         self._staged_layer_header_width_px: int | None = None
         self._app: TimelineApplication = build_runtime_timeline_application(
@@ -521,6 +522,65 @@ class StageZeroRuntimeController(
             beat_anchor_seconds,
         )
 
+    def import_or_replace_song_video(self, video_path: str | Path) -> TimelinePresentation:
+        active_song_id = self.session.active_song_id
+        active_song_version_id = self.session.active_song_version_id
+        if active_song_id is None:
+            raise ValueError("Select a song before importing video.")
+        self.project_storage.import_or_replace_song_video(str(active_song_id), Path(video_path))
+        self._refresh_from_storage(
+            active_song_id=active_song_id,
+            active_song_version_id=active_song_version_id,
+        )
+        self._sync_video_playback_from_presentation()
+        self._is_dirty = True
+        return self.presentation()
+
+    def remove_active_song_video(self) -> TimelinePresentation:
+        active_song_id = self.session.active_song_id
+        active_song_version_id = self.session.active_song_version_id
+        if active_song_id is None:
+            raise ValueError("Select a song before removing video.")
+        self.project_storage.remove_song_video(str(active_song_id))
+        self._refresh_from_storage(
+            active_song_id=active_song_id,
+            active_song_version_id=active_song_version_id,
+        )
+        self._sync_video_playback_from_presentation()
+        self._is_dirty = True
+        return self.presentation()
+
+    def set_active_song_video_start_seconds(self, offset_seconds: float) -> TimelinePresentation:
+        active_song_id = self.session.active_song_id
+        active_song_version_id = self.session.active_song_version_id
+        if active_song_version_id is None:
+            raise ValueError("Select a song version before moving video.")
+        self.project_storage.set_song_video_start_seconds(
+            str(active_song_version_id),
+            float(offset_seconds),
+        )
+        self._refresh_from_storage(
+            active_song_id=active_song_id,
+            active_song_version_id=active_song_version_id,
+        )
+        self._sync_video_playback_from_presentation()
+        self._is_dirty = True
+        return self.presentation()
+
+    def open_video_window(self) -> None:
+        from echozero.ui.qt.video_window import VideoPlaybackController
+
+        if self._video_playback_controller is None:
+            self._video_playback_controller = VideoPlaybackController()
+            self._app.runtime_video = self._video_playback_controller
+        self._video_playback_controller.sync_presentation(self.presentation())
+        self._video_playback_controller.show()
+
+    def _sync_video_playback_from_presentation(self) -> None:
+        if self._video_playback_controller is None:
+            return
+        self._video_playback_controller.sync_presentation(self.presentation())
+
     def get_project_ma3_push_offset_seconds(self) -> float:
         return _get_project_ma3_push_offset_seconds(self)
 
@@ -629,6 +689,10 @@ class StageZeroRuntimeController(
 
     def shutdown(self) -> None:
         self._review_server_controller.stop()
+        if self._video_playback_controller is not None:
+            close = getattr(self._video_playback_controller, "close", None)
+            if callable(close):
+                close()
         clear_project_review_runtime_bridge(self)
         _shutdown_runtime(self)
 

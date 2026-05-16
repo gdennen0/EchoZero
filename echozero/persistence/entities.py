@@ -89,6 +89,32 @@ class SongVersionRecord:
     rebuild_plan: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class SongVideoAttachmentRecord:
+    """One imported video reference attached to a song."""
+
+    id: str
+    song_id: str
+    video_file: str
+    video_hash: str
+    duration_seconds: float
+    extracted_audio_file: str | None
+    extracted_audio_hash: str | None
+    width: int | None
+    height: int | None
+    fps: float | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class SongVideoPlacementRecord:
+    """Per-version placement for a song-level video attachment."""
+
+    song_version_id: str
+    video_start_seconds: float = 0.0
+
+
 # ---------------------------------------------------------------------------
 # Layer record (persistence DTO — NOT the domain Layer)
 # ---------------------------------------------------------------------------

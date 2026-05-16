@@ -13,6 +13,8 @@ from echozero.persistence.repositories import (
     ProjectRepository,
     SongDefaultPipelineConfigRepository,
     SongRepository,
+    SongVideoAttachmentRepository,
+    SongVideoPlacementRepository,
     SongVersionRepository,
     TakeRepository,
     TimelineObjectRepository,
@@ -81,3 +83,15 @@ class ProjectStorageRepositoriesMixin:
         """Access the song default pipeline config repository."""
         self._check_closed()
         return SongDefaultPipelineConfigRepository(self.db)
+
+    @property
+    def song_video_attachments(self) -> SongVideoAttachmentRepository:
+        """Access song-level video attachments."""
+        self._check_closed()
+        return SongVideoAttachmentRepository(self.db)
+
+    @property
+    def song_video_placements(self) -> SongVideoPlacementRepository:
+        """Access song-version video placements."""
+        self._check_closed()
+        return SongVideoPlacementRepository(self.db)

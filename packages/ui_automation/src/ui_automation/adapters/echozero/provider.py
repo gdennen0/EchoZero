@@ -19,7 +19,8 @@ from echozero.application.presentation.inspector_contract import (
     build_timeline_inspector_contract,
 )
 from echozero.application.shared.enums import SyncMode
-from echozero.application.timeline.intents import Pause, Play, Stop
+from echozero.application.shared.ids import LayerId
+from echozero.application.timeline.intents import Pause, Play, Seek, Stop
 from echozero.application.timeline.object_actions import resolve_action_id
 from echozero.testing.app_flow import AppFlowHarness
 
@@ -326,6 +327,7 @@ class EchoZeroAutomationBackend:
             AutomationAction(action_id="transport.play", label="Play", group="transport"),
             AutomationAction(action_id="transport.pause", label="Pause", group="transport"),
             AutomationAction(action_id="transport.stop", label="Stop", group="transport"),
+            AutomationAction(action_id="transport.seek", label="Seek", group="transport"),
             AutomationAction(action_id="sync.enable", label="Enable Sync", group="sync"),
             AutomationAction(action_id="sync.disable", label="Disable Sync", group="sync"),
             AutomationAction(action_id="app.new", label="New Project", group="app"),
@@ -494,6 +496,8 @@ class EchoZeroAutomationBackend:
         self._render()
         if target_id is None:
             return self._pixmap_to_png_bytes(self._root.grab())
+        if target_id == "video.window":
+            return self._video_window_screenshot()
         target = self._target_lookup(target_id)
         if target is None or target.bounds is None:
             raise ValueError(f"Unknown or non-visual target_id: {target_id}")
@@ -721,6 +725,12 @@ class EchoZeroAutomationBackend:
             self._harness.runtime.dispatch(Pause())
         elif resolved_action_id == "transport.stop":
             self._harness.runtime.dispatch(Stop())
+        elif resolved_action_id == "transport.seek":
+            self._harness.widget.set_presentation(
+                self._harness.runtime.dispatch(
+                    Seek(float(payload.get("time_seconds", payload.get("position", 0.0))))
+                )
+            )
         elif resolved_action_id == "sync.enable":
             self._harness.enable_sync(SyncMode.MA3)
         elif resolved_action_id == "sync.disable":
@@ -776,6 +786,18 @@ class EchoZeroAutomationBackend:
                 open_file_responses=[(str(payload["audio_path"]), "")],
             ):
                 self._harness.widget._trigger_contract_action(contract_action)
+            QApplication.processEvents()
+        elif resolved_action_id in {"video.import", "video.replace"}:
+            if "video_path" not in payload:
+                self._harness.widget._trigger_contract_action(
+                    self._require_contract_action(resolved_action_id)
+                )
+            else:
+                contract_action = self._merged_contract_action(resolved_action_id, payload)
+                with self._dialog_overrides(
+                    open_file_responses=[(str(payload["video_path"]), "")],
+                ):
+                    self._harness.widget._trigger_contract_action(contract_action)
             QApplication.processEvents()
         elif resolved_action_id in {"song.select", "song.version.switch", "song.version.add"}:
             self._harness.widget._trigger_contract_action(
@@ -855,6 +877,11 @@ class EchoZeroAutomationBackend:
                             QApplication.processEvents()
                             return
             raise ValueError(f"Unknown event target: {target_id}")
+        if target_id.startswith("timeline.layer:"):
+            layer_id = self._resolve_layer_id_for_target(target_id)
+            self._harness.widget._select_layer(LayerId(layer_id), "replace")
+            QApplication.processEvents()
+            return
         self.click(target_id)
 
     def _move_pointer_to_target(self, target_id: str) -> None:
@@ -1088,6 +1115,9 @@ class EchoZeroAutomationBackend:
         return None
 
     def _find_layer_rect(self, layer_id: str):
+        for rect, candidate_layer_id, _start_seconds in self._harness.widget._canvas._video_clip_rects:
+            if str(candidate_layer_id) == layer_id:
+                return rect
         for rect, candidate_layer_id in self._harness.widget._canvas._header_select_rects:
             if str(candidate_layer_id) == layer_id:
                 return rect
@@ -1149,6 +1179,18 @@ class EchoZeroAutomationBackend:
             width=rect.width(),
             height=rect.height(),
         )
+
+    def _video_window_screenshot(self) -> bytes:
+        runtime_video = getattr(self._harness.runtime, "runtime_video", None)
+        if runtime_video is None:
+            timeline_app = getattr(self._harness.runtime, "_app", None)
+            runtime_video = getattr(timeline_app, "runtime_video", None)
+        video_window = getattr(runtime_video, "_window", None)
+        if video_window is None or not video_window.isVisible():
+            raise ValueError("Video window is not open")
+        video_window.repaint()
+        QApplication.processEvents()
+        return self._pixmap_to_png_bytes(video_window.grab())
 
     @staticmethod
     def _pixmap_to_png_bytes(pixmap) -> bytes:

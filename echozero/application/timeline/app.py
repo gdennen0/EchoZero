@@ -45,6 +45,7 @@ class TimelineApplication:
     queries: TimelineQueries
     sync_service: SyncService
     runtime_audio: object | None = None
+    runtime_video: object | None = None
     presentation_enricher: Callable[[TimelinePresentation], TimelinePresentation] | None = None
 
     def presentation(self) -> TimelinePresentation:
@@ -56,6 +57,7 @@ class TimelineApplication:
         presentation = self.orchestrator.handle(self.timeline, intent)
         presentation = self._enrich_presentation(presentation)
         self._apply_runtime_audio_after_dispatch(intent, presentation)
+        self._apply_runtime_video_for_transport_intent(intent, presentation)
         self._sync_runtime_state_for_transport_intent(intent, presentation)
         return presentation
 
@@ -155,3 +157,23 @@ class TimelineApplication:
             return
         if hasattr(runtime_audio, "snapshot_state"):
             self.session.playback_state = runtime_audio.snapshot_state(presentation)
+
+    def _apply_runtime_video_for_transport_intent(
+        self,
+        intent: TimelineIntent,
+        presentation: TimelinePresentation,
+    ) -> None:
+        runtime_video = self.runtime_video
+        if runtime_video is None or not isinstance(intent, (Play, Pause, Stop, Seek)):
+            return
+        sync_presentation = getattr(runtime_video, "sync_presentation", None)
+        if callable(sync_presentation):
+            sync_presentation(presentation)
+        if isinstance(intent, Play):
+            runtime_video.play(float(presentation.playhead))
+        elif isinstance(intent, Pause):
+            runtime_video.pause(float(presentation.playhead))
+        elif isinstance(intent, Stop):
+            runtime_video.stop()
+        elif isinstance(intent, Seek):
+            runtime_video.seek(float(intent.position))
