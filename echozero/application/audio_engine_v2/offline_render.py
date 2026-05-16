@@ -69,6 +69,8 @@ class OfflineRenderMemory:
 
     bus_buffers: tuple[FloatBlock, ...]
     hardware_buffer: FloatBlock
+    transition_bus_buffers: tuple[FloatBlock, ...]
+    transition_hardware_buffer: FloatBlock
 
     @classmethod
     def create(
@@ -87,6 +89,14 @@ class OfflineRenderMemory:
                 for _ in range(bus_count)
             ),
             hardware_buffer=np.zeros(
+                (block_frames, hardware_channels),
+                dtype=np.float32,
+            ),
+            transition_bus_buffers=tuple(
+                np.zeros((block_frames, max_bus_channels), dtype=np.float32)
+                for _ in range(bus_count)
+            ),
+            transition_hardware_buffer=np.zeros(
                 (block_frames, hardware_channels),
                 dtype=np.float32,
             ),
@@ -130,7 +140,32 @@ def render_offline_block(
         runtime = command_result.state
 
     _clear_memory(memory)
-    if runtime.transport.play_state is TransportPlayState.PLAYING:
+    if _should_crossfade_graph_commit(previous_runtime, runtime, policy):
+        _render_playing_block(
+            previous_runtime.graph,
+            state,
+            sources=sources,
+            memory=memory,
+            policy=policy,
+            force_zero_targets=False,
+        )
+        memory.transition_hardware_buffer[:] = memory.hardware_buffer
+        _clear_primary_buffers(memory)
+        next_gains = _render_playing_block(
+            runtime.graph,
+            state,
+            sources=sources,
+            memory=memory,
+            policy=policy,
+            force_zero_targets=False,
+        )
+        memory.hardware_buffer[:] = _crossfade_blocks(
+            memory.transition_hardware_buffer,
+            memory.hardware_buffer,
+            policy=policy,
+        )
+        next_position = state.frame_position + memory.hardware_buffer.shape[0]
+    elif runtime.transport.play_state is TransportPlayState.PLAYING:
         next_gains = _render_playing_block(
             runtime.graph,
             state,
@@ -247,6 +282,48 @@ def _route_block(
                 )
 
 
+def _should_crossfade_graph_commit(
+    previous_runtime: RtRuntimeState,
+    runtime: RtRuntimeState,
+    policy: TransitionPolicy,
+) -> bool:
+    if policy.ramp_frames <= 0:
+        return False
+    return (
+        previous_runtime.transport.play_state is TransportPlayState.PLAYING
+        and runtime.transport.play_state is TransportPlayState.PLAYING
+        and previous_runtime.graph.identity_full_hash != runtime.graph.identity_full_hash
+    )
+
+
+def _crossfade_blocks(
+    previous_block: FloatBlock,
+    next_block: FloatBlock,
+    *,
+    policy: TransitionPolicy,
+) -> FloatBlock:
+    ramp_frames = min(policy.ramp_frames, previous_block.shape[0])
+    if ramp_frames <= 0:
+        return next_block
+    previous_gain: FloatBlock = np.zeros((previous_block.shape[0], 1), dtype=np.float32)
+    next_gain: FloatBlock = np.ones((next_block.shape[0], 1), dtype=np.float32)
+    previous_gain[:ramp_frames, 0] = np.linspace(
+        1.0,
+        0.0,
+        ramp_frames + 1,
+        endpoint=True,
+        dtype=np.float32,
+    )[1:]
+    next_gain[:ramp_frames, 0] = np.linspace(
+        0.0,
+        1.0,
+        ramp_frames + 1,
+        endpoint=True,
+        dtype=np.float32,
+    )[1:]
+    return previous_block * previous_gain + next_block * next_gain
+
+
 def _apply_gain_ramp(
     block: FloatBlock,
     *,
@@ -284,6 +361,13 @@ def _mix_into(destination: FloatBlock, block: FloatBlock) -> None:
 
 
 def _clear_memory(memory: OfflineRenderMemory) -> None:
+    _clear_primary_buffers(memory)
+    memory.transition_hardware_buffer[:] = 0.0
+    for bus_buffer in memory.transition_bus_buffers:
+        bus_buffer[:] = 0.0
+
+
+def _clear_primary_buffers(memory: OfflineRenderMemory) -> None:
     memory.hardware_buffer[:] = 0.0
     for bus_buffer in memory.bus_buffers:
         bus_buffer[:] = 0.0

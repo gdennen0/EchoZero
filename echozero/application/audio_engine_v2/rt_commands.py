@@ -113,6 +113,10 @@ def apply_rt_command_batch(
         if command.sequence <= next_state.command_sequence:
             stale.append(command.sequence)
             continue
+        if _is_stale_transport_payload(next_state, command):
+            next_state = replace(next_state, command_sequence=command.sequence)
+            stale.append(command.sequence)
+            continue
         next_state = _apply_fresh_command(next_state, command)
         applied.append(command.sequence)
     return RtCommandResult(
@@ -120,6 +124,16 @@ def apply_rt_command_batch(
         applied_sequences=tuple(applied),
         stale_sequences=tuple(stale),
     )
+
+
+def _is_stale_transport_payload(state: RtRuntimeState, command: RtCommand) -> bool:
+    if command.kind is not RtCommandKind.TRANSPORT:
+        return False
+    if command.transport_command is None:
+        raise ValueError("Transport command is missing a transport payload.")
+    command_sequence = int(command.transport_command.sequence)
+    transport_sequence = int(state.transport.command_sequence)
+    return command_sequence <= transport_sequence
 
 
 def _apply_fresh_command(state: RtRuntimeState, command: RtCommand) -> RtRuntimeState:

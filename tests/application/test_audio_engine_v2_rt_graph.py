@@ -18,6 +18,7 @@ from echozero.application.audio_engine_v2.graph import (
 )
 from echozero.application.audio_engine_v2.offline_render import (
     OfflineRenderMemory,
+    OfflineRenderResult,
     OfflineRenderState,
     OfflineSourceBank,
     TransitionPolicy,
@@ -82,7 +83,7 @@ def _memory(graph: PreparedGraph, *, frames: int = 4) -> OfflineRenderMemory:
 
 
 def _sources(buffer: NDArray[np.float32] | None = None) -> OfflineSourceBank:
-    source = buffer if buffer is not None else np.ones((8, 2), dtype=np.float32)
+    source = buffer if buffer is not None else np.ones((16, 2), dtype=np.float32)
     return OfflineSourceBank({"source": np.asarray(source, dtype=np.float32)})
 
 
@@ -214,3 +215,100 @@ def test_transition_ramp_prevents_full_scale_mute_and_stop_discontinuities() -> 
     assert 0.0 < float(stop_block[0, 0]) < 1.0
     assert np.max(np.abs(np.diff(mute_block[:, 0]))) < 1.0
     assert np.max(np.abs(np.diff(stop_block[:, 0]))) < 1.0
+
+
+def test_master_to_direct_route_commit_crossfades_hardware_outputs() -> None:
+    first_graph = _graph(track_route=TrackRoute.to_master())
+    second_graph = _graph(track_route=TrackRoute.to_hardware((HardwareOutputRoute(3, 4),)))
+
+    first_block, state = _render(first_graph, ramp_frames=0)
+    result = _render_graph_commit(second_graph, state, sequence=1)
+
+    assert result.applied_sequences == (1,)
+    assert result.state.runtime.command_sequence == 1
+    _assert_no_full_scale_hard_step(first_block, result.block)
+
+
+def test_direct_to_master_route_commit_crossfades_hardware_outputs() -> None:
+    first_graph = _graph(track_route=TrackRoute.to_hardware((HardwareOutputRoute(3, 4),)))
+    second_graph = _graph(track_route=TrackRoute.to_master())
+
+    first_block, state = _render(first_graph, ramp_frames=0)
+    result = _render_graph_commit(second_graph, state, sequence=1)
+
+    _assert_no_full_scale_hard_step(first_block, result.block)
+
+
+def test_master_plus_hardware_send_add_and_remove_crossfade() -> None:
+    master_graph = _graph(track_route=TrackRoute.to_master())
+    send_graph = _graph(
+        track_route=TrackRoute.to_master_and_hardware((HardwareOutputRoute(3, 3),))
+    )
+
+    master_block, master_state = _render(master_graph, ramp_frames=0)
+    added = _render_graph_commit(send_graph, master_state, sequence=1)
+    removed = _render_graph_commit(master_graph, added.state, sequence=2)
+
+    _assert_no_full_scale_hard_step(master_block, added.block)
+    _assert_no_full_scale_hard_step(added.block, removed.block)
+
+
+def test_route_commit_to_no_output_fades_down_instead_of_hard_cut() -> None:
+    first_graph = _graph(track_route=TrackRoute.to_master())
+    second_graph = _graph(track_route=TrackRoute.no_output())
+
+    first_block, state = _render(first_graph, ramp_frames=0)
+    result = _render_graph_commit(second_graph, state, sequence=1)
+
+    _assert_no_full_scale_hard_step(first_block, result.block)
+    assert 0.0 < float(result.block[0, 0]) < 1.0
+
+
+def test_stale_transport_payload_advances_runtime_sequence_consistently() -> None:
+    graph = _graph()
+    state = OfflineRenderState(
+        runtime=RtRuntimeState(
+            prepare_rt_graph(graph),
+            TransportState(
+                play_state=TransportPlayState.PLAYING,
+                command_sequence=10,
+            ),
+        )
+    )
+    stale_pause = RtCommand.transport(TransportCommand.pause(9))
+
+    result = render_offline_block(
+        state,
+        sources=_sources(),
+        memory=_memory(graph),
+        policy=TransitionPolicy(ramp_frames=0),
+        commands=RtCommandBatch((stale_pause,)),
+    )
+
+    assert result.stale_sequences == (9,)
+    assert result.state.runtime.command_sequence == 9
+    assert result.state.runtime.transport.command_sequence == 10
+    assert result.state.runtime.transport.play_state is TransportPlayState.PLAYING
+
+
+def _render_graph_commit(
+    graph: PreparedGraph,
+    state: OfflineRenderState,
+    *,
+    sequence: int,
+) -> OfflineRenderResult:
+    return render_offline_block(
+        state,
+        sources=_sources(),
+        memory=_memory(graph),
+        policy=TransitionPolicy(ramp_frames=4),
+        commands=RtCommandBatch((RtCommand.commit_graph(sequence, graph),)),
+    )
+
+
+def _assert_no_full_scale_hard_step(
+    previous_block: NDArray[np.float32],
+    next_block: NDArray[np.float32],
+) -> None:
+    delta = float(np.max(np.abs(next_block[0] - previous_block[-1])))
+    assert delta < 1.0
