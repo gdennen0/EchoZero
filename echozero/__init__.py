@@ -4,4 +4,4 @@ Entry point for the echozero package. Core engine + UI communicate via HTTP + We
 All sub-packages follow First Principles FP1-FP7 and STYLE.md conventions.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
