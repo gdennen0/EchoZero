@@ -56,6 +56,7 @@ from echozero.application.timeline.event_similarity_mini_model import (
     train_timbre_mini_model,
 )
 from echozero.application.timeline.event_batch_scope import EventBatchScope
+from echozero.application.timeline import assembler_signature
 from echozero.application.timeline.intents import (
     ClearSelection,
     CopiedEventClip,
@@ -93,6 +94,28 @@ from echozero.application.timeline.models import Event, EventRef, Layer, Take, T
 from echozero.application.timeline.orchestrator import TimelineOrchestrator
 from echozero.application.transport.models import TransportState
 from echozero.application.transport.service import TransportService
+
+
+def test_assembler_event_list_signature_does_not_walk_nested_event_payloads() -> None:
+    class PoisonValue:
+        def __repr__(self) -> str:
+            raise AssertionError("nested event payload was walked")
+
+    events = [
+        Event(
+            id=EventId("event-1"),
+            take_id=TakeId("take-1"),
+            start=0.0,
+            end=1.0,
+            metadata={"nested": {"poison": PoisonValue()}},
+            classifications={"poison": PoisonValue()},
+        )
+    ]
+
+    signature = assembler_signature._events_signature(events)
+
+    assert signature[0] == id(events)
+    assert signature[1] == 1
 
 
 class _SessionService(SessionService):
@@ -339,6 +362,21 @@ def _shaped_burst(
     else:
         raise ValueError(f"Unknown burst shape: {shape}")
     return (0.7 * np.sin(2.0 * np.pi * frequency_hz * times) * envelope).astype(np.float32)
+
+
+def _snare_like_burst(
+    *,
+    sample_rate: int = 22050,
+    duration_seconds: float = 0.18,
+) -> np.ndarray:
+    sample_count = int(sample_rate * duration_seconds)
+    times = np.linspace(0.0, duration_seconds, sample_count, endpoint=False)
+    envelope = np.power(np.hanning(sample_count), 1.4).astype(np.float32)
+    tone = 0.22 * np.sin(2.0 * np.pi * 220.0 * times)
+    rng = np.random.default_rng(0)
+    noise = rng.standard_normal(sample_count).astype(np.float32)
+    noise_hp = np.concatenate(([noise[0]], noise[1:] - 0.94 * noise[:-1]))
+    return np.clip((0.52 * noise_hp + tone) * envelope, -1.0, 1.0).astype(np.float32)
 
 
 def _build_audio_similarity_timeline(
@@ -1162,6 +1200,32 @@ def test_select_similar_events_timbre_fingerprint_mode_prefers_matching_frequenc
     assert timeline.selection.selected_event_ids == [EventId("evt_low_1"), EventId("evt_low_2")]
 
 
+def test_select_similar_events_hybrid_mir_mode_separates_snare_like_from_kick_like(tmp_path: Path):
+    kick_a = _shaped_burst(shape="tight", frequency_hz=120.0)
+    kick_b = _shaped_burst(shape="tight", frequency_hz=120.0)
+    snare_a = _snare_like_burst()
+    snare_b = _snare_like_burst()
+    silence = np.zeros(int(22050 * 0.32), dtype=np.float32)
+    audio = np.concatenate((snare_a, silence, snare_b, silence, kick_a, silence, kick_b))
+    audio_path = tmp_path / "hybrid_mir_mode.wav"
+    _write_mono_wav(audio_path, audio)
+    orchestrator, timeline, layer, take = _build_audio_similarity_timeline(audio_path)
+
+    orchestrator.handle(
+        timeline,
+        SelectSimilarEvents(
+            layer_id=layer.id,
+            take_id=take.id,
+            event_id=EventId("evt_low_1"),
+            comparison_mode="hybrid_mir",
+            match_strength="strict",
+            similarity_threshold_override=0.88,
+        ),
+    )
+
+    assert timeline.selection.selected_event_ids == [EventId("evt_low_1"), EventId("evt_low_2")]
+
+
 def test_timbre_mini_model_trains_json_centroid_and_scores_candidates(tmp_path: Path):
     kick_a = _shaped_burst(shape="tight", frequency_hz=120.0)
     kick_b = _shaped_burst(shape="tight", frequency_hz=120.0)
@@ -1300,6 +1364,7 @@ def test_timbre_mini_model_scores_candidates_in_batch(tmp_path: Path):
 
 def test_normalize_comparison_mode_accepts_registered_modes_and_rejects_unknown():
     assert normalize_comparison_mode(None) == "shape_envelope"
+    assert normalize_comparison_mode(" hybrid_mir ") == "hybrid_mir"
     assert normalize_comparison_mode(" Timbre_Fingerprint ") == "timbre_fingerprint"
     assert normalize_comparison_mode("timbre_mini_model") == "timbre_mini_model"
     with pytest.raises(ValueError, match="Unsupported comparison_mode"):

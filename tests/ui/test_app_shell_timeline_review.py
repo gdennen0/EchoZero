@@ -28,6 +28,7 @@ from echozero.foundry.services.review_audio_clip_service import ReviewAudioClipS
 from echozero.foundry.services.review_pipeline_controller import ReviewPipelineController
 from echozero.testing.analysis_mocks import build_mock_analysis_service, write_test_wav
 from echozero.ui.qt.app_shell import AppShellRuntime, build_app_shell
+from echozero.ui.qt.app_shell_history import RuntimeScopedHistorySnapshot
 
 
 def _build_timeline_review_runtime(
@@ -64,6 +65,18 @@ def _runtime_event(runtime: AppShellRuntime, *, layer_id: LayerId, event_id: str
                 if str(event.id) == event_id:
                     return event
     raise AssertionError(f"Runtime event not found: {event_id}")
+
+
+def _flush_deferred_review_persistence(runtime: AppShellRuntime) -> None:
+    runtime.flush_deferred_review_persistence()
+
+
+class _PlayingRuntimeAudio:
+    def is_playing(self) -> bool:
+        return True
+
+    def shutdown(self) -> None:
+        pass
 
 
 def _ensure_two_review_target_ids(
@@ -114,6 +127,7 @@ def test_timeline_fix_mode_routes_review_commits_through_shared_pipeline_control
                 review_note="controller seam check",
             )
         )
+        _flush_deferred_review_persistence(runtime)
     finally:
         runtime.shutdown()
 
@@ -153,6 +167,7 @@ def test_app_shell_runtime_commit_missed_event_review_creates_signal_and_updates
                 payload_ref=event_id,
             )
         )
+        _flush_deferred_review_persistence(runtime)
 
         updated_layer = next(layer for layer in reviewed.layers if layer.layer_id == layer_id)
         signal = ReviewSignalRepository(runtime.project_storage.working_dir).list()[0]
@@ -185,6 +200,7 @@ def test_app_shell_runtime_commit_verified_event_review_creates_signal(tmp_path:
                 review_note="operator verified the detected hit",
             )
         )
+        _flush_deferred_review_persistence(runtime)
 
         signal = ReviewSignalRepository(runtime.project_storage.working_dir).list()[0]
         runtime_event = _runtime_event(runtime, layer_id=layer_id, event_id=event_id)
@@ -225,6 +241,7 @@ def test_app_shell_runtime_commit_verified_events_review_batches_signals(tmp_pat
                 review_note="batch verify",
             )
         )
+        _flush_deferred_review_persistence(runtime)
 
         signal_repo = ReviewSignalRepository(runtime.project_storage.working_dir)
         verified_signals = [
@@ -294,6 +311,146 @@ def test_app_shell_runtime_commit_verified_events_review_supports_undo(tmp_path:
         runtime.shutdown()
 
 
+def test_app_shell_defers_storage_sync_for_review_batch_while_playing(
+    tmp_path: Path,
+    monkeypatch,
+):
+    runtime, layer_id, event_id, _start, _end = _build_timeline_review_runtime(tmp_path)
+    try:
+        layer, target_ids = _ensure_two_review_target_ids(
+            runtime,
+            layer_id=layer_id,
+            seed_event_id=event_id,
+        )
+        runtime.runtime_audio = _PlayingRuntimeAudio()
+        synced_timeline: list[str] = []
+        synced_layers: list[list[LayerId]] = []
+        monkeypatch.setattr(
+            runtime,
+            "_sync_storage_backed_timeline",
+            lambda: synced_timeline.append("timeline"),
+        )
+        monkeypatch.setattr(
+            runtime,
+            "_sync_storage_backed_layers",
+            lambda layer_ids: synced_layers.append(list(layer_ids)),
+        )
+
+        runtime.dispatch(
+            CommitRejectedEventsReview(
+                event_refs=[
+                    EventRef(
+                        layer_id=layer_id,
+                        take_id=layer.main_take_id,
+                        event_id=EventId(target_ids[0]),
+                    ),
+                    EventRef(
+                        layer_id=layer_id,
+                        take_id=layer.main_take_id,
+                        event_id=EventId(target_ids[1]),
+                    ),
+                ],
+                review_note="batch reject while playing",
+            )
+        )
+
+        assert synced_timeline == []
+        assert synced_layers == []
+        for target_id in target_ids:
+            runtime_event = _runtime_event(runtime, layer_id=layer_id, event_id=target_id)
+            assert runtime_event.metadata["review"]["promotion_state"] == "demoted"
+
+        runtime._flush_deferred_storage_sync()
+
+        assert synced_timeline == []
+        assert synced_layers == [[layer_id]]
+    finally:
+        runtime.shutdown()
+
+
+def test_app_shell_review_batch_uses_scoped_history_snapshot(tmp_path: Path):
+    runtime, layer_id, event_id, _start, _end = _build_timeline_review_runtime(tmp_path)
+    try:
+        layer, target_ids = _ensure_two_review_target_ids(
+            runtime,
+            layer_id=layer_id,
+            seed_event_id=event_id,
+        )
+
+        runtime.dispatch(
+            CommitRejectedEventsReview(
+                event_refs=[
+                    EventRef(
+                        layer_id=layer_id,
+                        take_id=layer.main_take_id,
+                        event_id=EventId(target_ids[0]),
+                    ),
+                    EventRef(
+                        layer_id=layer_id,
+                        take_id=layer.main_take_id,
+                        event_id=EventId(target_ids[1]),
+                    ),
+                ],
+            )
+        )
+
+        entry = runtime._history._undo[-1]
+        assert isinstance(entry.before, RuntimeScopedHistorySnapshot)
+        assert isinstance(entry.after, RuntimeScopedHistorySnapshot)
+        assert set(entry.before.layers) == {layer_id}
+        assert set(entry.after.layers) == {layer_id}
+
+        runtime.undo()
+        for target_id in target_ids:
+            runtime_event = _runtime_event(runtime, layer_id=layer_id, event_id=target_id)
+            assert runtime_event.metadata.get("review", {}).get("promotion_state") != "demoted"
+    finally:
+        runtime.shutdown()
+
+
+def test_app_shell_review_batch_assembles_presentation_once_after_commit(
+    tmp_path: Path,
+    monkeypatch,
+):
+    runtime, layer_id, event_id, _start, _end = _build_timeline_review_runtime(tmp_path)
+    try:
+        layer, target_ids = _ensure_two_review_target_ids(
+            runtime,
+            layer_id=layer_id,
+            seed_event_id=event_id,
+        )
+        presentation_count = 0
+        original_presentation = runtime.presentation
+
+        def _counted_presentation():
+            nonlocal presentation_count
+            presentation_count += 1
+            return original_presentation()
+
+        monkeypatch.setattr(runtime, "presentation", _counted_presentation)
+
+        runtime.dispatch(
+            CommitRejectedEventsReview(
+                event_refs=[
+                    EventRef(
+                        layer_id=layer_id,
+                        take_id=layer.main_take_id,
+                        event_id=EventId(target_ids[0]),
+                    ),
+                    EventRef(
+                        layer_id=layer_id,
+                        take_id=layer.main_take_id,
+                        event_id=EventId(target_ids[1]),
+                    ),
+                ],
+            )
+        )
+
+        assert presentation_count == 2
+    finally:
+        runtime.shutdown()
+
+
 def test_app_shell_runtime_commit_rejected_event_review_demotes_event_and_creates_signal(
     tmp_path: Path,
 ):
@@ -312,6 +469,7 @@ def test_app_shell_runtime_commit_rejected_event_review_demotes_event_and_create
                 review_note="operator rejected the false positive",
             )
         )
+        _flush_deferred_review_persistence(runtime)
 
         updated_layer = next(layer for layer in reviewed.layers if layer.layer_id == layer_id)
         signal = ReviewSignalRepository(runtime.project_storage.working_dir).list()[0]
@@ -323,6 +481,42 @@ def test_app_shell_runtime_commit_rejected_event_review_demotes_event_and_create
         assert signal.source_provenance["dataset_materialization"]["status"] == "deferred"
         assert runtime_event.metadata["review"]["promotion_state"] == "demoted"
         assert runtime_event.metadata["review"]["review_state"] == "corrected"
+    finally:
+        runtime.shutdown()
+
+
+def test_app_shell_runtime_rejected_review_updates_selected_event_presentation_immediately(
+    tmp_path: Path,
+):
+    runtime, layer_id, event_id, _start, _end = _build_timeline_review_runtime(tmp_path)
+    try:
+        layer = next(layer for layer in runtime._app.timeline.layers if layer.id == layer_id)
+        take = layer.takes[0]
+        runtime._app.timeline.selection.selected_layer_id = layer_id
+        runtime._app.timeline.selection.selected_layer_ids = [layer_id]
+        runtime._app.timeline.selection.selected_take_id = take.id
+        runtime._app.timeline.selection.selected_event_refs = [
+            EventRef(
+                layer_id=layer_id,
+                take_id=take.id,
+                event_id=EventId(event_id),
+            )
+        ]
+        runtime._app.timeline.selection.selected_event_ids = [EventId(event_id)]
+
+        reviewed = runtime.dispatch(
+            CommitRejectedEventReview(
+                layer_id=layer_id,
+                event_id=event_id,
+                review_note="selected event immediate demote",
+            )
+        )
+
+        updated_layer = next(layer for layer in reviewed.layers if layer.layer_id == layer_id)
+        updated_event = next(event for event in updated_layer.events if str(event.event_id) == event_id)
+
+        assert updated_event.is_selected is True
+        assert "demoted" in updated_event.badges
     finally:
         runtime.shutdown()
 
@@ -353,6 +547,7 @@ def test_app_shell_runtime_commit_rejected_events_review_batches_signals(tmp_pat
                 review_note="batch reject",
             )
         )
+        _flush_deferred_review_persistence(runtime)
 
         signal_repo = ReviewSignalRepository(runtime.project_storage.working_dir)
         rejected_signals = [
@@ -420,6 +615,7 @@ def test_app_shell_runtime_batch_rejected_review_reuses_clip_audio_cache(
                 review_note="batch reject cache",
             )
         )
+        _flush_deferred_review_persistence(runtime)
 
         assert read_count == 1
         exported = sorted((export_root / "kick").glob("*.wav"))
@@ -507,6 +703,7 @@ def test_app_shell_runtime_commit_missed_events_review_batches_signals_and_creat
                 ]
             )
         )
+        _flush_deferred_review_persistence(runtime)
 
         updated_layer = next(layer for layer in reviewed.layers if layer.layer_id == layer_id)
         new_event_ids = [
@@ -591,6 +788,7 @@ def test_app_shell_runtime_commit_relabel_event_review_updates_label_and_creates
                 review_note="operator relabeled the detected hit",
             )
         )
+        _flush_deferred_review_persistence(runtime)
 
         updated_layer = next(layer for layer in reviewed.layers if layer.layer_id == layer_id)
         updated_event = next(
@@ -643,6 +841,7 @@ def test_app_shell_runtime_commit_boundary_corrected_event_review_updates_timing
                 review_note="operator corrected the event boundary",
             )
         )
+        _flush_deferred_review_persistence(runtime)
 
         updated_layer = next(layer for layer in reviewed.layers if layer.layer_id == layer_id)
         updated_event = next(

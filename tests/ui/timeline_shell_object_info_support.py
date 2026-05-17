@@ -1330,14 +1330,20 @@ def test_find_similar_shapes_dialog_constructs_for_real_event():
     )
     try:
         assert dialog.windowTitle() == "Compare Events"
+        assert dialog.height() >= 760
         assert "candidate events across" in dialog._summary.text()
-        assert dialog._mode_combo.count() == 3
+        assert dialog._mode_combo.count() == 4
         assert dialog._mode_combo.itemText(0) == "Shape Envelope"
-        assert dialog._mode_combo.itemText(1) == "Timbre Fingerprint"
-        assert dialog._mode_combo.itemText(2) == "Saved Mini-model"
+        assert dialog._mode_combo.itemText(1) == "Hybrid MIR"
+        assert dialog._mode_combo.itemText(2) == "Timbre Fingerprint"
+        assert dialog._mode_combo.itemText(3) == "Saved Mini-model"
+        assert dialog._mode_combo.currentData() == "hybrid_mir"
+        assert "Hybrid MIR blends envelope, transient, and spectral evidence" in dialog._summary.text()
         assert dialog._smoothing_slider.value() == 3
         assert dialog._points_slider.value() == 24
         assert dialog._fuzziness_slider.value() == 35
+        assert dialog._run_button.text() == "Run Similarity"
+        assert "Ran similarity check" in dialog._run_status_label.text()
         payload = dialog.selected_payload()
         assert payload["shape_smoothing"] == 3
         assert payload["shape_control_points"] == 24
@@ -1420,6 +1426,10 @@ def test_find_similar_shapes_dialog_previews_anchor_and_candidate_shapes(tmp_pat
         assert len(dialog._preview_widget.rows) == 2
         cached_call_count = len(read_calls)
         dialog._points_slider.setValue(12)
+        app.processEvents()
+        assert "Settings changed. Run Similarity" in dialog._run_status_label.text()
+        assert len(dialog._preview_widget.rows[0].shape) == 24
+        dialog._run_button.click()
         app.processEvents()
         assert len(dialog._preview_widget.rows[0].shape) == 12
         assert len(read_calls) == cached_call_count

@@ -182,6 +182,23 @@ def test_app_settings_service_replaces_pipeline_defaults_per_template() -> None:
     }
 
 
+def test_app_settings_service_saves_pipeline_profiles_per_template() -> None:
+    service = AppSettingsService(_MemoryStore(), audio_device_options_provider=_device_options)
+
+    service.save_pipeline_profile(
+        "extract_song_drum_events",
+        "Festival Drums",
+        {"kick_threshold": 0.4, "snare_threshold": 0.55},
+    )
+
+    assert service.pipeline_profiles_for_template("extract_song_drum_events") == {
+        "Festival Drums": {
+            "kick_threshold": 0.4,
+            "snare_threshold": 0.55,
+        }
+    }
+
+
 def test_app_settings_service_apply_updates_accepts_four_output_channels() -> None:
     service = AppSettingsService(_MemoryStore(), audio_device_options_provider=_device_options)
 
@@ -428,4 +445,24 @@ def test_app_preferences_from_dict_parses_pipeline_defaults_by_template() -> Non
 
     assert preferences.pipeline_defaults_by_template == {
         "stem_separation": {"model": "mdx_extra_q", "device": "cpu"}
+    }
+
+
+def test_app_preferences_from_dict_parses_pipeline_profiles_by_template() -> None:
+    preferences = app_preferences_from_dict(
+        {
+            "pipeline_profiles_by_template": {
+                "extract_song_drum_events": {
+                    "Tight Kit": {"kick_threshold": 0.35},
+                    "": {"ignored": True},
+                },
+                "": {"ignored": {"value": True}},
+            }
+        }
+    )
+
+    assert preferences.pipeline_profiles_by_template == {
+        "extract_song_drum_events": {
+            "Tight Kit": {"kick_threshold": 0.35},
+        }
     }

@@ -22,6 +22,7 @@ from echozero.application.timeline.models import (
     Take as RuntimeTake,
     Timeline,
 )
+from echozero.application.timeline.object_content import is_imported_song_layer
 from echozero.domain.types import Event as DomainEvent, EventData, Layer as DomainLayer
 from echozero.persistence.entities import LayerRecord
 from echozero.output_routing import canonical_layer_output_bus
@@ -64,6 +65,35 @@ def next_persisted_manual_layer_order(existing_layers: Iterable[LayerRecord]) ->
     if not order_values:
         return 0
     return max(0, max(order_values) + 1)
+
+
+def persisted_runtime_layer_orders(timeline: Timeline) -> dict[LayerId, int]:
+    """Map runtime layer order into persisted order values around the imported song row."""
+
+    ordered_layers = sorted(timeline.layers, key=lambda layer: (int(layer.order_index), str(layer.id)))
+    source_index = next(
+        (index for index, layer in enumerate(ordered_layers) if is_imported_song_layer(layer)),
+        None,
+    )
+    if source_index is None:
+        return {
+            layer.id: index
+            for index, layer in enumerate(ordered_layers)
+            if not is_imported_song_layer(layer)
+        }
+
+    above_source = [
+        layer for layer in ordered_layers[:source_index] if not is_imported_song_layer(layer)
+    ]
+    below_source = [
+        layer for layer in ordered_layers[source_index + 1 :] if not is_imported_song_layer(layer)
+    ]
+    persisted_orders: dict[LayerId, int] = {}
+    for index, layer in enumerate(above_source):
+        persisted_orders[layer.id] = index - len(above_source)
+    for index, layer in enumerate(below_source, start=1):
+        persisted_orders[layer.id] = index
+    return persisted_orders
 
 
 def build_manual_layer_record(
@@ -142,6 +172,7 @@ def runtime_layer_record(
     layer: Layer,
     *,
     existing: LayerRecord,
+    persisted_order: int,
 ) -> LayerRecord:
     state_flags = dict(existing.state_flags)
     state_flags["stale"] = bool(layer.status.stale)
@@ -221,7 +252,7 @@ def runtime_layer_record(
         existing,
         name=layer.name,
         color=layer.presentation_hints.color,
-        order=int(layer.order_index) - 1,
+        order=int(persisted_order),
         visible=layer.presentation_hints.visible,
         locked=layer.presentation_hints.locked,
         source_pipeline=source_pipeline,

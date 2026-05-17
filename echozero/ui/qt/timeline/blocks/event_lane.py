@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import ceil, floor
 
-from PyQt6.QtCore import QRectF, Qt
+from PyQt6.QtCore import QObject, QRectF, Qt
 from PyQt6.QtGui import QColor, QPainter, QPen, QBrush
 
 from echozero.application.presentation.models import EventPresentation
@@ -23,15 +23,12 @@ from echozero.ui.qt.timeline.style import EventLaneStyle, TIMELINE_STYLE
 from echozero.ui.qt.timeline.waveform_cache import (
     CachedWaveform,
     get_cached_waveform,
-    register_waveform_from_audio_file,
+    request_waveform_from_audio_file,
 )
 from echozero.ui.qt.timeline.blocks.waveform_lane import (
     iter_compacted_waveform_columns,
     waveform_column_step_px,
 )
-
-_EVENT_WAVEFORM_REGISTER_ATTEMPTS: set[str] = set()
-
 
 @dataclass(slots=True)
 class EventLanePresentation:
@@ -50,6 +47,7 @@ class EventLanePresentation:
     waveform_key: str | None = None
     source_audio_path: str | None = None
     render_audio_shape: bool = False
+    repaint_target: QObject | None = None
 
 
 class EventLaneBlock:
@@ -92,19 +90,11 @@ class EventLaneBlock:
         cached = get_cached_waveform(presentation.waveform_key)
         if cached is not None:
             return cached
-        key = str(presentation.waveform_key or "").strip()
-        source_audio_path = str(presentation.source_audio_path or "").strip()
-        if not key or not source_audio_path:
-            return None
-        attempt_key = f"{key}|{source_audio_path}"
-        if attempt_key in _EVENT_WAVEFORM_REGISTER_ATTEMPTS:
-            return None
-        _EVENT_WAVEFORM_REGISTER_ATTEMPTS.add(attempt_key)
-        try:
-            register_waveform_from_audio_file(key, source_audio_path)
-        except Exception:
-            return None
-        return get_cached_waveform(key)
+        return request_waveform_from_audio_file(
+            presentation.waveform_key,
+            presentation.source_audio_path,
+            receiver=presentation.repaint_target,
+        )
 
     def _paint_event_audio_shape(
         self,
@@ -226,9 +216,7 @@ class EventLaneBlock:
                     )
                 if presentation.dimmed:
                     color.setAlpha(self.style.dimmed_alpha)
-                if event.is_selected:
-                    color = color.lighter(self.style.selection_lighten_factor)
-                elif is_zoomed_out_event:
+                if is_zoomed_out_event and not event.is_selected:
                     color = color.lighter(112)
                 rendered_rect = rect
                 border_width = (

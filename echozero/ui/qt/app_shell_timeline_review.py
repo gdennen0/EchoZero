@@ -17,6 +17,7 @@ from echozero.application.presentation.models import (
     TimelinePresentation,
 )
 from echozero.application.session.models import Session
+from echozero.application.shared.ids import LayerId
 from echozero.application.timeline.app import TimelineApplication
 from echozero.application.timeline.intents import (
     CommitBoundaryCorrectedEventReview,
@@ -59,6 +60,11 @@ from echozero.foundry.services.review_pipeline_controller import ReviewPipelineC
 from echozero.foundry.services.review_signal_service import ReviewSignalService
 from echozero.persistence.session import ProjectStorage
 from echozero.ui.qt.app_shell_project_timeline_storage import resolve_project_audio_path
+from echozero.ui.qt.app_shell_review_queue import (
+    DeferredTimelineReviewPersistence,
+    DeferredTimelineReviewPersistenceEntry,
+    DeferredTimelineReviewSampleExport,
+)
 from echozero.ui.qt.timeline_review_sample_export import (
     safe_export_timeline_review_sample,
 )
@@ -75,6 +81,11 @@ class TimelineReviewShell(Protocol):
 
     def _sync_storage_backed_layers(self, layer_ids: list[LayerId]) -> None: ...
 
+    def enqueue_deferred_review_persistence(
+        self,
+        request: DeferredTimelineReviewPersistence,
+    ) -> None: ...
+
 
 def commit_missed_event_review(
     shell: TimelineReviewShell,
@@ -85,7 +96,9 @@ def commit_missed_event_review(
     signal_service: ReviewSignalService | None = None,
     review_context: ReviewCommitContext | None = None,
     apply_project_writeback: bool = True,
-) -> TimelinePresentation:
+    deferred_entries: list[DeferredTimelineReviewPersistenceEntry] | None = None,
+    assemble_presentation: bool = True,
+) -> TimelinePresentation | None:
     """Create one missing event and emit one canonical timeline review signal."""
 
     created = shell._app.dispatch(
@@ -193,23 +206,28 @@ def commit_missed_event_review(
         corrected_label=review_label,
         review_note=review_note,
     )
-    signal = _commit_timeline_review_command(
-        shell,
+    persistence_entry = _timeline_review_persistence_entry(
         context=context,
         commit=commit,
-        pipeline_controller=pipeline_controller,
-        signal_service=signal_service,
+        sample_export=DeferredTimelineReviewSampleExport(
+            class_label=review_label,
+            source_audio_path=source_audio_path,
+            start_seconds=float(runtime_event.start),
+            end_seconds=float(runtime_event.end),
+            event_id=str(runtime_event.id),
+            decision_kind=ReviewDecisionKind.MISSED_EVENT_ADDED,
+        ),
         apply_project_writeback=apply_project_writeback,
     )
-    safe_export_timeline_review_sample(
-        signal=signal,
-        class_label=review_label,
-        source_audio_path=source_audio_path,
-        start_seconds=float(runtime_event.start),
-        end_seconds=float(runtime_event.end),
-        event_id=str(runtime_event.id),
-        decision_kind=ReviewDecisionKind.MISSED_EVENT_ADDED,
-    )
+    if deferred_entries is not None:
+        deferred_entries.append(persistence_entry)
+    else:
+        _persist_or_queue_timeline_review_entries(
+            shell,
+            entries=[persistence_entry],
+            pipeline_controller=pipeline_controller,
+            signal_service=signal_service,
+        )
     _apply_runtime_review_state(
         runtime_event,
         promotion_state="promoted",
@@ -233,6 +251,8 @@ def commit_missed_event_review(
     )
     if sync_runtime:
         shell._sync_storage_backed_timeline()
+    if not assemble_presentation:
+        return created
     return shell.presentation()
 
 
@@ -249,7 +269,9 @@ def commit_verified_review(
     runtime_event: TimelineEvent | None = None,
     clip_service: ReviewAudioClipService | None = None,
     apply_project_writeback: bool = True,
-) -> TimelinePresentation:
+    deferred_entries: list[DeferredTimelineReviewPersistenceEntry] | None = None,
+    assemble_presentation: bool = True,
+) -> TimelinePresentation | None:
     """Record one explicit verified event review signal without changing event truth."""
 
     if resolved_target is None:
@@ -311,24 +333,28 @@ def commit_verified_review(
         review_decision=decision,
         review_note=review_note,
     )
-    signal = _commit_timeline_review_command(
-        shell,
+    persistence_entry = _timeline_review_persistence_entry(
         context=context,
         commit=commit,
-        pipeline_controller=pipeline_controller,
-        signal_service=signal_service,
+        sample_export=DeferredTimelineReviewSampleExport(
+            class_label=review_label,
+            source_audio_path=target.source_audio_path,
+            start_seconds=float(target.event.start),
+            end_seconds=float(target.event.end),
+            event_id=str(target.event.event_id),
+            decision_kind=ReviewDecisionKind.VERIFIED,
+        ),
         apply_project_writeback=apply_project_writeback,
     )
-    safe_export_timeline_review_sample(
-        signal=signal,
-        class_label=review_label,
-        source_audio_path=target.source_audio_path,
-        start_seconds=float(target.event.start),
-        end_seconds=float(target.event.end),
-        event_id=str(target.event.event_id),
-        decision_kind=ReviewDecisionKind.VERIFIED,
-        clip_service=clip_service,
-    )
+    if deferred_entries is not None:
+        deferred_entries.append(persistence_entry)
+    else:
+        _persist_or_queue_timeline_review_entries(
+            shell,
+            entries=[persistence_entry],
+            pipeline_controller=pipeline_controller,
+            signal_service=signal_service,
+        )
     _apply_runtime_review_state(
         runtime_event
         or _require_runtime_event(
@@ -356,6 +382,8 @@ def commit_verified_review(
     )
     if sync_runtime:
         shell._sync_storage_backed_timeline()
+    if not assemble_presentation:
+        return None
     return shell.presentation()
 
 
@@ -372,7 +400,9 @@ def commit_rejected_review(
     runtime_event: TimelineEvent | None = None,
     clip_service: ReviewAudioClipService | None = None,
     apply_project_writeback: bool = True,
-) -> TimelinePresentation:
+    deferred_entries: list[DeferredTimelineReviewPersistenceEntry] | None = None,
+    assemble_presentation: bool = True,
+) -> TimelinePresentation | None:
     """Demote one false-positive event and emit one canonical rejection signal."""
 
     if resolved_target is None:
@@ -434,24 +464,28 @@ def commit_rejected_review(
         review_decision=decision,
         review_note=review_note,
     )
-    signal = _commit_timeline_review_command(
-        shell,
+    persistence_entry = _timeline_review_persistence_entry(
         context=context,
         commit=commit,
-        pipeline_controller=pipeline_controller,
-        signal_service=signal_service,
+        sample_export=DeferredTimelineReviewSampleExport(
+            class_label=review_label,
+            source_audio_path=target.source_audio_path,
+            start_seconds=float(target.event.start),
+            end_seconds=float(target.event.end),
+            event_id=str(target.event.event_id),
+            decision_kind=ReviewDecisionKind.REJECTED,
+        ),
         apply_project_writeback=apply_project_writeback,
     )
-    safe_export_timeline_review_sample(
-        signal=signal,
-        class_label=review_label,
-        source_audio_path=target.source_audio_path,
-        start_seconds=float(target.event.start),
-        end_seconds=float(target.event.end),
-        event_id=str(target.event.event_id),
-        decision_kind=ReviewDecisionKind.REJECTED,
-        clip_service=clip_service,
-    )
+    if deferred_entries is not None:
+        deferred_entries.append(persistence_entry)
+    else:
+        _persist_or_queue_timeline_review_entries(
+            shell,
+            entries=[persistence_entry],
+            pipeline_controller=pipeline_controller,
+            signal_service=signal_service,
+        )
     _apply_runtime_review_state(
         runtime_event
         or _require_runtime_event(
@@ -479,12 +513,16 @@ def commit_rejected_review(
     )
     if sync_runtime:
         shell._sync_storage_backed_timeline()
+    if not assemble_presentation:
+        return None
     return shell.presentation()
 
 
 def commit_missed_events_review(
     shell: TimelineReviewShell,
     intent: CommitMissedEventsReview,
+    *,
+    sync_runtime: bool = True,
 ) -> TimelinePresentation:
     """Create multiple missing events and emit review signals in one undoable operation."""
 
@@ -499,6 +537,7 @@ def commit_missed_events_review(
         },
     )
     controller = ReviewPipelineController(Path(shell.project_storage.working_dir).resolve())
+    deferred_entries: list[DeferredTimelineReviewPersistenceEntry] = []
     touched_layer_ids = {entry.layer_id for entry in intent.intents}
     for entry in intent.intents:
         commit_missed_event_review(
@@ -508,34 +547,43 @@ def commit_missed_events_review(
             pipeline_controller=controller,
             review_context=review_context,
             apply_project_writeback=False,
+            deferred_entries=deferred_entries,
         )
-    shell._sync_storage_backed_layers(list(touched_layer_ids))
+    _persist_or_queue_timeline_review_entries(
+        shell,
+        entries=deferred_entries,
+        pipeline_controller=controller if not callable(
+            getattr(shell, "enqueue_deferred_review_persistence", None)
+        )
+        else None,
+    )
+    if sync_runtime:
+        shell._sync_storage_backed_layers(list(touched_layer_ids))
     return shell.presentation()
 
 
 def commit_verified_events_review(
     shell: TimelineReviewShell,
     intent: CommitVerifiedEventsReview,
+    *,
+    sync_runtime: bool = True,
 ) -> TimelinePresentation:
     """Verify multiple events in one undoable operation."""
 
     project, active_song_id, active_song_version_id, version, song = _require_review_context(shell)
     review_context = _review_commit_context(shell, project, active_song_version_id)
-    controller = ReviewPipelineController(Path(shell.project_storage.working_dir).resolve())
     presentation = shell.presentation()
     resolved_context = (project, active_song_id, active_song_version_id, version, song)
-    clip_service = ReviewAudioClipService()
     runtime_events = _runtime_event_index(shell)
+    review_targets = _review_event_context_index(
+        shell,
+        presentation=presentation,
+        version_audio_file=version.audio_file,
+    )
     touched_layer_ids: set[LayerId] = set()
+    deferred_entries: list[DeferredTimelineReviewPersistenceEntry] = []
     for event_ref in intent.event_refs:
-        target = _resolve_review_event_context_on_presentation(
-            shell,
-            presentation=presentation,
-            layer_id=event_ref.layer_id,
-            event_id=event_ref.event_id,
-            take_id=event_ref.take_id,
-            version_audio_file=version.audio_file,
-        )
+        target = _require_review_event_context_from_index(review_targets, event_ref)
         touched_layer_ids.add(target.layer.layer_id)
         commit_verified_review(
             shell,
@@ -546,41 +594,45 @@ def commit_verified_events_review(
                 review_note=intent.review_note,
             ),
             sync_runtime=False,
-            pipeline_controller=controller,
             review_context=review_context,
             resolved_target=target,
             resolved_review_context=resolved_context,
-            runtime_event=runtime_events.get(_event_context_key(event_ref)),
-            clip_service=clip_service,
+            runtime_event=_runtime_event_from_index(runtime_events, event_ref),
             apply_project_writeback=False,
+            deferred_entries=deferred_entries,
+            assemble_presentation=False,
         )
-    shell._sync_storage_backed_layers(list(touched_layer_ids))
+    _persist_or_queue_timeline_review_entries(
+        shell,
+        entries=deferred_entries,
+    )
+    if sync_runtime:
+        shell._sync_storage_backed_layers(list(touched_layer_ids))
     return shell.presentation()
 
 
 def commit_rejected_events_review(
     shell: TimelineReviewShell,
     intent: CommitRejectedEventsReview,
+    *,
+    sync_runtime: bool = True,
 ) -> TimelinePresentation:
     """Reject multiple events in one undoable operation."""
 
     project, active_song_id, active_song_version_id, version, song = _require_review_context(shell)
     review_context = _review_commit_context(shell, project, active_song_version_id)
-    controller = ReviewPipelineController(Path(shell.project_storage.working_dir).resolve())
     presentation = shell.presentation()
     resolved_context = (project, active_song_id, active_song_version_id, version, song)
-    clip_service = ReviewAudioClipService()
     runtime_events = _runtime_event_index(shell)
+    review_targets = _review_event_context_index(
+        shell,
+        presentation=presentation,
+        version_audio_file=version.audio_file,
+    )
     touched_layer_ids: set[LayerId] = set()
+    deferred_entries: list[DeferredTimelineReviewPersistenceEntry] = []
     for event_ref in intent.event_refs:
-        target = _resolve_review_event_context_on_presentation(
-            shell,
-            presentation=presentation,
-            layer_id=event_ref.layer_id,
-            event_id=event_ref.event_id,
-            take_id=event_ref.take_id,
-            version_audio_file=version.audio_file,
-        )
+        target = _require_review_event_context_from_index(review_targets, event_ref)
         touched_layer_ids.add(target.layer.layer_id)
         commit_rejected_review(
             shell,
@@ -591,15 +643,20 @@ def commit_rejected_events_review(
                 review_note=intent.review_note,
             ),
             sync_runtime=False,
-            pipeline_controller=controller,
             review_context=review_context,
             resolved_target=target,
             resolved_review_context=resolved_context,
-            runtime_event=runtime_events.get(_event_context_key(event_ref)),
-            clip_service=clip_service,
+            runtime_event=_runtime_event_from_index(runtime_events, event_ref),
             apply_project_writeback=False,
+            deferred_entries=deferred_entries,
+            assemble_presentation=False,
         )
-    shell._sync_storage_backed_layers(list(touched_layer_ids))
+    _persist_or_queue_timeline_review_entries(
+        shell,
+        entries=deferred_entries,
+    )
+    if sync_runtime:
+        shell._sync_storage_backed_layers(list(touched_layer_ids))
     return shell.presentation()
 
 
@@ -671,19 +728,22 @@ def commit_relabel_review(
         corrected_label=normalized_corrected_label,
         review_note=review_note,
     )
-    signal = _commit_timeline_review_command(
+    _persist_or_queue_timeline_review_entries(
         shell,
-        context=context,
-        commit=commit,
-    )
-    safe_export_timeline_review_sample(
-        signal=signal,
-        class_label=normalized_corrected_label,
-        source_audio_path=target.source_audio_path,
-        start_seconds=float(target.event.start),
-        end_seconds=float(target.event.end),
-        event_id=str(target.event.event_id),
-        decision_kind=ReviewDecisionKind.RELABELED,
+        entries=[
+            _timeline_review_persistence_entry(
+                context=context,
+                commit=commit,
+                sample_export=DeferredTimelineReviewSampleExport(
+                    class_label=normalized_corrected_label,
+                    source_audio_path=target.source_audio_path,
+                    start_seconds=float(target.event.start),
+                    end_seconds=float(target.event.end),
+                    event_id=str(target.event.event_id),
+                    decision_kind=ReviewDecisionKind.RELABELED,
+                ),
+            )
+        ],
     )
     _apply_runtime_review_state(
         _require_runtime_event(
@@ -785,19 +845,22 @@ def commit_boundary_corrected_review(
         corrected_label=review_label,
         review_note=review_note,
     )
-    signal = _commit_timeline_review_command(
+    _persist_or_queue_timeline_review_entries(
         shell,
-        context=context,
-        commit=commit,
-    )
-    safe_export_timeline_review_sample(
-        signal=signal,
-        class_label=review_label,
-        source_audio_path=target.source_audio_path,
-        start_seconds=float(intent.corrected_range.start),
-        end_seconds=float(intent.corrected_range.end),
-        event_id=str(target.event.event_id),
-        decision_kind=ReviewDecisionKind.BOUNDARY_CORRECTED,
+        entries=[
+            _timeline_review_persistence_entry(
+                context=context,
+                commit=commit,
+                sample_export=DeferredTimelineReviewSampleExport(
+                    class_label=review_label,
+                    source_audio_path=target.source_audio_path,
+                    start_seconds=float(intent.corrected_range.start),
+                    end_seconds=float(intent.corrected_range.end),
+                    event_id=str(target.event.event_id),
+                    decision_kind=ReviewDecisionKind.BOUNDARY_CORRECTED,
+                ),
+            )
+        ],
     )
     _apply_runtime_review_state(
         _require_runtime_event(
@@ -1100,6 +1163,69 @@ def _resolve_review_event_context_on_presentation(
     )
 
 
+def _review_event_context_index(
+    shell: TimelineReviewShell,
+    *,
+    presentation: TimelinePresentation,
+    version_audio_file: str,
+) -> dict[tuple[str, str | None, str], ReviewEventContext]:
+    index: dict[tuple[str, str | None, str], ReviewEventContext] = {}
+    for layer in presentation.layers:
+        layer_id = str(layer.layer_id)
+        main_source_audio_path = _resolve_source_audio_path(
+            presentation=presentation,
+            shell=shell,
+            layer=layer,
+            version_audio_file=version_audio_file,
+            take_id=None,
+        )
+        for event in layer.events:
+            context = ReviewEventContext(
+                layer=layer,
+                take=None,
+                event=event,
+                source_audio_path=main_source_audio_path,
+            )
+            event_id = str(event.event_id)
+            index[(layer_id, None, event_id)] = context
+            if layer.main_take_id is not None:
+                index[(layer_id, str(layer.main_take_id), event_id)] = context
+        for take in layer.takes:
+            take_id = str(take.take_id)
+            take_source_audio_path = _resolve_source_audio_path(
+                presentation=presentation,
+                shell=shell,
+                layer=layer,
+                version_audio_file=version_audio_file,
+                take_id=take.take_id,
+            )
+            for event in take.events:
+                index.setdefault(
+                    (layer_id, take_id, str(event.event_id)),
+                    ReviewEventContext(
+                        layer=layer,
+                        take=take,
+                        event=event,
+                        source_audio_path=take_source_audio_path,
+                    ),
+                )
+    return index
+
+
+def _require_review_event_context_from_index(
+    index: dict[tuple[str, str | None, str], ReviewEventContext],
+    event_ref: EventRef,
+) -> ReviewEventContext:
+    key = _event_context_key(event_ref)
+    target = index.get(key)
+    if target is not None:
+        return target
+    fallback = index.get((str(event_ref.layer_id), None, str(event_ref.event_id)))
+    if fallback is not None:
+        return fallback
+    raise ValueError(f"Timeline review event not found: {event_ref.event_id}")
+
+
 def _require_runtime_event(
     shell: TimelineReviewShell,
     *,
@@ -1131,6 +1257,16 @@ def _runtime_event_index(
             for event in take.events:
                 index[(layer_id, take_id, str(event.id))] = event
     return index
+
+
+def _runtime_event_from_index(
+    index: dict[tuple[str, str | None, str], TimelineEvent],
+    event_ref: EventRef,
+) -> TimelineEvent | None:
+    target = index.get(_event_context_key(event_ref))
+    if target is not None:
+        return target
+    return index.get((str(event_ref.layer_id), None, str(event_ref.event_id)))
 
 
 def _event_context_key(event_ref: EventRef) -> tuple[str, str | None, str]:
@@ -1267,6 +1403,68 @@ def _commit_timeline_review_command(
             apply_project_writeback=apply_project_writeback,
         )
     )
+
+
+def _timeline_review_persistence_entry(
+    *,
+    context: ReviewCommitContext,
+    commit: ExplicitReviewCommit,
+    sample_export: DeferredTimelineReviewSampleExport | None = None,
+    apply_project_writeback: bool = True,
+) -> DeferredTimelineReviewPersistenceEntry:
+    return DeferredTimelineReviewPersistenceEntry(
+        context=context,
+        commit=commit,
+        sample_export=sample_export,
+        apply_project_writeback=apply_project_writeback,
+    )
+
+
+def _persist_or_queue_timeline_review_entries(
+    shell: TimelineReviewShell,
+    *,
+    entries: list[DeferredTimelineReviewPersistenceEntry],
+    pipeline_controller: ReviewPipelineController | None = None,
+    signal_service: ReviewSignalService | None = None,
+) -> None:
+    if not entries:
+        return
+    enqueue = getattr(shell, "enqueue_deferred_review_persistence", None)
+    if callable(enqueue) and pipeline_controller is None and signal_service is None:
+        enqueue(
+            DeferredTimelineReviewPersistence(
+                root=Path(shell.project_storage.working_dir).resolve(),
+                entries=tuple(entries),
+            )
+        )
+        return
+
+    controller = pipeline_controller or ReviewPipelineController(
+        Path(shell.project_storage.working_dir).resolve(),
+        signal_service=signal_service,
+    )
+    clip_service = ReviewAudioClipService()
+    for entry in entries:
+        signal = controller.commit(
+            build_review_commit_command(
+                context=entry.context,
+                commit=entry.commit,
+                apply_project_writeback=entry.apply_project_writeback,
+            )
+        )
+        sample_export = entry.sample_export
+        if sample_export is None:
+            continue
+        safe_export_timeline_review_sample(
+            signal=signal,
+            class_label=sample_export.class_label,
+            source_audio_path=sample_export.source_audio_path,
+            start_seconds=sample_export.start_seconds,
+            end_seconds=sample_export.end_seconds,
+            event_id=sample_export.event_id,
+            decision_kind=sample_export.decision_kind,
+            clip_service=clip_service,
+        )
 
 
 def _review_commit_context(

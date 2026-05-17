@@ -287,6 +287,50 @@ class ObjectActionExecutionService(
     def _can_edit_app_defaults(self) -> bool:
         return self._app_settings_service is not None
 
+    def _can_manage_profiles(self) -> bool:
+        return self._app_settings_service is not None
+
+    def _list_action_profile_names(
+        self,
+        action_id: str,
+    ) -> tuple[str, ...]:
+        if self._app_settings_service is None:
+            return ()
+        _workflow, template_id = self._require_workflow(action_id)
+        profiles = self._app_settings_service.pipeline_profiles_for_template(template_id)
+        return tuple(sorted(profiles))
+
+    def _load_action_profile_values(
+        self,
+        action_id: str,
+        *,
+        profile_name: str,
+    ) -> dict[str, object]:
+        if self._app_settings_service is None:
+            raise RuntimeError("Pipeline profiles are unavailable in this runtime.")
+        _workflow, template_id = self._require_workflow(action_id)
+        profiles = self._app_settings_service.pipeline_profiles_for_template(template_id)
+        match = profiles.get(str(profile_name).strip())
+        if match is None:
+            raise ValueError(f"Unknown pipeline profile '{profile_name}'.")
+        return dict(match)
+
+    def _save_action_profile_values(
+        self,
+        action_id: str,
+        *,
+        profile_name: str,
+        values: dict[str, object],
+    ) -> None:
+        if self._app_settings_service is None:
+            raise RuntimeError("Pipeline profiles are unavailable in this runtime.")
+        _workflow, template_id = self._require_workflow(action_id)
+        self._app_settings_service.save_pipeline_profile(
+            template_id,
+            profile_name,
+            values,
+        )
+
     def _load_app_pipeline_defaults(self, template_id: str) -> dict[str, object]:
         if self._app_settings_service is None:
             return {}

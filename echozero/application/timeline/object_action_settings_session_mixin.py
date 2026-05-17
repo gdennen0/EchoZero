@@ -21,6 +21,7 @@ from echozero.application.timeline.object_actions.descriptors import (
 from echozero.application.timeline.object_actions.session import (
     ApplyCopySource,
     ChangeSessionScope,
+    LoadSessionProfile,
     ObjectActionSessionFieldValue,
     ObjectActionSettingsCopyPreview,
     ObjectActionSettingsScopeState,
@@ -30,6 +31,7 @@ from echozero.application.timeline.object_actions.session import (
     ReplaceSessionValues,
     RunSession,
     SaveAndRunSession,
+    SaveSessionProfile,
     SaveSessionToDefaults,
     SaveSession,
     SetSessionFieldValue,
@@ -131,6 +133,32 @@ class ObjectActionSettingsSessionMixin(ObjectActionSettingsCopyMixin):
     def _can_edit_app_defaults(self) -> bool:
         raise NotImplementedError
 
+    def _can_manage_profiles(self) -> bool:
+        raise NotImplementedError
+
+    def _list_action_profile_names(
+        self,
+        action_id: str,
+    ) -> tuple[str, ...]:
+        raise NotImplementedError
+
+    def _load_action_profile_values(
+        self,
+        action_id: str,
+        *,
+        profile_name: str,
+    ) -> dict[str, object]:
+        raise NotImplementedError
+
+    def _save_action_profile_values(
+        self,
+        action_id: str,
+        *,
+        profile_name: str,
+        values: dict[str, object],
+    ) -> None:
+        raise NotImplementedError
+
     @staticmethod
     def _require_workflow(action_id: str) -> tuple[ActionDescriptor, str]:
         raise NotImplementedError
@@ -197,6 +225,16 @@ class ObjectActionSettingsSessionMixin(ObjectActionSettingsCopyMixin):
             elif isinstance(command, SaveSession):
                 self._save_session_scope(settings_session)
                 updated = self._rebuild_session(settings_session)
+            elif isinstance(command, LoadSessionProfile):
+                updated = self._load_session_profile(
+                    settings_session,
+                    profile_name=command.profile_name,
+                )
+            elif isinstance(command, SaveSessionProfile):
+                updated = self._save_session_profile(
+                    settings_session,
+                    profile_name=command.profile_name,
+                )
             elif isinstance(command, (RunSession, SaveAndRunSession)):
                 self._save_and_run_session(settings_session)
                 updated = self._rebuild_session(settings_session)
@@ -297,6 +335,8 @@ class ObjectActionSettingsSessionMixin(ObjectActionSettingsCopyMixin):
             plan=current_plan,
             scope_states=tuple(scope_states),
             copy_policy=copy_policy,
+            profile_names=self._list_action_profile_names(action_id),
+            can_manage_profiles=self._can_manage_profiles(),
             default_save_scope=self._default_save_scope(),
             default_save_label=self._scope_label(self._default_save_scope() or "song_default"),
             can_save=True,
@@ -506,6 +546,52 @@ class ObjectActionSettingsSessionMixin(ObjectActionSettingsCopyMixin):
             object_id=settings_session.object_id,
             object_type=settings_session.object_type,
             scope=target_scope,
+        )
+        return self._rebuild_session(settings_session)
+
+    def _load_session_profile(
+        self,
+        settings_session: ObjectActionSettingsSession,
+        *,
+        profile_name: str,
+    ) -> ObjectActionSettingsSession:
+        name = str(profile_name).strip()
+        if not name:
+            raise ValueError("Choose a saved profile to load.")
+        profile_values = self._load_action_profile_values(
+            settings_session.action_id,
+            profile_name=name,
+        )
+        drafts_by_scope = {
+            state.scope: state.draft_values for state in settings_session.scope_states
+        }
+        drafts_by_scope[settings_session.scope] = {
+            **settings_session.current_scope_state.draft_values,
+            **profile_values,
+        }
+        return self._build_session(
+            session_id=settings_session.session_id,
+            action_id=settings_session.action_id,
+            params=self._session_object_params(settings_session),
+            object_id=settings_session.object_id,
+            object_type=settings_session.object_type,
+            scope=settings_session.scope,
+            drafts_by_scope=drafts_by_scope,
+        )
+
+    def _save_session_profile(
+        self,
+        settings_session: ObjectActionSettingsSession,
+        *,
+        profile_name: str,
+    ) -> ObjectActionSettingsSession:
+        name = str(profile_name).strip()
+        if not name:
+            raise ValueError("Enter a profile name before saving.")
+        self._save_action_profile_values(
+            settings_session.action_id,
+            profile_name=name,
+            values=dict(settings_session.values),
         )
         return self._rebuild_session(settings_session)
 

@@ -237,6 +237,157 @@ def test_app_shell_runtime_preserves_layer_order_above_source_audio_across_save_
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
+def test_app_shell_runtime_preserves_layer_order_above_source_audio_across_song_switch():
+    temp_root = _repo_local_temp_root()
+    working_root = temp_root / "working"
+
+    runtime = build_app_shell(
+        working_dir_root=working_root,
+        initial_project_name="Layer Order Song Switch",
+    )
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        audio_one = write_test_wav(temp_root / "fixtures" / "layer-order-song-1.wav")
+        audio_two = write_test_wav(temp_root / "fixtures" / "layer-order-song-2.wav")
+
+        runtime.add_song_from_path("Layer Order Song One", audio_one)
+        song_one_id = str(runtime.session.active_song_id)
+        runtime.add_layer(LayerKind.EVENT, "Manual Events")
+
+        before_reorder = runtime.presentation()
+        source_layer = before_reorder.layers[0]
+        manual_layer = next(
+            layer for layer in before_reorder.layers if layer.title == "Manual Events"
+        )
+
+        reordered = runtime.dispatch(
+            ReorderLayer(
+                source_layer_id=manual_layer.layer_id,
+                target_after_layer_id=None,
+                insert_at_start=True,
+            )
+        )
+        assert [layer.title for layer in reordered.layers[:2]] == [
+            "Manual Events",
+            "Layer Order Song One",
+        ]
+
+        runtime.add_song_from_path("Layer Order Song Two", audio_two)
+        switched_back = runtime.select_song(song_one_id)
+
+        assert [layer.title for layer in switched_back.layers[:2]] == [
+            "Manual Events",
+            "Layer Order Song One",
+        ]
+        assert switched_back.layers[0].layer_id == manual_layer.layer_id
+        assert switched_back.layers[1].layer_id == source_layer.layer_id
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_preserves_source_layer_order_across_song_switch():
+    temp_root = _repo_local_temp_root()
+    working_root = temp_root / "working"
+
+    runtime = build_app_shell(
+        working_dir_root=working_root,
+        initial_project_name="Source Layer Order Song Switch",
+    )
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        audio_one = write_test_wav(temp_root / "fixtures" / "source-order-song-1.wav")
+        audio_two = write_test_wav(temp_root / "fixtures" / "source-order-song-2.wav")
+
+        runtime.add_song_from_path("Song One", audio_one)
+        song_one_id = str(runtime.session.active_song_id)
+        runtime.add_layer(LayerKind.EVENT, "Manual A")
+        runtime.add_layer(LayerKind.EVENT, "Manual B")
+
+        before_reorder = runtime.presentation()
+        source_layer = next(layer for layer in before_reorder.layers if layer.title == "Song One")
+        manual_b = next(layer for layer in before_reorder.layers if layer.title == "Manual B")
+
+        reordered = runtime.dispatch(
+            ReorderLayer(
+                source_layer_id=source_layer.layer_id,
+                target_after_layer_id=manual_b.layer_id,
+                insert_at_start=False,
+            )
+        )
+        assert [layer.title for layer in reordered.layers] == [
+            "Manual A",
+            "Manual B",
+            "Song One",
+        ]
+
+        runtime.add_song_from_path("Song Two", audio_two)
+        switched_back = runtime.select_song(song_one_id)
+
+        assert [layer.title for layer in switched_back.layers] == [
+            "Manual A",
+            "Manual B",
+            "Song One",
+        ]
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_preserves_source_layer_order_across_save_and_open():
+    temp_root = _repo_local_temp_root()
+    working_root = temp_root / "working"
+    save_path = temp_root / "source-layer-order.ez"
+
+    runtime = build_app_shell(
+        working_dir_root=working_root,
+        initial_project_name="Source Layer Order Save Open",
+    )
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        audio = write_test_wav(temp_root / "fixtures" / "source-order-save-open.wav")
+
+        runtime.add_song_from_path("Song One", audio)
+        runtime.add_layer(LayerKind.EVENT, "Manual A")
+        runtime.add_layer(LayerKind.EVENT, "Manual B")
+
+        before_reorder = runtime.presentation()
+        source_layer = next(layer for layer in before_reorder.layers if layer.title == "Song One")
+        manual_b = next(layer for layer in before_reorder.layers if layer.title == "Manual B")
+
+        reordered = runtime.dispatch(
+            ReorderLayer(
+                source_layer_id=source_layer.layer_id,
+                target_after_layer_id=manual_b.layer_id,
+                insert_at_start=False,
+            )
+        )
+        assert [layer.title for layer in reordered.layers] == [
+            "Manual A",
+            "Manual B",
+            "Song One",
+        ]
+
+        runtime.save_project_as(save_path)
+        runtime.open_project(save_path)
+
+        reloaded = runtime.presentation()
+        assert [layer.title for layer in reloaded.layers] == [
+            "Manual A",
+            "Manual B",
+            "Song One",
+        ]
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
 def test_app_shell_runtime_open_project_replaces_live_project_state():
     temp_root = _repo_local_temp_root()
     working_root = temp_root / "working"
@@ -1321,6 +1472,50 @@ def test_app_shell_widget_contract_switches_song_and_song_version():
         assert str(harness.runtime.session.active_song_version_id) == version_1_id
         assert harness.runtime.presentation().layers[0].title == "Song One"
         assert harness.runtime.presentation().end_time_label == "00:00:00.10"
+    finally:
+        harness.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_widget_contract_preserves_reordered_layer_order_across_song_switch():
+    temp_root = _repo_local_temp_root()
+    harness = AppFlowHarness(
+        working_dir_root=temp_root / "working",
+        initial_project_name="Layer Order Widget Switch",
+    )
+
+    try:
+        harness.runtime.add_song_from_path(
+            "Song One",
+            write_test_wav(temp_root / "fixtures" / "widget-layer-order-song-1.wav", frames=4410),
+        )
+        song_1_id = str(harness.runtime.session.active_song_id)
+        harness.runtime.add_layer(LayerKind.EVENT, "Manual Events")
+
+        before_reorder = harness.runtime.presentation()
+        manual_layer = next(
+            layer for layer in before_reorder.layers if layer.title == "Manual Events"
+        )
+        harness.dispatch(
+            ReorderLayer(
+                source_layer_id=manual_layer.layer_id,
+                target_after_layer_id=None,
+                insert_at_start=True,
+            )
+        )
+
+        harness.runtime.add_song_from_path(
+            "Song Two",
+            write_test_wav(temp_root / "fixtures" / "widget-layer-order-song-2.wav", frames=8820),
+        )
+        harness.widget.set_presentation(harness.runtime.presentation())
+
+        harness.widget._action_router.select_song(song_1_id)
+
+        assert [layer.title for layer in harness.widget.presentation.layers[:2]] == [
+            "Manual Events",
+            "Song One",
+        ]
     finally:
         harness.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)

@@ -485,6 +485,7 @@ class _TimelineCanvasPaintMixin:
                         waveform_key=layer.waveform_key,
                         source_audio_path=layer.source_audio_path,
                         unavailable_reason="Waveform unavailable",
+                        repaint_target=self,
                     ),
                 )
                 self._draw_note_contour_overlay(
@@ -532,6 +533,8 @@ class _TimelineCanvasPaintMixin:
                                     source_audio_path=layer.source_audio_path
                                     or layer.playback_source_ref,
                                     render_audio_shape=bool(
+                                        self._edit_mode != "fix"
+                                        and
                                         layer.playback_enabled
                                         and layer.playback_mode is PlaybackMode.EVENT_SLICE
                                     ),
@@ -541,6 +544,7 @@ class _TimelineCanvasPaintMixin:
                                     event_height=self._event_height,
                                     dimmed=dimmed,
                                     viewport_width=self.width(),
+                                    repaint_target=self,
                                 ),
                             ),
                         )
@@ -607,6 +611,7 @@ class _TimelineCanvasPaintMixin:
                         waveform_key=take.waveform_key,
                         source_audio_path=take.source_audio_path,
                         unavailable_reason="Waveform unavailable",
+                        repaint_target=self,
                     ),
                 )
             else:
@@ -656,6 +661,8 @@ class _TimelineCanvasPaintMixin:
                                     or layer.source_audio_path
                                     or layer.playback_source_ref,
                                     render_audio_shape=bool(
+                                        self._edit_mode != "fix"
+                                        and
                                         layer.playback_enabled
                                         and layer.playback_mode is PlaybackMode.EVENT_SLICE
                                     ),
@@ -665,6 +672,7 @@ class _TimelineCanvasPaintMixin:
                                     event_height=self._event_height,
                                     dimmed=True or dimmed,
                                     viewport_width=self.width(),
+                                    repaint_target=self,
                                 ),
                             ),
                         )
@@ -845,12 +853,16 @@ class _TimelineCanvasPaintMixin:
                 )
         return lanes
 
-    @staticmethod
     def _fix_overlay_matched_source_ids(
+        self: Any,
         *,
         lane_events: list[EventPresentation],
     ) -> set[str]:
-        return {str(event.source_event_id or event.event_id) for event in lane_events}
+        return {
+            str(event.source_event_id or event.event_id)
+            for event in lane_events
+            if not self._event_is_demoted(event)
+        }
 
     def _visible_lane_events(
         self: Any,

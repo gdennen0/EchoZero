@@ -11,6 +11,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from typing import Protocol, cast
 
+from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QResizeEvent
 from PyQt6.QtWidgets import QFrame, QLabel, QScrollArea, QScrollBar, QWidget
 
@@ -49,6 +50,8 @@ from echozero.application.timeline.intents import (
     ReorderLayer,
     ReplaceSectionCues,
     Seek,
+    SelectEvent,
+    SelectLayer,
     SelectTake,
     SetGain,
     SetFollowCursorEnabled,
@@ -56,6 +59,7 @@ from echozero.application.timeline.intents import (
     SetLayerOutputBus,
     SetLayerSolo,
     SelectAdjacentEventInSelectedLayer,
+    SetSelectedEvents,
     Stop,
     TimelineIntent,
     TriggerTakeAction,
@@ -114,6 +118,13 @@ _STRUCTURAL_INTENT_TYPES = (
     CommitRelabeledEventReview,
     CommitBoundaryCorrectedEventReview,
 )
+_SELECTION_ONLY_INTENT_TYPES = (
+    SelectLayer,
+    SelectTake,
+    SelectEvent,
+    SelectAdjacentEventInSelectedLayer,
+    SetSelectedEvents,
+)
 
 
 class _RuntimeShellWithPipelineUpdate(Protocol):
@@ -156,6 +167,7 @@ class _TimelineWidgetRuntimeHost(Protocol):
     _runtime_structural_sync_timer: object
     _runtime_mix_sync_pending_presentation: TimelinePresentation | None
     _runtime_structural_sync_pending_presentation: TimelinePresentation | None
+    _object_info_refresh_pending: bool
 
     def width(self) -> int: ...
     def _refresh_object_info_panel(self) -> None: ...
@@ -165,6 +177,8 @@ class _TimelineWidgetRuntimeHost(Protocol):
         presentation: TimelinePresentation,
         *,
         sync_runtime_audio: bool = True,
+        refresh_object_info: bool = True,
+        recompute_canvas_layout: bool = True,
     ) -> None: ...
     def _update_horizontal_scroll_bounds(self, *, sync_bar_value: bool) -> None: ...
     def _reset_scroll_area_horizontal_offset(self) -> None: ...
@@ -204,6 +218,8 @@ class TimelineWidgetRuntimeMixin:
         presentation: TimelinePresentation,
         *,
         sync_runtime_audio: bool = True,
+        refresh_object_info: bool = True,
+        recompute_canvas_layout: bool = True,
     ) -> None:
         viewport_widget = self._scroll.viewport()
         viewport = max(1, viewport_widget.width() if viewport_widget is not None else self.width())
@@ -221,9 +237,15 @@ class TimelineWidgetRuntimeMixin:
             song_browser.set_presentation(self.presentation)
         self._sync_editor_state()
         self._sync_pipeline_status_banner()
-        self._refresh_object_info_panel()
+        if refresh_object_info:
+            self._refresh_object_info_panel()
+        else:
+            self._queue_object_info_refresh()
         self._ruler.set_presentation(self.presentation)
-        self._canvas.set_presentation(self.presentation)
+        self._canvas.set_presentation(
+            self.presentation,
+            recompute_layout=recompute_canvas_layout,
+        )
         self._sync_runtime_timer_cadence()
         self._notify_window_title_sync()
         if sync_runtime_audio:
@@ -231,6 +253,18 @@ class TimelineWidgetRuntimeMixin:
                 self.presentation,
                 reason="presentation-update",
             )
+
+    def _queue_object_info_refresh(self: _TimelineWidgetRuntimeHost) -> None:
+        if bool(getattr(self, "_object_info_refresh_pending", False)):
+            return
+        self._object_info_refresh_pending = True
+        QTimer.singleShot(0, lambda: self._flush_queued_object_info_refresh())
+
+    def _flush_queued_object_info_refresh(self: _TimelineWidgetRuntimeHost) -> None:
+        if not bool(getattr(self, "_object_info_refresh_pending", False)):
+            return
+        self._object_info_refresh_pending = False
+        self._refresh_object_info_panel()
 
     def _with_local_viewport(
         self: _TimelineWidgetRuntimeHost,
@@ -608,6 +642,8 @@ class TimelineWidgetRuntimeMixin:
         normalized = (mode or "select").strip().lower()
         if normalized not in {"select", "draw", "erase", "move", "fix"}:
             return
+        if self._edit_mode == normalized:
+            return
         self._edit_mode = normalized
         self._sync_editor_state()
 
@@ -615,6 +651,8 @@ class TimelineWidgetRuntimeMixin:
         normalized = (action or "select").strip().lower()
         if normalized not in {"promote", "remove", "select"}:
             normalized = "select"
+        if self._fix_action == normalized:
+            return
         self._fix_action = normalized
         self._sync_editor_state()
 
@@ -749,7 +787,8 @@ class TimelineWidgetRuntimeMixin:
 
         updated = self._with_local_viewport(updated)
         was_playing = bool(self.presentation.is_playing)
-        if self._runtime_audio is not None:
+        selection_only_intent = isinstance(intent, _SELECTION_ONLY_INTENT_TYPES)
+        if self._runtime_audio is not None and not selection_only_intent:
             runtime_time, runtime_playing = self._sample_runtime_playhead()
             if isinstance(intent, Seek):
                 runtime_time = max(0.0, float(intent.position))
@@ -782,7 +821,14 @@ class TimelineWidgetRuntimeMixin:
             )
         if isinstance(intent, SelectAdjacentEventInSelectedLayer):
             updated = self._with_selected_event_centered(updated)
-        self.set_presentation(updated, sync_runtime_audio=False)
+        live_structural_intent = was_playing and self._is_structural_intent(intent)
+        selection_refresh_deferred = selection_only_intent
+        self.set_presentation(
+            updated,
+            sync_runtime_audio=False,
+            refresh_object_info=not live_structural_intent and not selection_refresh_deferred,
+            recompute_canvas_layout=False if selection_only_intent else True,
+        )
 
     def _sync_runtime_audio_for_intent(
         self: _TimelineWidgetRuntimeHost,
@@ -793,6 +839,9 @@ class TimelineWidgetRuntimeMixin:
     ) -> None:
         runtime_audio = self._runtime_audio
         if runtime_audio is None:
+            return
+        if was_playing and self._is_structural_intent(intent):
+            self._queue_structural_runtime_sync(presentation)
             return
         delta = self._classify_runtime_audio_change(presentation)
         self._record_runtime_audio_sync_decision(delta)

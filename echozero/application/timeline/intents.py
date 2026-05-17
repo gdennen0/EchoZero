@@ -272,6 +272,19 @@ class CreateEvent(TimelineIntent):
 
 
 @dataclass(slots=True)
+class CreateEventsBatch(TimelineIntent):
+    """Create multiple events in one canonical timeline mutation."""
+
+    events: list[CreateEvent]
+
+    def __post_init__(self) -> None:
+        normalized = [event for event in self.events if isinstance(event, CreateEvent)]
+        if not normalized:
+            raise ValueError("CreateEventsBatch requires at least one CreateEvent")
+        self.events = normalized
+
+
+@dataclass(slots=True)
 class CommitMissedEventReview(TimelineIntent):
     """Create one missing event and commit the timeline fix as a review signal."""
 

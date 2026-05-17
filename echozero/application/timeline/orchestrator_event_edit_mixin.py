@@ -748,12 +748,6 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
         target_after_layer_id: LayerId | None,
         insert_at_start: bool,
     ) -> None:
-        source_layer = next(
-            (layer for layer in timeline.layers if layer.id == source_layer_id), None
-        )
-        if source_layer is not None and is_imported_song_layer(source_layer):
-            return
-
         ordered_layers = sorted(timeline.layers, key=lambda layer: layer.order_index)
         source_index = next(
             (index for index, layer in enumerate(ordered_layers) if layer.id == source_layer_id),

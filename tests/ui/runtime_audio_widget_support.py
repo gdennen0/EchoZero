@@ -7,7 +7,9 @@ from tests.ui.runtime_audio_shared_support import *  # noqa: F401,F403
 from echozero.ui.FEEL import TIMELINE_RUNTIME_TICK_IDLE_MS
 from echozero.application.presentation.models import SectionCuePresentation
 from echozero.application.shared.ranges import TimeRange
-from echozero.application.timeline.intents import CreateEvent
+from echozero.application.timeline.intents import CreateEvent, SetSelectedEvents
+from echozero.application.timeline.models import EventRef
+from tests.ui.timeline_shell_shared_support import _selection_test_presentation
 
 
 def test_widget_runtime_tick_tracks_provider_smoothly_without_seek_dispatch():
@@ -40,6 +42,296 @@ def test_widget_runtime_tick_tracks_provider_smoothly_without_seek_dispatch():
         assert second == 1.033
         assert 0.0 < second - first < 0.03
         assert widget.presentation.current_time_label == "00:00:01.03"
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_widget_dispatch_defers_object_info_refresh_for_live_create_event(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(
+        _event_slice_presentation(),
+        is_playing=True,
+        playhead=1.0,
+        current_time_label="00:00:01.00",
+    )
+    runtime_audio = FakeRuntimeAudio()
+    runtime_audio.playing = True
+    runtime_audio.current_time = 1.0
+
+    def _on_intent(intent):
+        if not isinstance(intent, CreateEvent):
+            return presentation
+        kick_layer = presentation.layers[1]
+        added = EventPresentation(
+            event_id=EventId("kick_3"),
+            start=1.0,
+            end=1.1,
+            label="Kick",
+        )
+        updated_kick_layer = replace(kick_layer, events=[*kick_layer.events, added])
+        return replace(
+            presentation,
+            layers=[presentation.layers[0], updated_kick_layer],
+            selected_layer_id=kick_layer.layer_id,
+            selected_event_ids=[added.event_id],
+        )
+
+    widget = TimelineWidget(presentation, on_intent=_on_intent, runtime_audio=runtime_audio)
+    widget._runtime_timer.stop()
+    refresh_calls: list[str] = []
+    original_refresh = widget._refresh_object_info_panel
+    monkeypatch.setattr(
+        widget,
+        "_refresh_object_info_panel",
+        lambda: refresh_calls.append("refresh") or original_refresh(),
+    )
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+        refresh_calls.clear()
+
+        widget._dispatch(
+            CreateEvent(
+                layer_id=LayerId("kick_lane"),
+                take_id=None,
+                time_range=TimeRange(start=1.0, end=1.1),
+            )
+        )
+
+        assert refresh_calls == []
+        app.processEvents()
+        assert refresh_calls == ["refresh"]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_widget_live_structural_dispatch_queues_without_hot_path_playback_classify(
+    monkeypatch,
+):
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(
+        _event_slice_presentation(),
+        is_playing=True,
+        playhead=1.0,
+        current_time_label="00:00:01.00",
+    )
+    runtime_audio = FakeRuntimeAudio()
+    runtime_audio.playing = True
+    runtime_audio.current_time = 1.0
+
+    def _on_intent(intent):
+        if not isinstance(intent, CreateEvent):
+            return presentation
+        kick_layer = presentation.layers[1]
+        added = EventPresentation(
+            event_id=EventId("kick_3"),
+            start=1.0,
+            end=1.1,
+            label="Kick",
+        )
+        updated_kick_layer = replace(kick_layer, events=[*kick_layer.events, added])
+        return replace(
+            presentation,
+            layers=[presentation.layers[0], updated_kick_layer],
+            selected_layer_id=kick_layer.layer_id,
+            selected_event_ids=[added.event_id],
+        )
+
+    widget = TimelineWidget(presentation, on_intent=_on_intent, runtime_audio=runtime_audio)
+    widget._runtime_timer.stop()
+    monkeypatch.setattr(
+        widget,
+        "_classify_runtime_audio_change",
+        lambda _presentation: (_ for _ in ()).throw(
+            AssertionError("playback classification ran on the gesture hot path")
+        ),
+    )
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+
+        widget._dispatch(
+            CreateEvent(
+                layer_id=LayerId("kick_lane"),
+                take_id=None,
+                time_range=TimeRange(start=1.0, end=1.1),
+            )
+        )
+
+        assert widget._runtime_structural_sync_pending_presentation is not None
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_widget_dispatch_skips_canvas_layout_recompute_for_live_create_event(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(
+        _event_slice_presentation(),
+        is_playing=True,
+        playhead=1.0,
+        current_time_label="00:00:01.00",
+    )
+    runtime_audio = FakeRuntimeAudio()
+    runtime_audio.playing = True
+    runtime_audio.current_time = 1.0
+
+    def _on_intent(intent):
+        if not isinstance(intent, CreateEvent):
+            return presentation
+        kick_layer = presentation.layers[1]
+        added = EventPresentation(
+            event_id=EventId("kick_3"),
+            start=1.0,
+            end=1.1,
+            label="Kick",
+        )
+        updated_kick_layer = replace(kick_layer, events=[*kick_layer.events, added])
+        return replace(
+            presentation,
+            layers=[presentation.layers[0], updated_kick_layer],
+            selected_layer_id=kick_layer.layer_id,
+            selected_event_ids=[added.event_id],
+        )
+
+    widget = TimelineWidget(presentation, on_intent=_on_intent, runtime_audio=runtime_audio)
+    widget._runtime_timer.stop()
+    layout_flags: list[bool] = []
+    original_canvas_set_presentation = widget._canvas.set_presentation
+
+    def _record_canvas_set_presentation(updated, *, recompute_layout=True):
+        layout_flags.append(bool(recompute_layout))
+        return original_canvas_set_presentation(updated, recompute_layout=recompute_layout)
+
+    monkeypatch.setattr(widget._canvas, "set_presentation", _record_canvas_set_presentation)
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+        layout_flags.clear()
+
+        widget._dispatch(
+            CreateEvent(
+                layer_id=LayerId("kick_lane"),
+                take_id=None,
+                time_range=TimeRange(start=1.0, end=1.1),
+            )
+        )
+
+        assert layout_flags[-1] is False
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_widget_dispatch_defers_object_info_refresh_for_selection_intent(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    presentation = _selection_test_presentation()
+
+    def _on_intent(intent):
+        if not isinstance(intent, SetSelectedEvents):
+            return presentation
+        kick_layer = presentation.layers[0]
+        return replace(
+            presentation,
+            selected_layer_id=kick_layer.layer_id,
+            selected_layer_ids=[kick_layer.layer_id],
+            selected_take_id=kick_layer.main_take_id,
+            selected_event_ids=list(intent.event_ids),
+            selected_event_refs=list(intent.event_refs),
+        )
+
+    widget = TimelineWidget(presentation, on_intent=_on_intent)
+    refresh_calls: list[str] = []
+    original_refresh = widget._refresh_object_info_panel
+    monkeypatch.setattr(
+        widget,
+        "_refresh_object_info_panel",
+        lambda: refresh_calls.append("refresh") or original_refresh(),
+    )
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+        refresh_calls.clear()
+
+        widget._dispatch(
+            SetSelectedEvents(
+                event_ids=[EventId("main_evt")],
+                event_refs=[
+                    EventRef(
+                        layer_id=LayerId("layer_kick"),
+                        take_id=TakeId("take_main"),
+                        event_id=EventId("main_evt"),
+                    )
+                ],
+                anchor_layer_id=LayerId("layer_kick"),
+                anchor_take_id=TakeId("take_main"),
+                selected_layer_ids=[LayerId("layer_kick")],
+            )
+        )
+
+        assert refresh_calls == []
+        app.processEvents()
+        assert refresh_calls == ["refresh"]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_widget_dispatch_skips_canvas_layout_recompute_for_selection_intent(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    presentation = _selection_test_presentation()
+
+    def _on_intent(intent):
+        if not isinstance(intent, SetSelectedEvents):
+            return presentation
+        kick_layer = presentation.layers[0]
+        return replace(
+            presentation,
+            selected_layer_id=kick_layer.layer_id,
+            selected_layer_ids=[kick_layer.layer_id],
+            selected_take_id=kick_layer.main_take_id,
+            selected_event_ids=list(intent.event_ids),
+            selected_event_refs=list(intent.event_refs),
+        )
+
+    widget = TimelineWidget(presentation, on_intent=_on_intent)
+    layout_flags: list[bool] = []
+    original_canvas_set_presentation = widget._canvas.set_presentation
+
+    def _record_canvas_set_presentation(updated, *, recompute_layout=True):
+        layout_flags.append(bool(recompute_layout))
+        return original_canvas_set_presentation(updated, recompute_layout=recompute_layout)
+
+    monkeypatch.setattr(widget._canvas, "set_presentation", _record_canvas_set_presentation)
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+        layout_flags.clear()
+
+        widget._dispatch(
+            SetSelectedEvents(
+                event_ids=[EventId("main_evt")],
+                event_refs=[
+                    EventRef(
+                        layer_id=LayerId("layer_kick"),
+                        take_id=TakeId("take_main"),
+                        event_id=EventId("main_evt"),
+                    )
+                ],
+                anchor_layer_id=LayerId("layer_kick"),
+                anchor_take_id=TakeId("take_main"),
+                selected_layer_ids=[LayerId("layer_kick")],
+            )
+        )
+
+        assert layout_flags[-1] is False
     finally:
         widget.close()
         app.processEvents()

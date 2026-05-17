@@ -13,7 +13,7 @@ from typing import Protocol, TypeVar
 from echozero.application.mixer.models import MixerState
 from echozero.application.presentation.models import TimelinePresentation
 from echozero.application.session.models import Session
-from echozero.application.shared.ids import SongId, SongVersionId, TimelineId
+from echozero.application.shared.ids import LayerId, SongId, SongVersionId, TimelineId
 from echozero.application.timeline.app import TimelineApplication
 from echozero.application.timeline.history import UndoHistory, UndoHistoryEntry
 from echozero.application.timeline.intents import (
@@ -80,6 +80,20 @@ class RuntimeHistorySnapshot:
     is_dirty: bool
 
 
+@dataclass(frozen=True, slots=True)
+class RuntimeScopedHistorySnapshot:
+    """Scoped runtime state captured around one hot-path layer edit."""
+
+    layers: dict[LayerId, Layer | None]
+    selected_layer_id: LayerId | None
+    selected_layer_ids: list[LayerId]
+    selected_take_id: object | None
+    selected_event_refs: list[object]
+    selected_event_ids: list[object]
+    section_cues: list[object]
+    is_dirty: bool
+
+
 class HistoryShell(Protocol):
     _app: TimelineApplication
     _draft_layers: list[Layer]
@@ -93,6 +107,12 @@ class HistoryShell(Protocol):
     def presentation(self) -> TimelinePresentation: ...
 
     def _sync_storage_backed_timeline(self) -> None: ...
+
+    def _sync_storage_backed_layers(self, layer_ids: list[LayerId]) -> None: ...
+
+    def _defer_storage_backed_timeline_sync(self) -> None: ...
+
+    def _defer_storage_backed_layers_sync(self, layer_ids: list[LayerId]) -> None: ...
 
     def _sync_runtime_audio_from_presentation(
         self, presentation: TimelinePresentation
@@ -228,7 +248,27 @@ def history_label_for_intent(intent: object) -> str | None:
     return None
 
 
-def capture_history_snapshot(shell: HistoryShell) -> RuntimeHistorySnapshot:
+def capture_history_snapshot(
+    shell: HistoryShell,
+    *,
+    layer_ids: list[LayerId] | tuple[LayerId, ...] | None = None,
+) -> RuntimeHistorySnapshot | RuntimeScopedHistorySnapshot:
+    if layer_ids:
+        target_ids = [LayerId(str(layer_id)) for layer_id in layer_ids]
+        layers_by_id = {layer.id: layer for layer in shell._app.timeline.layers}
+        return RuntimeScopedHistorySnapshot(
+            layers={
+                layer_id: deepcopy(layers_by_id.get(layer_id))
+                for layer_id in dict.fromkeys(target_ids)
+            },
+            selected_layer_id=deepcopy(shell._app.timeline.selection.selected_layer_id),
+            selected_layer_ids=deepcopy(shell._app.timeline.selection.selected_layer_ids),
+            selected_take_id=deepcopy(shell._app.timeline.selection.selected_take_id),
+            selected_event_refs=deepcopy(shell._app.timeline.selection.selected_event_refs),
+            selected_event_ids=deepcopy(shell._app.timeline.selection.selected_event_ids),
+            section_cues=deepcopy(shell._app.timeline.section_cues),
+            is_dirty=shell._is_dirty or shell.project_storage.is_dirty(),
+        )
     return RuntimeHistorySnapshot(
         timeline=deepcopy(shell._app.timeline),
         active_song_id=deepcopy(shell.session.active_song_id),
@@ -242,10 +282,13 @@ def capture_history_snapshot(shell: HistoryShell) -> RuntimeHistorySnapshot:
 
 def restore_history_snapshot(
     shell: HistoryShell,
-    snapshot: RuntimeHistorySnapshot,
+    snapshot: RuntimeHistorySnapshot | RuntimeScopedHistorySnapshot,
     *,
     storage_backed: bool,
 ) -> None:
+    if isinstance(snapshot, RuntimeScopedHistorySnapshot):
+        _restore_scoped_history_snapshot(shell, snapshot, storage_backed=storage_backed)
+        return
     shell._app.replace_timeline(deepcopy(snapshot.timeline))
     shell.session.active_song_id = deepcopy(snapshot.active_song_id)
     shell.session.active_song_version_id = deepcopy(snapshot.active_song_version_id)
@@ -254,6 +297,42 @@ def restore_history_snapshot(
     shell._draft_layers = deepcopy(snapshot.draft_layers)
     if storage_backed:
         shell._sync_storage_backed_timeline()
+    if snapshot.is_dirty:
+        shell._is_dirty = True
+    else:
+        shell._is_dirty = False
+        shell.project_storage.dirty_tracker.clear()
+    shell._sync_runtime_audio_from_presentation(shell.presentation())
+
+
+def _restore_scoped_history_snapshot(
+    shell: HistoryShell,
+    snapshot: RuntimeScopedHistorySnapshot,
+    *,
+    storage_backed: bool,
+) -> None:
+    timeline = shell._app.timeline
+    layers_by_id = {layer.id: layer for layer in timeline.layers}
+    for layer_id, layer_snapshot in snapshot.layers.items():
+        if layer_snapshot is None:
+            timeline.layers = [layer for layer in timeline.layers if layer.id != layer_id]
+            continue
+        restored_layer = deepcopy(layer_snapshot)
+        if layer_id in layers_by_id:
+            timeline.layers = [
+                restored_layer if layer.id == layer_id else layer
+                for layer in timeline.layers
+            ]
+        else:
+            timeline.layers.append(restored_layer)
+    timeline.selection.selected_layer_id = deepcopy(snapshot.selected_layer_id)
+    timeline.selection.selected_layer_ids = deepcopy(snapshot.selected_layer_ids)
+    timeline.selection.selected_take_id = deepcopy(snapshot.selected_take_id)
+    timeline.selection.selected_event_refs = deepcopy(snapshot.selected_event_refs)
+    timeline.selection.selected_event_ids = deepcopy(snapshot.selected_event_ids)
+    timeline.section_cues = deepcopy(snapshot.section_cues)
+    if storage_backed:
+        shell._sync_storage_backed_layers(list(snapshot.layers.keys()))
     if snapshot.is_dirty:
         shell._is_dirty = True
     else:
@@ -289,16 +368,27 @@ def run_undoable_operation(
     storage_backed: bool,
     mark_dirty: bool,
     operation: Callable[[], _T],
+    defer_storage_sync: bool = False,
+    storage_layer_ids: list[LayerId] | None = None,
+    history_layer_ids: list[LayerId] | None = None,
 ) -> _T:
-    before = capture_history_snapshot(shell)
+    before = capture_history_snapshot(shell, layer_ids=history_layer_ids)
     try:
         result = operation()
     except Exception:
         restore_history_snapshot(shell, before, storage_backed=storage_backed)
         raise
-    if storage_backed:
-        shell._sync_storage_backed_timeline()
-    after = capture_history_snapshot(shell)
+    if storage_backed and defer_storage_sync:
+        if storage_layer_ids:
+            shell._defer_storage_backed_layers_sync(storage_layer_ids)
+        else:
+            shell._defer_storage_backed_timeline_sync()
+    elif storage_backed:
+        if storage_layer_ids:
+            shell._sync_storage_backed_layers(storage_layer_ids)
+        else:
+            shell._sync_storage_backed_timeline()
+    after = capture_history_snapshot(shell, layer_ids=history_layer_ids)
     if before == after:
         return result
     if mark_dirty:

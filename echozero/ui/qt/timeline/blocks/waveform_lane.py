@@ -5,6 +5,7 @@ from math import ceil, floor
 from typing import Iterator
 
 import numpy as np
+from PyQt6.QtCore import QObject
 from PyQt6.QtGui import QColor, QPainter, QPen
 
 from echozero.ui.FEEL import WAVEFORM_COLUMN_STEP_MAX_PX, WAVEFORM_COLUMN_STEP_REFERENCE_PPS
@@ -12,7 +13,7 @@ from echozero.ui.qt.timeline.style import TIMELINE_STYLE, WaveformLaneStyle
 from echozero.ui.qt.timeline.waveform_cache import (
     CachedWaveform,
     get_cached_waveform,
-    register_waveform_from_audio_file,
+    request_waveform_from_audio_file,
 )
 
 
@@ -28,9 +29,7 @@ class WaveformLanePresentation:
     waveform_key: str | None = None
     source_audio_path: str | None = None
     unavailable_reason: str | None = None
-
-
-_WAVEFORM_REGISTER_ATTEMPTS: set[str] = set()
+    repaint_target: QObject | None = None
 
 
 class WaveformLaneBlock:
@@ -56,19 +55,11 @@ class WaveformLaneBlock:
         cached = get_cached_waveform(presentation.waveform_key)
         if cached is not None:
             return cached
-        key = str(presentation.waveform_key or "").strip()
-        source_audio_path = str(presentation.source_audio_path or "").strip()
-        if not key or not source_audio_path:
-            return None
-        attempt_key = f"{key}|{source_audio_path}"
-        if attempt_key in _WAVEFORM_REGISTER_ATTEMPTS:
-            return None
-        _WAVEFORM_REGISTER_ATTEMPTS.add(attempt_key)
-        try:
-            register_waveform_from_audio_file(key, source_audio_path)
-        except Exception:
-            return None
-        return get_cached_waveform(key)
+        return request_waveform_from_audio_file(
+            presentation.waveform_key,
+            presentation.source_audio_path,
+            receiver=presentation.repaint_target,
+        )
 
     def _paint_waveform_unavailable_state(
         self,

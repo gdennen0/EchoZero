@@ -186,11 +186,27 @@ def build_session_transfer_signature(session: Session) -> AssemblerSignature:
 
 
 def _events_signature(events: list[Event]) -> AssemblerSignature:
-    first_event_id = str(events[0].id) if events else None
-    last_event_id = str(events[-1].id) if events else None
     return (
         id(events),
         len(events),
-        first_event_id,
-        last_event_id,
+        tuple(
+            (
+                str(event.id),
+                str(event.take_id),
+                float(event.start),
+                float(event.end),
+                str(event.label),
+                event.cue_number,
+                event.cue_ref,
+                event.color,
+                event.notes,
+                bool(event.muted),
+                event.source_event_id,
+                event.payload_ref,
+                str(event.promotion_state),
+                str(event.review_state),
+                str(event.origin_kind),
+            )
+            for event in events
+        ),
     )

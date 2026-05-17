@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QListWidget,
     QListWidgetItem,
@@ -29,10 +30,12 @@ from PyQt6.QtWidgets import (
 from echozero.application.timeline.object_actions import (
     ApplyCopySource,
     ChangeSessionScope,
+    LoadSessionProfile,
     ObjectActionSettingsSession,
     PreviewCopySource,
     ResetSessionDefaults,
     SaveAndRunSession,
+    SaveSessionProfile,
     SaveSessionToDefaults,
     SaveSession,
     SetSessionFieldValue,
@@ -171,6 +174,28 @@ class PipelineSettingsBrowserDialog(QDialog):
         controls_layout.addWidget(self._copy_group, 1)
         right_layout.addLayout(controls_layout)
 
+        self._profile_group = QGroupBox("Profiles", self._right)
+        self._profile_group.setProperty("section", True)
+        self._profile_group.setProperty("compact", True)
+        profile_layout = QGridLayout(self._profile_group)
+        profile_layout.setContentsMargins(0, 0, 0, 0)
+        profile_layout.setHorizontalSpacing(4)
+        profile_layout.setVerticalSpacing(1)
+        profile_layout.setColumnStretch(1, 1)
+        profile_layout.addWidget(QLabel("Saved", self._profile_group), 0, 0)
+        self._profile_name = QComboBox(self._profile_group)
+        self._profile_name.currentIndexChanged.connect(self._on_profile_selection_changed)
+        profile_layout.addWidget(self._profile_name, 0, 1)
+        self._load_profile = QPushButton("Load", self._profile_group)
+        self._set_button_appearance(self._load_profile, "subtle")
+        self._load_profile.clicked.connect(self._on_load_profile)
+        profile_layout.addWidget(self._load_profile, 0, 2)
+        self._save_profile = QPushButton("Save Profile", self._profile_group)
+        self._set_button_appearance(self._save_profile, "subtle")
+        self._save_profile.clicked.connect(self._on_save_profile)
+        profile_layout.addWidget(self._save_profile, 0, 3)
+        right_layout.addWidget(self._profile_group)
+
         self._stage_group = QGroupBox(self._right)
         self._stage_group.setProperty("section", True)
         self._stage_group.setSizePolicy(
@@ -278,6 +303,12 @@ class PipelineSettingsBrowserDialog(QDialog):
         if source_index >= 0:
             self._copy_source.setCurrentIndex(source_index)
         self._copy_source.blockSignals(False)
+        self._profile_name.blockSignals(True)
+        self._profile_name.clear()
+        self._profile_name.addItem("Select...", "")
+        for name in session.profile_names:
+            self._profile_name.addItem(name, name)
+        self._profile_name.blockSignals(False)
 
         self._sync_session_controls(session)
         self._sync_action_list_labels()
@@ -325,6 +356,14 @@ class PipelineSettingsBrowserDialog(QDialog):
         self._copy_group.setToolTip(copy_hint)
         self._copy_source.setToolTip(copy_hint)
         self._apply_copy.setToolTip(copy_hint)
+        self._profile_group.setVisible(session.can_manage_profiles)
+        profile_hint = self._profile_hint_text(session)
+        self._profile_group.setToolTip(profile_hint)
+        self._profile_name.setToolTip(profile_hint)
+        self._load_profile.setToolTip(profile_hint)
+        self._save_profile.setToolTip(profile_hint)
+        self._load_profile.setEnabled(self._can_load_profile(session))
+        self._save_profile.setEnabled(session.can_manage_profiles)
         self._require_button(QDialogButtonBox.StandardButton.Save).setEnabled(session.can_save)
         run_button = self._require_button(QDialogButtonBox.StandardButton.Apply)
         run_button.setEnabled(session.can_save_and_run)
@@ -361,6 +400,18 @@ class PipelineSettingsBrowserDialog(QDialog):
             return
         self._dispatch_and_render(ChangeSessionScope(scope))
 
+    def _on_load_profile(self) -> None:
+        profile_name = self._selected_profile_name()
+        if not profile_name:
+            return
+        self._dispatch_and_render(LoadSessionProfile(profile_name))
+
+    def _on_save_profile(self) -> None:
+        profile_name = self._prompt_profile_name()
+        if not profile_name:
+            return
+        self._dispatch_and_render(SaveSessionProfile(profile_name))
+
     def _on_copy_source_changed(self) -> None:
         self._apply_copy.setEnabled(bool(self._copy_source.currentData()))
         source_id = self._copy_source.currentData()
@@ -395,6 +446,29 @@ class PipelineSettingsBrowserDialog(QDialog):
     def _dispatch_and_render(self, command: object) -> None:
         updated = self._dispatch_command(self._session.session_id, command)
         self._render_session(updated)
+
+    def _on_profile_selection_changed(self) -> None:
+        self._load_profile.setEnabled(self._can_load_profile(self._session))
+
+    def _can_load_profile(self, session: ObjectActionSettingsSession) -> bool:
+        name = self._selected_profile_name()
+        return bool(name) and name in session.profile_names
+
+    def _selected_profile_name(self) -> str:
+        return str(self._profile_name.currentData() or "").strip()
+
+    def _prompt_profile_name(self) -> str | None:
+        initial_name = self._selected_profile_name()
+        profile_name, accepted = QInputDialog.getText(
+            self,
+            "Save Pipeline Profile",
+            "Profile name:",
+            text=initial_name,
+        )
+        name = str(profile_name).strip()
+        if not accepted or not name:
+            return None
+        return name
 
     def _require_button(self, standard_button: QDialogButtonBox.StandardButton) -> QPushButton:
         button = self._buttons.button(standard_button)
@@ -518,6 +592,16 @@ class PipelineSettingsBrowserDialog(QDialog):
         if source is None:
             return "Choose a saved source to preview what would change in this scope."
         return source.description or "Preview copy impact before applying it."
+
+    def _profile_hint_text(self, session: ObjectActionSettingsSession) -> str:
+        if not session.can_manage_profiles:
+            return ""
+        name = self._selected_profile_name()
+        if not name:
+            return "Save the current stage values as a machine-local pipeline profile."
+        if name in session.profile_names:
+            return "Load or overwrite this saved machine-local pipeline profile."
+        return "Save the current stage values as a new machine-local pipeline profile."
 
     @staticmethod
     def _copy_preview_text(session: ObjectActionSettingsSession) -> str:

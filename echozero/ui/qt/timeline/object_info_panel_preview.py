@@ -23,7 +23,7 @@ from echozero.ui.qt.timeline.style import TIMELINE_STYLE
 from echozero.ui.qt.timeline.waveform_cache import (
     CachedWaveform,
     get_cached_waveform,
-    register_waveform_from_audio_file,
+    request_waveform_from_audio_file,
 )
 
 
@@ -156,9 +156,12 @@ class EventPreviewWaveform(QFrame):
         waveform_key = preview.waveform_key or f"object-info:{candidate.resolve()}"
         cached = get_cached_waveform(waveform_key)
         if cached is None:
-            try:
-                cached = register_waveform_from_audio_file(waveform_key, candidate)
-            except Exception:
+            cached = request_waveform_from_audio_file(
+                waveform_key,
+                candidate,
+                receiver=self,
+            )
+            if cached is None:
                 return None
         preview.waveform_key = waveform_key
         if preview.source_audio_path is None:

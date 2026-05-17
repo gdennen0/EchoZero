@@ -26,10 +26,6 @@ from echozero.application.presentation.inspector_contract import (
 from echozero.application.presentation.models import EventPresentation, LayerPresentation
 from echozero.application.shared.ids import EventId, LayerId, TakeId
 from echozero.application.timeline.models import EventRef
-from echozero.application.timeline.object_content import (
-    LEGACY_SOURCE_AUDIO_LAYER_ID,
-    is_imported_song_layer,
-)
 from echozero.ui.FEEL import (
     DRAG_THRESHOLD_PX,
     MOVE_DRAG_SNAP_LOCK_MULTIPLIER,
@@ -284,6 +280,16 @@ class _TimelineCanvasInteractionMixin:
             if rect.contains(pos):
                 self.take_selected.emit(layer_id, selected_take_id)
                 return
+        if (
+            self._edit_mode == "fix"
+            and event.button() == Qt.MouseButton.LeftButton
+            and self._fix_action in {"remove", "promote"}
+        ):
+            event_hit = self._event_rect_hit(pos)
+            if event_hit is not None and self._dispatch_fix_event_click(event_hit):
+                event.accept()
+                self.update()
+                return
         if self._edit_mode == "fix" and event.button() == Qt.MouseButton.LeftButton:
             fix_hit = self._fix_overlay_hit(pos)
             if fix_hit is not None:
@@ -317,27 +323,9 @@ class _TimelineCanvasInteractionMixin:
         for rect, layer_id, event_take_id, event_id in self._event_rects:
             if rect.contains(pos):
                 if self._edit_mode == "fix":
-                    if self._fix_action == "remove" and event_take_id is not None:
-                        self.delete_events_requested.emit(
-                            [
-                                EventRef(
-                                    layer_id=layer_id,
-                                    take_id=event_take_id,
-                                    event_id=event_id,
-                                )
-                            ]
-                        )
-                        return
-                    if self._fix_action == "promote" and event_take_id is not None:
-                        self.fix_promote_selected_requested.emit(
-                            [
-                                EventRef(
-                                    layer_id=layer_id,
-                                    take_id=event_take_id,
-                                    event_id=event_id,
-                                )
-                            ]
-                        )
+                    if self._fix_action in {"remove", "promote"} and self._dispatch_fix_event_click(
+                        (rect, layer_id, event_take_id, event_id)
+                    ):
                         return
                     self._selection_drag_candidate = SelectionDragCandidate(
                         anchor_pos=pos,
@@ -467,9 +455,7 @@ class _TimelineCanvasInteractionMixin:
                 return
         for rect, layer_id in self._header_select_rects:
             if rect.contains(pos):
-                if event.button() == Qt.MouseButton.LeftButton and not _is_imported_song_layer_id(
-                    self.presentation, layer_id
-                ):
+                if event.button() == Qt.MouseButton.LeftButton:
                     self._layer_drag_candidate = LayerDragCandidate(
                         source_layer_id=layer_id,
                         anchor_y=float(pos.y()),
@@ -853,6 +839,15 @@ class _TimelineCanvasInteractionMixin:
             return
         if not has_primary and not has_shift and event.key() == Qt.Key.Key_F:
             self.edit_mode_requested.emit("fix")
+            event.accept()
+            return
+        if (
+            self._edit_mode == "fix"
+            and not has_primary
+            and has_shift
+            and event.key() == Qt.Key.Key_X
+        ):
+            self.fix_action_requested.emit("select")
             event.accept()
             return
         if (
@@ -1426,6 +1421,25 @@ class _TimelineCanvasInteractionMixin:
                 return event_rect
         return None
 
+    def _event_rect_hit(self: Any, pos: QPointF):
+        for event_rect in reversed(self._event_rects):
+            if event_rect[0].contains(pos):
+                return event_rect
+        return None
+
+    def _dispatch_fix_event_click(self: Any, event_rect) -> bool:
+        _rect, layer_id, take_id, event_id = event_rect
+        if take_id is None:
+            return False
+        event_ref = EventRef(layer_id=layer_id, take_id=take_id, event_id=event_id)
+        if self._fix_action == "remove":
+            self.delete_events_requested.emit([event_ref])
+            return True
+        if self._fix_action == "promote":
+            self.fix_promote_selected_requested.emit([event_ref])
+            return True
+        return False
+
     def _fix_overlay_hit(
         self: Any,
         pos: QPointF,
@@ -1689,9 +1703,16 @@ class _TimelineCanvasInteractionMixin:
         if rect is None or rect.width() < DRAG_THRESHOLD_PX and rect.height() < DRAG_THRESHOLD_PX:
             if (
                 candidate["edit_mode"] == "fix"
-                and candidate["fix_action"] == "select"
                 and candidate["origin_event_id"] is not None
             ):
+                if self._apply_fix_click_action(
+                    layer_id=candidate["origin_layer_id"],
+                    take_id=candidate["origin_take_id"],
+                    event_id=candidate["origin_event_id"],
+                    fix_action=candidate["fix_action"],
+                ):
+                    self.update()
+                    return
                 self.event_selected.emit(
                     candidate["origin_layer_id"],
                     candidate["origin_take_id"],
@@ -1763,6 +1784,29 @@ class _TimelineCanvasInteractionMixin:
             self._set_focused_fix_overlay(fix_rects[-1])
             return
         self._apply_event_marquee_selection(rect, modifiers=modifiers)
+
+    def _apply_fix_click_action(
+        self: Any,
+        *,
+        layer_id: LayerId,
+        take_id: TakeId | None,
+        event_id: EventId,
+        fix_action: str,
+    ) -> bool:
+        normalized_action = str(fix_action or "select").strip().lower()
+        if take_id is None:
+            return False
+        if normalized_action == "remove":
+            self.delete_events_requested.emit(
+                [EventRef(layer_id=layer_id, take_id=take_id, event_id=event_id)]
+            )
+            return True
+        if normalized_action == "promote":
+            self.fix_promote_selected_requested.emit(
+                [EventRef(layer_id=layer_id, take_id=take_id, event_id=event_id)]
+            )
+            return True
+        return False
 
     def _apply_event_marquee_selection(
         self: Any,
@@ -2070,11 +2114,3 @@ class _TimelineCanvasInteractionMixin:
             kind="timeline",
             time_seconds=self._seek_time_at_x(pos.x()) if pos.x() >= self._header_width else None,
         )
-
-
-def _is_imported_song_layer_id(presentation, layer_id) -> bool:
-    for layer in getattr(presentation, "layers", ()):
-        if str(getattr(layer, "layer_id", "")) != str(layer_id):
-            continue
-        return is_imported_song_layer(layer)
-    return str(layer_id) == LEGACY_SOURCE_AUDIO_LAYER_ID

@@ -108,7 +108,37 @@ def test_section_manager_section_cue_drafts_preserve_explicit_cue_numbers() -> N
         app.processEvents()
 
 
-def test_section_manager_add_after_selected_auto_numbers_between_neighbors() -> None:
+def test_section_manager_add_after_selected_inserts_and_renumbers_following_cues() -> None:
+    app = QApplication.instance() or QApplication([])
+    dialog = SectionManagerDialog(
+        _empty_presentation(),
+        cues=[
+            SectionCueDraft(
+                cue_id="cue_a", start=10.0, cue_ref="Cue 1", name="Verse", cue_number=1
+            ),
+            SectionCueDraft(
+                cue_id="cue_b", start=20.0, cue_ref="Cue 2", name="Chorus", cue_number=2
+            ),
+            SectionCueDraft(
+                cue_id="cue_c", start=30.0, cue_ref="Cue 3", name="Bridge", cue_number=3
+            ),
+        ],
+    )
+    try:
+        dialog._refresh_table(select_row=0)
+        dialog._insert_section_relative(before=False)
+        inserted = dialog._rows[1]
+        assert inserted.cue_number == 2
+        assert inserted.cue_ref == "Cue 2"
+        assert inserted.start == 15.0
+        assert [row.cue_number for row in dialog._rows] == [1, 2, 3, 4]
+        assert [row.cue_ref for row in dialog._rows] == ["Cue 1", "Cue 2", "Cue 3", "Cue 4"]
+    finally:
+        dialog.close()
+        app.processEvents()
+
+
+def test_section_manager_add_before_selected_inserts_at_one_and_renumbers_following_cues() -> None:
     app = QApplication.instance() or QApplication([])
     dialog = SectionManagerDialog(
         _empty_presentation(),
@@ -123,55 +153,13 @@ def test_section_manager_add_after_selected_auto_numbers_between_neighbors() -> 
     )
     try:
         dialog._refresh_table(select_row=0)
-        dialog._insert_section_relative(before=False)
-        inserted = dialog._rows[1]
-        assert inserted.cue_number == 1.5
-        assert inserted.cue_ref == "Cue 1.5"
-        assert inserted.start == 15.0
-    finally:
-        dialog.close()
-        app.processEvents()
-
-
-def test_section_manager_add_before_selected_auto_numbers_before_first() -> None:
-    app = QApplication.instance() or QApplication([])
-    dialog = SectionManagerDialog(
-        _empty_presentation(),
-        cues=[
-            SectionCueDraft(
-                cue_id="cue_a", start=10.0, cue_ref="Cue 3", name="Verse", cue_number=3
-            ),
-        ],
-    )
-    try:
-        dialog._refresh_table(select_row=0)
         dialog._insert_section_relative(before=True)
         inserted = dialog._rows[0]
-        assert inserted.cue_number == 2
-        assert inserted.cue_ref == "Cue 2"
+        assert inserted.cue_number == 1
+        assert inserted.cue_ref == "Cue 1"
         assert inserted.start == 2.0
-    finally:
-        dialog.close()
-        app.processEvents()
-
-
-def test_section_manager_add_before_cue_one_uses_fractional_cue_number() -> None:
-    app = QApplication.instance() or QApplication([])
-    dialog = SectionManagerDialog(
-        _empty_presentation(),
-        cues=[
-            SectionCueDraft(
-                cue_id="cue_a", start=10.0, cue_ref="Cue 1", name="Verse", cue_number=1
-            ),
-        ],
-    )
-    try:
-        dialog._refresh_table(select_row=0)
-        dialog._insert_section_relative(before=True)
-        inserted = dialog._rows[0]
-        assert inserted.cue_number == 0.5
-        assert inserted.cue_ref == "Cue 0.5"
-        assert inserted.start == 2.0
+        assert [row.cue_number for row in dialog._rows] == [1, 2, 3]
+        assert [row.cue_ref for row in dialog._rows] == ["Cue 1", "Cue 2", "Cue 3"]
     finally:
         dialog.close()
         app.processEvents()

@@ -77,6 +77,7 @@ from echozero.application.timeline.intents import (
     PasteCopiedEvents,
     Play,
     PreviewTransferPlan,
+    ReorderLayer,
     RenumberEventCueNumbers,
     SaveTransferPreset,
     Seek,

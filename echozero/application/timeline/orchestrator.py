@@ -80,6 +80,7 @@ from echozero.application.timeline.intents import (
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
     CreateEvent,
+    CreateEventsBatch,
     DeleteEvents,
     DeleteTransferPreset,
     DisableExperimentalLiveSync,
@@ -307,6 +308,20 @@ class TimelineOrchestratorOwner(
                 payload_ref=intent.payload_ref,
                 color=intent.color,
             )
+
+        elif isinstance(intent, CreateEventsBatch):
+            for entry in intent.events:
+                self._handle_create_event(
+                    timeline,
+                    layer_id=entry.layer_id,
+                    take_id=entry.take_id,
+                    time_range=entry.time_range,
+                    label=entry.label,
+                    cue_number=entry.cue_number,
+                    source_event_id=entry.source_event_id,
+                    payload_ref=entry.payload_ref,
+                    color=entry.color,
+                )
 
         elif isinstance(intent, TrimEvent):
             self._handle_trim_event(

@@ -269,12 +269,27 @@ def _timbre_preview_from_audio(audio: tuple[np.ndarray, int], settings: object) 
     return _timbre_fingerprint(samples, sample_rate=sample_rate, sample_count=max(8, int(resolved.sample_count)))
 
 
+def _hybrid_mir_preview_from_audio(audio: tuple[np.ndarray, int], settings: object) -> tuple[float, ...]:
+    return _timbre_preview_from_audio(audio, settings)
+
+
 def _shape_score(anchor_preview: tuple[float, ...], candidate_preview: tuple[float, ...], _settings: object) -> float:
     return compare_shape_similarity(anchor_preview, candidate_preview)
 
 
 def _timbre_score(anchor_preview: tuple[float, ...], candidate_preview: tuple[float, ...], _settings: object) -> float:
     return compare_timbre_fingerprint_similarity(anchor_preview, candidate_preview)
+
+
+def _hybrid_mir_score(
+    anchor_preview: tuple[float, ...], candidate_preview: tuple[float, ...], settings: object
+) -> float:
+    resolved = _coerce_fingerprint_settings(settings)
+    return _compare_hybrid_mir_similarity(
+        anchor_preview,
+        candidate_preview,
+        sample_count=max(8, int(resolved.sample_count)),
+    )
 
 
 def _saved_model_score(
@@ -302,21 +317,188 @@ def _timbre_fingerprint(
     if arr.size == 0:
         return ()
     envelope = np.asarray(audio_shape_preview(arr, sample_count=sample_count), dtype=np.float32)
+    transient = _transient_preview(arr, sample_count=sample_count)
     spectrum = np.abs(np.fft.rfft(arr * np.hanning(arr.size))).astype(np.float32)
-    if spectrum.size <= 1 or float(np.sum(spectrum)) <= 1e-9:
-        spectral = np.zeros(sample_count, dtype=np.float32)
-    else:
-        freqs = np.fft.rfftfreq(arr.size, d=1.0 / max(1, int(sample_rate))).astype(np.float32)
-        # Compress frequency energy into fixed bands. Log-ish interpolation keeps one-shot
-        # low/high timbres distinct while staying cheap and dependency-free.
-        band_x = np.linspace(0.0, 1.0, sample_count)
-        source_x = np.linspace(0.0, 1.0, spectrum.size)
-        spectral = np.interp(band_x, source_x, spectrum).astype(np.float32)
-        centroid = float(np.sum(freqs * spectrum) / max(1e-9, float(np.sum(spectrum))))
-        spectral = _unit_array(spectral) * 0.75
-        centroid_feature = np.full(sample_count // 4 or 1, centroid / max(1.0, sample_rate / 2.0), dtype=np.float32)
-        return tuple(float(x) for x in _unit_array(np.concatenate((envelope, spectral, centroid_feature))))
-    return tuple(float(x) for x in _unit_array(np.concatenate((envelope, spectral))))
+    percussive = _percussive_component(arr)
+    percussive_spectrum = np.abs(np.fft.rfft(percussive * np.hanning(percussive.size))).astype(np.float32)
+    freqs = np.fft.rfftfreq(arr.size, d=1.0 / max(1, int(sample_rate))).astype(np.float32)
+    spectral = _compress_spectrum(spectrum, sample_count=sample_count)
+    percussive_bands = _compress_spectrum(percussive_spectrum, sample_count=sample_count)
+    stats = _spectral_statistics(
+        arr=arr,
+        envelope=envelope,
+        transient=transient,
+        spectrum=spectrum,
+        percussive_spectrum=percussive_spectrum,
+        freqs=freqs,
+        sample_rate=sample_rate,
+    )
+    return tuple(
+        float(x)
+        for x in _unit_array(np.concatenate((envelope, transient, spectral, percussive_bands, stats)))
+    )
+
+
+def _transient_preview(audio: np.ndarray, *, sample_count: int) -> np.ndarray:
+    arr = np.asarray(audio, dtype=np.float32).reshape(-1)
+    if arr.size == 0:
+        return np.zeros(sample_count, dtype=np.float32)
+    onset = np.maximum(0.0, np.diff(np.abs(arr), prepend=np.abs(arr[:1])))
+    return np.asarray(audio_shape_preview(onset, sample_count=sample_count), dtype=np.float32)
+
+
+def _compress_spectrum(spectrum: np.ndarray, *, sample_count: int) -> np.ndarray:
+    values = np.asarray(spectrum, dtype=np.float32).reshape(-1)
+    if values.size == 0 or float(np.sum(values)) <= 1e-9:
+        return np.zeros(sample_count, dtype=np.float32)
+    compressed = np.interp(
+        np.linspace(0.0, 1.0, sample_count),
+        np.linspace(0.0, 1.0, values.size),
+        np.log1p(values),
+    ).astype(np.float32)
+    return _unit_array(compressed)
+
+
+def _percussive_component(audio: np.ndarray) -> np.ndarray:
+    arr = np.asarray(audio, dtype=np.float32).reshape(-1)
+    if arr.size <= 1:
+        return arr
+    kernel = max(5, min(129, (arr.size // 32) | 1))
+    smooth = np.convolve(arr, np.ones(kernel, dtype=np.float32) / float(kernel), mode="same")
+    return (arr - smooth).astype(np.float32, copy=False)
+
+
+def _spectral_statistics(
+    *,
+    arr: np.ndarray,
+    envelope: np.ndarray,
+    transient: np.ndarray,
+    spectrum: np.ndarray,
+    percussive_spectrum: np.ndarray,
+    freqs: np.ndarray,
+    sample_rate: int,
+) -> np.ndarray:
+    energy = float(np.sum(spectrum))
+    if spectrum.size <= 1 or energy <= 1e-9:
+        return np.zeros(12, dtype=np.float32)
+    centroid = float(np.sum(freqs * spectrum) / energy)
+    spread = float(np.sqrt(np.sum(np.square(freqs - centroid) * spectrum) / energy))
+    stats = np.asarray(
+        (
+            centroid / max(1.0, sample_rate / 2.0),
+            spread / max(1.0, sample_rate / 2.0),
+            _spectral_rolloff_hz(freqs, spectrum, percentile=0.85) / max(1.0, sample_rate / 2.0),
+            _spectral_rolloff_hz(freqs, spectrum, percentile=0.95) / max(1.0, sample_rate / 2.0),
+            _spectral_flatness(spectrum),
+            _band_energy_ratio(freqs, spectrum, 40.0, 180.0),
+            _band_energy_ratio(freqs, spectrum, 180.0, 900.0),
+            _band_energy_ratio(freqs, spectrum, 1500.0, 6000.0),
+            _band_energy_ratio(freqs, spectrum, 6000.0, max(6000.0, sample_rate / 2.0)),
+            _band_energy_ratio(freqs, percussive_spectrum, 1800.0, 8000.0),
+            float(np.mean(np.abs(np.diff(np.signbit(arr).astype(np.float32))))) if arr.size > 1 else 0.0,
+            _attack_descriptor(envelope, transient),
+        ),
+        dtype=np.float32,
+    )
+    return np.clip(stats, 0.0, 1.0)
+
+
+def _spectral_rolloff_hz(freqs: np.ndarray, spectrum: np.ndarray, *, percentile: float) -> float:
+    cumulative = np.cumsum(np.asarray(spectrum, dtype=np.float32))
+    if cumulative.size == 0 or float(cumulative[-1]) <= 1e-9:
+        return 0.0
+    target = float(percentile) * float(cumulative[-1])
+    index = int(np.searchsorted(cumulative, target, side="left"))
+    return float(freqs[max(0, min(index, len(freqs) - 1))])
+
+
+def _spectral_flatness(spectrum: np.ndarray) -> float:
+    values = np.maximum(np.asarray(spectrum, dtype=np.float32).reshape(-1), 1e-10)
+    if values.size == 0:
+        return 0.0
+    geometric = float(np.exp(np.mean(np.log(values))))
+    arithmetic = float(np.mean(values))
+    if arithmetic <= 1e-10:
+        return 0.0
+    return float(max(0.0, min(1.0, geometric / arithmetic)))
+
+
+def _band_energy_ratio(freqs: np.ndarray, spectrum: np.ndarray, low_hz: float, high_hz: float) -> float:
+    if high_hz <= low_hz:
+        return 0.0
+    total = float(np.sum(spectrum))
+    if total <= 1e-9:
+        return 0.0
+    mask = (freqs >= float(low_hz)) & (freqs < float(high_hz))
+    if not np.any(mask):
+        return 0.0
+    return float(np.sum(spectrum[mask]) / total)
+
+
+def _attack_descriptor(envelope: np.ndarray, transient: np.ndarray) -> float:
+    env = np.asarray(envelope, dtype=np.float32).reshape(-1)
+    trans = np.asarray(transient, dtype=np.float32).reshape(-1)
+    if env.size == 0:
+        return 0.0
+    attack_window = max(1, env.size // 5)
+    early_peak = float(np.max(env[:attack_window]))
+    transient_peak = float(np.max(trans[:attack_window])) if trans.size else 0.0
+    return float(max(0.0, min(1.0, 0.65 * early_peak + 0.35 * transient_peak)))
+
+
+def _compare_hybrid_mir_similarity(
+    reference: tuple[float, ...],
+    candidate: tuple[float, ...],
+    *,
+    sample_count: int,
+) -> float:
+    ref = np.asarray(reference, dtype=np.float32).reshape(-1)
+    cand = np.asarray(candidate, dtype=np.float32).reshape(-1)
+    section_count = sample_count * 4 + 12
+    if ref.size == 0 or cand.size == 0:
+        return 0.0
+    if ref.size < section_count or cand.size < section_count:
+        return compare_timbre_fingerprint_similarity(reference, candidate)
+    if ref.size != cand.size:
+        cand = np.interp(
+            np.linspace(0.0, 1.0, ref.size),
+            np.linspace(0.0, 1.0, cand.size),
+            cand,
+        ).astype(np.float32)
+    ref_env, ref_transient, ref_spectral, ref_percussive, ref_stats = _split_hybrid_sections(
+        ref, sample_count=sample_count
+    )
+    cand_env, cand_transient, cand_spectral, cand_percussive, cand_stats = _split_hybrid_sections(
+        cand, sample_count=sample_count
+    )
+    stats_gap = float(np.mean(np.abs(ref_stats - cand_stats)))
+    return float(
+        max(
+            0.0,
+            min(
+                1.0,
+                0.18 * float(np.dot(_unit_array(ref_env), _unit_array(cand_env)))
+                + 0.17 * float(np.dot(_unit_array(ref_transient), _unit_array(cand_transient)))
+                + 0.30 * float(np.dot(_unit_array(ref_spectral), _unit_array(cand_spectral)))
+                + 0.23 * float(np.dot(_unit_array(ref_percussive), _unit_array(cand_percussive)))
+                + 0.12 * (1.0 - stats_gap),
+            ),
+        )
+    )
+
+
+def _split_hybrid_sections(vector: np.ndarray, *, sample_count: int) -> tuple[np.ndarray, ...]:
+    first = sample_count
+    second = first + sample_count
+    third = second + sample_count
+    fourth = third + sample_count
+    return (
+        vector[:first],
+        vector[first:second],
+        vector[second:third],
+        vector[third:fourth],
+        vector[fourth : fourth + 12],
+    )
 
 
 def _unit_vector(value: tuple[float, ...]) -> np.ndarray:
@@ -358,6 +540,13 @@ COMPARISON_METHODS: dict[str, EventComparisonMethod] = {
         label="Timbre Fingerprint",
         preview_builder=_timbre_preview_from_audio,
         score_builder=_timbre_score,
+        settings_factory=_coerce_fingerprint_settings,
+    ),
+    "hybrid_mir": EventComparisonMethod(
+        mode="hybrid_mir",
+        label="Hybrid MIR",
+        preview_builder=_hybrid_mir_preview_from_audio,
+        score_builder=_hybrid_mir_score,
         settings_factory=_coerce_fingerprint_settings,
     ),
     "timbre_mini_model": EventComparisonMethod(

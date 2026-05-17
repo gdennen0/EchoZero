@@ -149,6 +149,10 @@ from echozero.ui.qt.app_shell_runtime_support import (
 from echozero.ui.qt.app_shell_runtime_support import (
     sync_runtime_audio_from_presentation as _sync_runtime_audio_from_presentation,
 )
+from echozero.ui.qt.app_shell_review_queue import (
+    DeferredTimelineReviewPersistence,
+    TimelineReviewPersistenceQueue,
+)
 from echozero.ui.qt.app_shell_selection_model_improvement import (
     AppShellSelectionModelImprovementMixin,
 )
@@ -170,6 +174,7 @@ from echozero.ui.qt.app_shell_storage_sync import (
 from echozero.ui.qt.app_shell_storage_sync import (
     sync_storage_backed_timeline as _sync_storage_backed_timeline,
 )
+from echozero.ui.qt.timeline_command_runtime import TimelineCommandRuntime
 from echozero.ui.qt.app_shell_specialized_model import AppShellSpecializedModelMixin
 from echozero.ui.qt.timeline_review_sample_export import review_sample_export_root
 
@@ -203,9 +208,13 @@ class StageZeroRuntimeController(
         self._analysis_service = analysis_service or _build_runtime_orchestrator()
         self._app_settings_service = app_settings_service
         self._review_server_controller = ReviewServerController()
+        self._deferred_timeline_review_persistence = TimelineReviewPersistenceQueue()
+        self._timeline_command_runtime = TimelineCommandRuntime()
         self._history = UndoHistory(limit=_DEFAULT_HISTORY_LIMIT)
         self._is_dirty = False
         self._draft_layers: list[Layer] = []
+        self._deferred_storage_sync_all = False
+        self._deferred_storage_layer_ids: set[LayerId] = set()
         self._event_clipboard = []
         self._staged_project_runtime_presentation: TimelinePresentation | None = None
         self._staged_layer_header_width_px: int | None = None
@@ -380,13 +389,22 @@ class StageZeroRuntimeController(
         storage_backed: bool,
         mark_dirty: bool,
         operation: Callable[[], _T],
+        defer_storage_sync: bool = False,
+        storage_layer_ids: list[LayerId] | None = None,
+        history_layer_ids: list[LayerId] | None = None,
     ) -> _T:
+        should_defer_storage = bool(defer_storage_sync) or (
+            bool(storage_backed) and self._should_defer_storage_sync_for_live_transport()
+        )
         return _run_undoable_operation(
             self,
             label=label,
             storage_backed=storage_backed,
             mark_dirty=mark_dirty,
             operation=operation,
+            defer_storage_sync=should_defer_storage,
+            storage_layer_ids=storage_layer_ids,
+            history_layer_ids=history_layer_ids,
         )
 
     def _store_manual_layer(self, layer: Layer) -> None:
@@ -421,10 +439,50 @@ class StageZeroRuntimeController(
     def _sync_storage_backed_layers(self, layer_ids: list[LayerId]) -> None:
         _sync_storage_backed_layers(self, layer_ids=layer_ids)
 
+    def _should_defer_storage_sync_for_live_transport(self) -> bool:
+        runtime_audio = self.runtime_audio
+        if runtime_audio is None:
+            return False
+        try:
+            return bool(runtime_audio.is_playing())
+        except Exception:
+            return False
+
+    def _defer_storage_backed_timeline_sync(self) -> None:
+        self._deferred_storage_sync_all = True
+        self._deferred_storage_layer_ids.clear()
+        active_song_version_id = self.session.active_song_version_id
+        if active_song_version_id is not None:
+            self.project_storage.dirty_tracker.mark_dirty(str(active_song_version_id))
+
+    def _defer_storage_backed_layers_sync(self, layer_ids: list[LayerId]) -> None:
+        if self._deferred_storage_sync_all:
+            return
+        for layer_id in layer_ids:
+            if layer_id is not None:
+                self._deferred_storage_layer_ids.add(LayerId(str(layer_id)))
+        active_song_version_id = self.session.active_song_version_id
+        if active_song_version_id is not None:
+            self.project_storage.dirty_tracker.mark_dirty(str(active_song_version_id))
+
+    def _flush_deferred_storage_sync(self) -> None:
+        if self._deferred_storage_sync_all:
+            self._deferred_storage_sync_all = False
+            self._deferred_storage_layer_ids.clear()
+            self._sync_storage_backed_timeline()
+            return
+        if not self._deferred_storage_layer_ids:
+            return
+        layer_ids = list(self._deferred_storage_layer_ids)
+        self._deferred_storage_layer_ids.clear()
+        self._sync_storage_backed_layers(layer_ids)
+
     def new_project(self, name: str = "EchoZero Project") -> None:
         _new_project(self, name=name)
 
     def save_project_as(self, path: str | Path) -> Path:
+        self._flush_deferred_storage_sync()
+        self.flush_deferred_review_persistence()
         return _save_project_as(self, path)
 
     def save_project(self) -> Path:
@@ -627,9 +685,20 @@ class StageZeroRuntimeController(
     def timeline_review_sample_export_folder(self) -> Path:
         return self.review_sample_export_root()
 
+    def enqueue_deferred_review_persistence(
+        self,
+        request: DeferredTimelineReviewPersistence,
+    ) -> None:
+        self._deferred_timeline_review_persistence.enqueue(request)
+
+    def flush_deferred_review_persistence(self) -> None:
+        self._deferred_timeline_review_persistence.flush()
+
     def shutdown(self) -> None:
+        self._flush_deferred_storage_sync()
         self._review_server_controller.stop()
         clear_project_review_runtime_bridge(self)
+        self._deferred_timeline_review_persistence.shutdown()
         _shutdown_runtime(self)
 
     def enable_sync(self, mode: SyncMode = SyncMode.MA3) -> SyncState:

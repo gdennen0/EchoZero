@@ -25,6 +25,7 @@ from echozero.ui.qt.app_shell_layer_storage import (
     build_manual_layer_record,
     manual_layer_take_data,
     next_persisted_manual_layer_order,
+    persisted_runtime_layer_orders,
     persisted_take_from_runtime_take,
     runtime_layer_record,
 )
@@ -220,6 +221,7 @@ def _sync_runtime_layers(
     runtime_layers: list[Layer],
     runtime_layer_ids: set[str],
 ) -> None:
+    persisted_orders = persisted_runtime_layer_orders(shell._app.timeline)
     for record in existing_records.values():
         if record.layer_type == "manual" and record.id not in runtime_layer_ids:
             shell.project_storage.layers.delete(record.id)
@@ -231,15 +233,22 @@ def _sync_runtime_layers(
 
     for layer in runtime_layers:
         existing = existing_records.get(str(layer.id))
+        persisted_order = persisted_orders.get(layer.id, int(layer.order_index))
         if existing is None:
             persist_manual_layer(
                 shell,
                 layer,
                 song_version_id=song_version_id,
-                order=int(layer.order_index) - 1,
+                order=persisted_order,
             )
         else:
-            shell.project_storage.layers.update(runtime_layer_record(layer, existing=existing))
+            shell.project_storage.layers.update(
+                runtime_layer_record(
+                    layer,
+                    existing=existing,
+                    persisted_order=persisted_order,
+                )
+            )
         sync_runtime_take_records(shell, layer)
         sync_layer_object_content(
             shell.project_storage,

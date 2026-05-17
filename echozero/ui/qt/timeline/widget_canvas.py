@@ -319,13 +319,23 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
         snap_enabled: bool,
         grid_mode: str,
     ) -> None:
-        self._edit_mode = edit_mode
         normalized_fix_action = str(fix_action or "select").strip().lower()
         if normalized_fix_action not in {"promote", "remove", "select"}:
             normalized_fix_action = "select"
+        next_fix_nav_include_demoted = bool(fix_nav_include_demoted)
+        next_snap_enabled = bool(snap_enabled)
+        if (
+            self._edit_mode == edit_mode
+            and self._fix_action == normalized_fix_action
+            and self._fix_nav_include_demoted == next_fix_nav_include_demoted
+            and self._snap_enabled == next_snap_enabled
+            and self._grid_mode == grid_mode
+        ):
+            return
+        self._edit_mode = edit_mode
         self._fix_action = normalized_fix_action
-        self._fix_nav_include_demoted = bool(fix_nav_include_demoted)
-        self._snap_enabled = bool(snap_enabled)
+        self._fix_nav_include_demoted = next_fix_nav_include_demoted
+        self._snap_enabled = next_snap_enabled
         self._grid_mode = grid_mode
         if self._edit_mode != "fix":
             self._focused_fix_overlay_key = None

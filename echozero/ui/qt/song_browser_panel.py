@@ -84,6 +84,7 @@ class SongBrowserPanel(QWidget):
         self._expanded_width = _PANEL_DEFAULT_EXPANDED_WIDTH
         self._selected_song_ids: set[str] = set()
         self._pending_reorder_song_ids: tuple[str, ...] | None = None
+        self._last_presentation_signature: tuple[object, ...] | None = None
         self._reorder_emit_timer = QTimer(self)
         self._reorder_emit_timer.setSingleShot(True)
         self._reorder_emit_timer.timeout.connect(self._flush_pending_song_reorder)
@@ -332,6 +333,11 @@ class SongBrowserPanel(QWidget):
         return super().eventFilter(watched, event)
 
     def set_presentation(self, presentation: TimelinePresentation) -> None:
+        signature = _song_browser_presentation_signature(presentation)
+        if signature == self._last_presentation_signature:
+            self._presentation = presentation
+            return
+        self._last_presentation_signature = signature
         if self._reorder_emit_timer.isActive():
             self._reorder_emit_timer.stop()
         self._pending_reorder_song_ids = None
@@ -816,6 +822,37 @@ class SongBrowserPanel(QWidget):
         if version.is_active:
             label = f"{label} [Active]"
         return label
+
+
+def _song_browser_presentation_signature(presentation: TimelinePresentation) -> tuple[object, ...]:
+    songs = tuple(
+        (
+            song.song_id,
+            song.title,
+            bool(song.is_active),
+            song.active_version_id,
+            song.active_version_label,
+            int(song.version_count),
+            tuple(
+                (
+                    version.song_version_id,
+                    version.label,
+                    bool(version.is_active),
+                    version.ma3_timecode_pool_no,
+                )
+                for version in song.versions
+            ),
+        )
+        for song in presentation.available_songs
+    )
+    return (
+        presentation.active_song_id,
+        presentation.active_song_version_id,
+        presentation.active_song_title,
+        presentation.active_song_version_label,
+        presentation.active_song_version_ma3_timecode_pool_no,
+        songs,
+    )
 
 
 __all__ = [

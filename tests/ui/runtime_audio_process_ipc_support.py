@@ -145,6 +145,7 @@ def test_process_client_transport_ipc_updates_timing_snapshots(monkeypatch) -> N
     assert playing_snapshot.is_playing is True
     assert paused_snapshot.is_playing is False
     assert playing_snapshot.audible_time_seconds == 0.5
+    assert paused_snapshot.audible_time_seconds == 0.5
     assert playing_snapshot.display_label == "00:00:00:15"
 
 

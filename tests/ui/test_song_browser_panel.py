@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from PyQt6.QtCore import QMimeData, QPointF, Qt, QUrl
 from PyQt6.QtGui import QDropEvent
 from PyQt6.QtWidgets import QApplication, QAbstractItemView
@@ -113,6 +115,29 @@ def test_song_browser_panel_preserves_scroll_position_on_refresh():
         app.processEvents()
 
         assert scroll_bar.value() == prior_scroll
+    finally:
+        panel.close()
+        app.processEvents()
+
+
+def test_song_browser_panel_skips_repopulate_when_only_playhead_changes(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    panel = SongBrowserPanel(_many_songs_presentation(30))
+    populate_calls: list[str] = []
+    original_populate = panel._populate_song_list
+    monkeypatch.setattr(
+        panel,
+        "_populate_song_list",
+        lambda presentation: populate_calls.append("populate")
+        or original_populate(presentation),
+    )
+    try:
+        updated = replace(panel._presentation, playhead=12.5, current_time_label="00:12.50")
+        panel.set_presentation(updated)
+
+        assert populate_calls == []
+        assert panel._presentation.playhead == 12.5
+        assert panel._songs_tree.topLevelItemCount() == 30
     finally:
         panel.close()
         app.processEvents()

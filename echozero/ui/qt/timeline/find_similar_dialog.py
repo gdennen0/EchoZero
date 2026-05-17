@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 
 import numpy as np
 from PyQt6.QtCore import QPointF, QRectF, Qt
@@ -19,6 +20,7 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QLabel,
     QLineEdit,
+    QPushButton,
     QScrollArea,
     QSizePolicy,
     QSlider,
@@ -102,7 +104,7 @@ class EventShapeComparisonPreviewWidget(QWidget):
         self._scan_limit = scan_limit if scan_limit is not None else self._scan_total
         self._match_count = match_count if match_count is not None else sum(1 for row in rows[1:] if row.is_match)
         self._action_label = action_label
-        self.setMinimumHeight(max(320, 76 + 54 * max(1, len(rows) - 1)))
+        self.setMinimumHeight(max(520, 220 + 58 * max(1, len(rows) - 1)))
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding)
 
     @property
@@ -144,34 +146,26 @@ class EventShapeComparisonPreviewWidget(QWidget):
         progress_rect = QRectF(left_panel.left() + 14, left_panel.top() + 204, left_panel.width() - 28, 92)
         painter.fillRect(progress_rect, QColor("#101010"))
         painter.setPen(QColor("#e8e2dc"))
-        painter.drawText(progress_rect.adjusted(10, 4, -10, -4), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, "LIVE ITERATION")
-        current_row = self._rows[-1] if len(self._rows) > 1 and scanned_count else None
-        current_color = QColor("#8f8a84") if current_row is not None and current_row.is_match else QColor("#8f3a2f")
+        painter.drawText(progress_rect.adjusted(10, 4, -10, -4), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, "LAST RUN")
         painter.setPen(QColor("#f6f3ee"))
         painter.drawText(
             progress_rect.adjusted(10, 24, -10, -4),
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
-            f"{scanned_count}/{total_count} scanned · {self._match_count} passes · {self._action_label}",
+            f"{total_count} candidates scanned · {self._match_count} matched · {self._action_label}",
         )
-        if current_row is not None:
-            badge = QRectF(progress_rect.left() + 10, progress_rect.top() + 48, 22, 22)
-            painter.fillRect(badge, current_color)
-            painter.setPen(QPen(current_color, 2.0))
-            painter.drawRoundedRect(badge, 2.0, 2.0)
-            painter.setPen(QColor("#f6f3ee"))
-            score = "--" if current_row.score is None else f"{current_row.score:.2f}"
-            painter.drawText(
-                progress_rect.adjusted(42, 48, -10, -4),
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
-                f"current: {current_row.label} · {score}",
-            )
+        painter.setPen(QColor("#d8d2cb"))
+        painter.drawText(
+            progress_rect.adjusted(10, 48, -10, -4),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+            f"threshold {self._threshold:.2f} · top matches are grouped first below",
+        )
         segment_top = progress_rect.top() + 76
         visible_segments = max(1, min(total_count, 28))
         segment_width = max(5.0, (progress_rect.width() - 20) / visible_segments)
-        scanned_segments = round(visible_segments * (scanned_count / max(1, total_count)))
+        matched_segments = round(visible_segments * (self._match_count / max(1, total_count)))
         for index in range(visible_segments):
             segment = QRectF(progress_rect.left() + 10 + index * segment_width + 1, segment_top, segment_width - 2, 8)
-            painter.fillRect(segment, QColor("#8f8a84") if index < scanned_segments else QColor("#202022"))
+            painter.fillRect(segment, QColor("#7fd1ae") if index < matched_segments else QColor("#202022"))
 
         meter_top = progress_rect.bottom() + 16
         for index, (label, value, color) in enumerate(
@@ -193,32 +187,53 @@ class EventShapeComparisonPreviewWidget(QWidget):
         painter.setPen(QPen(QColor("#4a4749"), 1.0))
         painter.drawRoundedRect(right_panel, 3.0, 3.0)
         painter.setPen(QColor("#aaa49e"))
-        painter.drawText(right_panel.adjusted(14, 10, -14, -10), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, "CANDIDATE CURVES · GOLD REFERENCE / CYAN EVENT")
+        painter.drawText(
+            right_panel.adjusted(14, 10, -14, -10),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+            "MATCH RESULTS · GREEN passed / RED filtered out · GOLD reference / CYAN candidate",
+        )
 
         top = right_panel.top() + 38
-        row_height = 48
+        row_height = 54
         label_width = min(210, max(135, int(right_panel.width() * 0.31)))
         graph_left = right_panel.left() + label_width + 24
         graph_width = max(120, right_panel.right() - graph_left - 14)
-        for index, row in enumerate(self._rows[1:]):
+        candidate_rows = sorted(
+            self._rows[1:],
+            key=lambda row: (
+                0 if row.is_match else 1,
+                -(row.score if row.score is not None else -1.0),
+                row.label.lower(),
+            ),
+        )
+        for index, row in enumerate(candidate_rows):
             y = top + index * row_height
             row_rect = QRectF(right_panel.left() + 10, y, right_panel.width() - 20, row_height - 7)
-            is_current = index == max(0, min(len(self._rows) - 2, scanned_count - 1))
             verdict_color = QColor("#8f8a84") if row.is_match else QColor("#8f3a2f")
             verdict_fill = QColor(verdict_color)
             verdict_fill.setAlpha(44 if row.is_match else 34)
             painter.fillRect(row_rect, QColor("#202022") if index % 2 == 0 else QColor("#171719"))
             painter.fillRect(row_rect, verdict_fill)
-            painter.setPen(QPen(verdict_color if is_current else QColor("#685f67"), 2.4 if is_current else 0.8))
+            painter.setPen(QPen(verdict_color, 1.4 if row.is_match else 0.8))
             painter.drawRoundedRect(row_rect, 2.0, 2.0)
             score = "--" if row.score is None else f"{row.score:.2f}"
-            badge_rect = QRectF(row_rect.left() + 10, row_rect.top() + 13, 14, 14)
+            badge_rect = QRectF(row_rect.left() + 10, row_rect.top() + 10, 18, 18)
             painter.fillRect(badge_rect, verdict_color)
             painter.setPen(QPen(verdict_color.lighter(135), 1.2))
             painter.drawRoundedRect(badge_rect, 2.0, 2.0)
             painter.setPen(QColor("#8f8a84") if row.is_match else QColor("#c86f5f"))
-            painter.drawText(row_rect.adjusted(34, 0, -4, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, f"{row.label} · {score}")
-            graph_rect = QRectF(graph_left, y + 8, graph_width, row_height - 24)
+            verdict = "MATCH" if row.is_match else "SKIP"
+            painter.drawText(
+                row_rect.adjusted(38, 2, -4, -18),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                f"{row.label} · {score}",
+            )
+            painter.drawText(
+                row_rect.adjusted(38, 20, -4, 0),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                verdict,
+            )
+            graph_rect = QRectF(graph_left, y + 10, graph_width, row_height - 28)
             graph_overlay = QColor(verdict_color)
             graph_overlay.setAlpha(26)
             painter.fillRect(graph_rect.adjusted(-4, -4, 4, 4), graph_overlay)
@@ -284,7 +299,10 @@ class FindSimilarSoundsDialog(QDialog):
         self._audio_slice_cache: dict[str, tuple[np.ndarray, int]] = {}
         self._preview_cache: dict[tuple[str, str, str, str, float, float, int], tuple[float, ...]] = {}
         self._model_score_cache: dict[tuple[str, str, str, str], float] = {}
+        self._preview_dirty = False
         self.setWindowTitle("Compare Events")
+        self.resize(1180, 920)
+        self.setMinimumSize(980, 760)
 
         layout = QVBoxLayout(self)
         control_grid = QGridLayout()
@@ -296,9 +314,10 @@ class FindSimilarSoundsDialog(QDialog):
         control_grid.addWidget(self._mode_label, 1, 0)
         self._mode_combo = QComboBox(self)
         self._mode_combo.addItem("Shape Envelope", "shape_envelope")
+        self._mode_combo.addItem("Hybrid MIR", "hybrid_mir")
         self._mode_combo.addItem("Timbre Fingerprint", "timbre_fingerprint")
         self._mode_combo.addItem("Saved Mini-model", "timbre_mini_model")
-        self._mode_combo.currentIndexChanged.connect(self._refresh_preview)
+        self._mode_combo.currentIndexChanged.connect(self._mark_preview_dirty)
         self._mode_combo.currentIndexChanged.connect(self._sync_method_labels)
         control_grid.addWidget(self._mode_combo, 1, 1)
 
@@ -311,7 +330,7 @@ class FindSimilarSoundsDialog(QDialog):
         index = self._scope_combo.findData(self._default_scope_mode)
         if index >= 0:
             self._scope_combo.setCurrentIndex(index)
-        self._scope_combo.currentIndexChanged.connect(self._refresh_preview)
+        self._scope_combo.currentIndexChanged.connect(self._mark_preview_dirty)
         control_grid.addWidget(self._scope_combo, 1, 3)
 
         self._strength_label = QLabel("Match sensitivity", self)
@@ -324,7 +343,7 @@ class FindSimilarSoundsDialog(QDialog):
         balanced = self._strength_combo.findData("balanced")
         if balanced >= 0:
             self._strength_combo.setCurrentIndex(balanced)
-        self._strength_combo.currentIndexChanged.connect(self._refresh_preview)
+        self._strength_combo.currentIndexChanged.connect(self._mark_preview_dirty)
         control_grid.addWidget(self._strength_combo, 1, 5)
 
         self._smoothing_label = QLabel("Smooth: 3", self)
@@ -332,7 +351,7 @@ class FindSimilarSoundsDialog(QDialog):
         self._smoothing_slider = QSlider(Qt.Orientation.Horizontal, self)
         self._smoothing_slider.setRange(0, 12)
         self._smoothing_slider.setValue(3)
-        self._smoothing_slider.valueChanged.connect(self._refresh_preview)
+        self._smoothing_slider.valueChanged.connect(self._mark_preview_dirty)
         self._smoothing_slider.valueChanged.connect(lambda _value: self._sync_method_labels())
         control_grid.addWidget(self._smoothing_slider, 2, 1)
 
@@ -341,7 +360,7 @@ class FindSimilarSoundsDialog(QDialog):
         self._points_slider = QSlider(Qt.Orientation.Horizontal, self)
         self._points_slider.setRange(8, 64)
         self._points_slider.setValue(24)
-        self._points_slider.valueChanged.connect(self._refresh_preview)
+        self._points_slider.valueChanged.connect(self._mark_preview_dirty)
         self._points_slider.valueChanged.connect(lambda _value: self._sync_method_labels())
         control_grid.addWidget(self._points_slider, 2, 3)
 
@@ -350,7 +369,7 @@ class FindSimilarSoundsDialog(QDialog):
         self._fuzziness_slider = QSlider(Qt.Orientation.Horizontal, self)
         self._fuzziness_slider.setRange(0, 100)
         self._fuzziness_slider.setValue(35)
-        self._fuzziness_slider.valueChanged.connect(self._refresh_preview)
+        self._fuzziness_slider.valueChanged.connect(self._mark_preview_dirty)
         self._fuzziness_slider.valueChanged.connect(lambda _value: self._sync_method_labels())
         control_grid.addWidget(self._fuzziness_slider, 2, 5)
 
@@ -361,7 +380,7 @@ class FindSimilarSoundsDialog(QDialog):
         self._outcome_combo.addItem("Promote matched events", "promote")
         self._outcome_combo.addItem("Demote matched events", "demote")
         self._outcome_combo.addItem("Create new layer from matches", "create_layer")
-        self._outcome_combo.currentIndexChanged.connect(self._refresh_preview)
+        self._outcome_combo.currentIndexChanged.connect(self._mark_preview_dirty)
         control_grid.addWidget(self._outcome_combo, 3, 1, 1, 2)
 
         self._layer_name_label = QLabel("New layer", self)
@@ -373,7 +392,7 @@ class FindSimilarSoundsDialog(QDialog):
         control_grid.addWidget(self._model_picker_label, 4, 0)
         self._model_combo = QComboBox(self)
         self._populate_model_combo()
-        self._model_combo.currentIndexChanged.connect(self._refresh_preview)
+        self._model_combo.currentIndexChanged.connect(self._mark_preview_dirty)
         self._model_combo.currentIndexChanged.connect(
             lambda _index: self._sync_model_status_label(self._train_model_checkbox.isChecked())
         )
@@ -387,16 +406,22 @@ class FindSimilarSoundsDialog(QDialog):
         control_grid.addWidget(self._train_model_checkbox, 5, 0, 1, 3)
         self._model_status_label = QLabel("Mini-model: off", self)
         control_grid.addWidget(self._model_status_label, 5, 3, 1, 3)
+        self._run_button = QPushButton("Run Similarity", self)
+        self._run_button.clicked.connect(self._run_similarity_preview)
+        control_grid.addWidget(self._run_button, 6, 0, 1, 2)
+        self._run_status_label = QLabel("Ready", self)
+        control_grid.addWidget(self._run_status_label, 6, 2, 1, 4)
         layout.addLayout(control_grid)
 
         self._preview_scroll = QScrollArea(self)
         self._preview_scroll.setWidgetResizable(True)
-        self._preview_scroll.setMinimumHeight(180)
+        self._preview_scroll.setMinimumHeight(520)
         self._preview_widget = EventShapeComparisonPreviewWidget((), parent=self._preview_scroll)
         self._preview_scroll.setWidget(self._preview_widget)
         layout.addWidget(self._preview_scroll, stretch=1)
+        self._apply_initial_method_defaults()
         self._sync_method_labels()
-        self._refresh_preview()
+        self._run_similarity_preview()
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
@@ -407,6 +432,8 @@ class FindSimilarSoundsDialog(QDialog):
         layout.addWidget(buttons)
 
     def selected_payload(self) -> dict[str, object]:
+        if self._preview_dirty:
+            self._run_similarity_preview()
         selected_layer_ids = self._selected_layer_ids_for_scope(str(self._scope_combo.currentData()))
         requested_mode = normalize_comparison_mode(str(self._mode_combo.currentData()))
         selected_model_path = self._selected_model_path()
@@ -483,10 +510,35 @@ class FindSimilarSoundsDialog(QDialog):
         event_word = "event" if comparison_count == 1 else "events"
         take_word = "take" if take_count == 1 else "takes"
         layer_word = "layer" if layer_count == 1 else "layers"
-        return (
+        summary = (
             f"Compare the selected event against {comparison_count} candidate {event_word} across "
             f"{take_count} {take_word} and {layer_count} {layer_word}."
         )
+        if self._preferred_initial_comparison_mode() == "hybrid_mir":
+            summary += " Tip: Hybrid MIR blends envelope, transient, and spectral evidence for stronger real-world matching."
+        return summary
+
+    def _apply_initial_method_defaults(self) -> None:
+        preferred_mode = self._preferred_initial_comparison_mode()
+        index = self._mode_combo.findData(preferred_mode)
+        if index >= 0:
+            self._mode_combo.setCurrentIndex(index)
+
+    def _preferred_initial_comparison_mode(self) -> str:
+        layer = _find_layer(self._presentation, self._layer_id)
+        if layer is None:
+            return "hybrid_mir"
+        anchor = self._find_event_candidate(self._layer_id, self._take_id, self._event_id)
+        hint_text = " ".join(
+            text
+            for text in (
+                layer.title,
+                layer.subtitle,
+                anchor.label if anchor is not None else "",
+            )
+            if text
+        )
+        return "hybrid_mir" if _has_drum_compare_hint(hint_text) else "timbre_fingerprint"
 
     def _refresh_preview(self) -> None:
         scope_mode = str(self._scope_combo.currentData())
@@ -505,6 +557,18 @@ class FindSimilarSoundsDialog(QDialog):
             parent=self._preview_scroll,
         )
         self._preview_scroll.setWidget(self._preview_widget)
+        self._preview_dirty = False
+        self._run_status_label.setText(
+            f"Ran similarity check · {sum(1 for row in rows[1:] if row.is_match)} matches from {total_candidates} candidates"
+        )
+
+    def _mark_preview_dirty(self) -> None:
+        self._preview_dirty = True
+        if hasattr(self, "_run_status_label"):
+            self._run_status_label.setText("Settings changed. Run Similarity to refresh matches.")
+
+    def _run_similarity_preview(self) -> None:
+        self._refresh_preview()
 
     def _build_shape_preview_rows(self, scope_mode: str, *, scan_limit: int | None = None) -> tuple[ShapePreviewRow, ...]:
         return self._build_preview_rows(scope_mode, scan_limit=scan_limit, comparison_mode="shape_envelope")
@@ -580,9 +644,13 @@ class FindSimilarSoundsDialog(QDialog):
             if mode == "timbre_mini_model":
                 aligned = candidate_shape
                 score = self._score_candidate_with_selected_model(candidate)
-            elif mode == "timbre_fingerprint":
+            elif mode in {"timbre_fingerprint", "hybrid_mir"}:
                 aligned = candidate_shape
-                score = compare_timbre_fingerprint_similarity(raw_anchor_preview, raw_candidate_preview)
+                score = (
+                    compare_timbre_fingerprint_similarity(raw_anchor_preview, raw_candidate_preview)
+                    if mode == "timbre_fingerprint"
+                    else self._score_hybrid_preview(raw_anchor_preview, raw_candidate_preview)
+                )
             else:
                 aligned = align_shape_to_reference(anchor_shape, candidate_shape)
                 score = compare_shape_similarity(anchor_shape, candidate_shape)
@@ -668,6 +736,41 @@ class FindSimilarSoundsDialog(QDialog):
             self._model_status_label.setText("Mini-model: saved model unavailable")
         self._model_score_cache[cache_key] = score
         return score
+
+    def _score_hybrid_preview(
+        self,
+        anchor_preview: tuple[float, ...],
+        candidate_preview: tuple[float, ...],
+    ) -> float:
+        anchor = np.asarray(anchor_preview, dtype=np.float32).reshape(-1)
+        candidate = np.asarray(candidate_preview, dtype=np.float32).reshape(-1)
+        if anchor.size == 0 or candidate.size == 0:
+            return 0.0
+        if anchor.size != candidate.size:
+            candidate = np.interp(
+                np.linspace(0.0, 1.0, anchor.size),
+                np.linspace(0.0, 1.0, candidate.size),
+                candidate,
+            ).astype(np.float32)
+        sample_count = max(8, int(len(anchor) - 12) // 4) if len(anchor) >= 44 else 0
+        if sample_count <= 0:
+            return compare_timbre_fingerprint_similarity(anchor_preview, candidate_preview)
+        env_a, transient_a, spectral_a, percussive_a, stats_a = _split_hybrid_sections(anchor, sample_count)
+        env_b, transient_b, spectral_b, percussive_b, stats_b = _split_hybrid_sections(candidate, sample_count)
+        stats_gap = float(np.mean(np.abs(stats_a - stats_b)))
+        return float(
+            max(
+                0.0,
+                min(
+                    1.0,
+                    0.18 * _safe_cosine(env_a, env_b)
+                    + 0.17 * _safe_cosine(transient_a, transient_b)
+                    + 0.30 * _safe_cosine(spectral_a, spectral_b)
+                    + 0.23 * _safe_cosine(percussive_a, percussive_b)
+                    + 0.12 * (1.0 - stats_gap),
+                ),
+            )
+        )
 
     def _train_mini_model_payload(self, rows: list[ShapePreviewRow]) -> dict[str, object]:
         samples = self._training_samples_for_rows(rows)
@@ -814,6 +917,15 @@ def _find_layer(presentation: TimelinePresentation, layer_id: LayerId) -> LayerP
     return next((layer for layer in presentation.layers if layer.layer_id == layer_id), None)
 
 
+def _has_drum_compare_hint(text: str) -> bool:
+    tokens = {
+        token
+        for token in re.split(r"[^a-z0-9]+", str(text).strip().lower())
+        if token
+    }
+    return bool(tokens & _DRUM_COMPARE_HINT_TOKENS)
+
+
 def _layer_candidates(layer: LayerPresentation) -> tuple[_Candidate, ...]:
     candidates: list[_Candidate] = []
     main_take_id = layer.main_take_id or TakeId("main")
@@ -932,7 +1044,7 @@ def _preview_for_candidate(
     mode: str,
     audio_cache: dict | None = None,
 ) -> tuple[float, ...]:
-    if mode == "timbre_fingerprint":
+    if mode in {"timbre_fingerprint", "hybrid_mir"}:
         return _timbre_fingerprint_for_candidate(candidate, audio_cache=audio_cache)
     return _shape_for_candidate(candidate, audio_cache=audio_cache)
 
@@ -984,11 +1096,53 @@ def _training_sample_from_candidate(candidate: _Candidate) -> AudioEventTraining
     )
 
 
+def _split_hybrid_sections(vector: np.ndarray, sample_count: int) -> tuple[np.ndarray, ...]:
+    first = sample_count
+    second = first + sample_count
+    third = second + sample_count
+    fourth = third + sample_count
+    return (
+        vector[:first],
+        vector[first:second],
+        vector[second:third],
+        vector[third:fourth],
+        vector[fourth : fourth + 12],
+    )
+
+
+def _safe_cosine(left: np.ndarray, right: np.ndarray) -> float:
+    lhs = np.asarray(left, dtype=np.float32).reshape(-1)
+    rhs = np.asarray(right, dtype=np.float32).reshape(-1)
+    if lhs.size == 0 or rhs.size == 0:
+        return 0.0
+    lhs_norm = float(np.linalg.norm(lhs))
+    rhs_norm = float(np.linalg.norm(rhs))
+    if lhs_norm <= 1e-9 or rhs_norm <= 1e-9:
+        return 0.0
+    return float(np.dot(lhs / lhs_norm, rhs / rhs_norm))
+
+
 def _coerce_scope_mode(value: str) -> str:
     normalized = (value or "take").strip().lower()
     if normalized not in {"take", "layer", "selected_layers_main"}:
         return "take"
     return normalized
+
+
+_DRUM_COMPARE_HINT_TOKENS = {
+    "clap",
+    "cymbal",
+    "drum",
+    "drums",
+    "hat",
+    "hihat",
+    "kick",
+    "perc",
+    "percussion",
+    "rim",
+    "snare",
+    "tom",
+}
 
 
 __all__ = [

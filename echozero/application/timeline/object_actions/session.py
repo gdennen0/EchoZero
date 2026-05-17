@@ -112,6 +112,8 @@ class ObjectActionSettingsSession:
             target_label="This Version",
         )
     )
+    profile_names: tuple[str, ...] = ()
+    can_manage_profiles: bool = False
     default_save_scope: str | None = None
     default_save_label: str = "Defaults"
     can_save: bool = True
@@ -237,6 +239,20 @@ class SaveSession(ObjectActionSessionCommand):
     """Persist the current scope draft values."""
 
     pass
+
+
+@dataclass(slots=True, frozen=True)
+class LoadSessionProfile(ObjectActionSessionCommand):
+    """Load one saved profile into the current session draft values."""
+
+    profile_name: str
+
+
+@dataclass(slots=True, frozen=True)
+class SaveSessionProfile(ObjectActionSessionCommand):
+    """Persist the current session draft values as one saved profile."""
+
+    profile_name: str
 
 
 @dataclass(slots=True, frozen=True)

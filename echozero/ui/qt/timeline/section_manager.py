@@ -265,18 +265,17 @@ class SectionManagerDialog(QDialog):
             return
         insert_at = selected_row if before else selected_row + 1
         start = self._suggest_insert_start(insert_at=insert_at)
-        cue_number = self._suggest_insert_cue_number(insert_at=insert_at)
-        cue_ref = self._cue_ref_from_value(cue_number)
         self._rows.insert(
             insert_at,
             SectionCueDraft(
                 cue_id=None,
                 start=start,
-                cue_ref=cue_ref,
-                name=f"Section {cue_number_text(cue_number) or insert_at + 1}",
-                cue_number=cue_number,
+                cue_ref="",
+                name=f"Section {insert_at + 1}",
+                cue_number=None,
             ),
         )
+        self._renumber_rows_from_index(insert_at)
         self._refresh_table(select_row=insert_at)
 
     def _apply_quick_label(self, label: str) -> None:
@@ -369,6 +368,42 @@ class SectionManagerDialog(QDialog):
                 next_selected_index,
             )
         self._refresh_table(select_row=next_selected_index)
+
+    def _renumber_rows_from_index(self, start_index: int) -> None:
+        if start_index < 0 or start_index >= len(self._rows):
+            return
+        previous_cue_number = (
+            parse_positive_cue_number(self._rows[start_index - 1].cue_number)
+            if start_index > 0
+            else None
+        )
+        start_cue_number = (
+            parse_positive_cue_number(float(previous_cue_number) + 1.0)
+            if previous_cue_number is not None
+            else 1
+        )
+        if start_cue_number is None:
+            start_cue_number = 1
+        start_value = float(start_cue_number)
+        for row_index in range(start_index, len(self._rows)):
+            cue_number = parse_positive_cue_number(start_value + float(row_index - start_index))
+            if cue_number is None:
+                cue_number = 1
+            current = self._rows[row_index]
+            fallback_name = f"Section {row_index + 1}"
+            name = current.name
+            if not str(name or "").strip() or name == fallback_name:
+                name = f"Section {cue_number_text(cue_number) or row_index + 1}"
+            self._rows[row_index] = SectionCueDraft(
+                cue_id=current.cue_id,
+                start=float(current.start),
+                cue_ref=self._cue_ref_from_value(cue_number),
+                name=name,
+                cue_number=cue_number,
+                color=current.color,
+                notes=current.notes,
+                payload_ref=current.payload_ref,
+            )
 
     def _on_delete_section(self) -> None:
         selected_rows = self._selected_row_indexes()
@@ -645,37 +680,6 @@ class SectionManagerDialog(QDialog):
         if next_start is not None:
             return round(max(0.0, next_start - 8.0), 3)
         return 0.0
-
-    def _suggest_insert_cue_number(self, *, insert_at: int) -> CueNumber:
-        previous = (
-            parse_positive_cue_number(self._rows[insert_at - 1].cue_number)
-            if insert_at - 1 >= 0 and insert_at - 1 < len(self._rows)
-            else None
-        )
-        next_value = (
-            parse_positive_cue_number(self._rows[insert_at].cue_number)
-            if insert_at >= 0 and insert_at < len(self._rows)
-            else None
-        )
-        candidate: CueNumber
-        if previous is not None and next_value is not None:
-            prev_float = float(previous)
-            next_float = float(next_value)
-            if next_float > prev_float:
-                candidate = (prev_float + next_float) * 0.5
-            else:
-                candidate = prev_float + 1.0
-        elif previous is not None:
-            candidate = float(previous) + 1.0
-        elif next_value is not None:
-            next_float = float(next_value)
-            candidate = next_float - 1.0 if next_float > 1.0 else (next_float * 0.5)
-        else:
-            candidate = float(len(self._rows) + 1)
-        normalized = parse_positive_cue_number(candidate)
-        if normalized is None:
-            return 1
-        return normalized
 
     @staticmethod
     def _normalized_row(row: SectionCueDraft) -> SectionCueDraft:

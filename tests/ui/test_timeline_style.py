@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
     QDialogButtonBox,
     QDoubleSpinBox,
     QGridLayout,
+    QInputDialog,
     QLabel,
     QSizePolicy,
     QSpinBox,
@@ -24,6 +25,7 @@ from echozero.application.presentation.inspector_contract import (
     build_timeline_inspector_contract,
 )
 from echozero.application.timeline.object_actions import (
+    LoadSessionProfile,
     ObjectActionSessionFieldValue,
     ObjectActionSettingField,
     ObjectActionSettingOption,
@@ -31,6 +33,7 @@ from echozero.application.timeline.object_actions import (
     ObjectActionSettingsScopeState,
     ObjectActionSettingsSession,
     ResetSessionDefaults,
+    SaveSessionProfile,
     SaveSessionToDefaults,
     SetSessionFieldValue,
 )
@@ -878,6 +881,76 @@ def test_action_settings_dialog_save_to_defaults_dispatches_session_command():
         app.processEvents()
 
 
+def test_action_settings_dialog_profile_buttons_dispatch_profile_commands():
+    app = QApplication.instance() or QApplication([])
+    dispatched: list[object] = []
+    session = ObjectActionSettingsSession(
+        session_id="session_profiles",
+        action_id="timeline.extract_stems",
+        object_id="source_audio",
+        object_type="layer",
+        scope="version",
+        plan=ObjectActionSettingsPlan(
+            action_id="timeline.extract_stems",
+            title="Extract Stems",
+            object_id="source_audio",
+            object_type="layer",
+            pipeline_template_id="stem_separation",
+            editable_fields=(
+                ObjectActionSettingField(
+                    key="model",
+                    label="Model",
+                    value="mdx_extra",
+                    default_value="latest_model",
+                    persisted_value="latest_model",
+                    is_dirty=True,
+                ),
+            ),
+        ),
+        scope_states=(
+            ObjectActionSettingsScopeState(
+                scope="version",
+                label="This Version",
+                field_values=(
+                    ObjectActionSessionFieldValue(
+                        key="model",
+                        persisted_value="latest_model",
+                        draft_value="mdx_extra",
+                    ),
+                ),
+                can_run=True,
+            ),
+        ),
+        profile_names=("Festival Stems",),
+        can_manage_profiles=True,
+    )
+    dialog = ActionSettingsDialog(
+        session,
+        dispatch_command=lambda _session_id, command: (dispatched.append(command) or session),
+    )
+    original_get_text = QInputDialog.getText
+    try:
+        dialog._profile_name.setCurrentIndex(1)
+        app.processEvents()
+
+        assert dialog._profile_name.isEditable() is False
+        assert dialog._load_profile.isEnabled() is True
+        assert dialog._save_profile.isEnabled() is True
+
+        QInputDialog.getText = staticmethod(lambda *args, **kwargs: ("Festival Stems", True))
+        dialog._load_profile.click()
+        dialog._save_profile.click()
+
+        assert isinstance(dispatched[0], LoadSessionProfile)
+        assert dispatched[0].profile_name == "Festival Stems"
+        assert isinstance(dispatched[1], SaveSessionProfile)
+        assert dispatched[1].profile_name == "Festival Stems"
+    finally:
+        QInputDialog.getText = original_get_text
+        dialog.close()
+        app.processEvents()
+
+
 def test_pipeline_settings_browser_dialog_renders_stages_and_disables_run_without_target():
     app = QApplication.instance() or QApplication([])
     model_field = ObjectActionSettingField(
@@ -1116,6 +1189,80 @@ def test_pipeline_settings_browser_dialog_stage_container_stretches():
         )
         assert dialog._form.sizePolicy().verticalPolicy() == QSizePolicy.Policy.Expanding
     finally:
+        dialog.close()
+        app.processEvents()
+
+
+def test_pipeline_settings_browser_dialog_profile_buttons_dispatch_profile_commands():
+    app = QApplication.instance() or QApplication([])
+    dispatched: list[object] = []
+    session = ObjectActionSettingsSession(
+        session_id="pipeline_profiles",
+        action_id="timeline.extract_stems",
+        object_id="source_audio",
+        object_type="layer",
+        scope="version",
+        plan=ObjectActionSettingsPlan(
+            action_id="timeline.extract_stems",
+            title="Extract Stems",
+            object_id="source_audio",
+            object_type="layer",
+            pipeline_template_id="stem_separation",
+            editable_fields=(
+                ObjectActionSettingField(
+                    key="model",
+                    label="Model",
+                    value="mdx_extra",
+                    default_value="latest_model",
+                    persisted_value="latest_model",
+                    is_dirty=True,
+                ),
+            ),
+            summary="Source Audio · This Version",
+        ),
+        scope_states=(
+            ObjectActionSettingsScopeState(
+                scope="version",
+                label="This Version",
+                field_values=(
+                    ObjectActionSessionFieldValue(
+                        key="model",
+                        persisted_value="latest_model",
+                        draft_value="mdx_extra",
+                    ),
+                ),
+                can_run=True,
+            ),
+        ),
+        profile_names=("Festival Stems",),
+        can_manage_profiles=True,
+        can_save=True,
+        can_save_and_run=True,
+    )
+
+    dialog = PipelineSettingsBrowserDialog(
+        (session,),
+        dispatch_command=lambda _session_id, command: (dispatched.append(command) or session),
+    )
+    original_get_text = QInputDialog.getText
+    try:
+        dialog._profile_name.setCurrentIndex(1)
+        app.processEvents()
+
+        assert dialog._profile_name.isEditable() is False
+        assert dialog._load_profile.isEnabled() is True
+        assert dialog._save_profile.isEnabled() is True
+
+        QInputDialog.getText = staticmethod(lambda *args, **kwargs: ("Festival Stems", True))
+        dialog._load_profile.click()
+        dialog._save_profile.click()
+
+        assert isinstance(dispatched[0], LoadSessionProfile)
+        assert dispatched[0].profile_name == "Festival Stems"
+        assert isinstance(dispatched[1], SaveSessionProfile)
+        assert dispatched[1].profile_name == "Festival Stems"
+    finally:
+        QInputDialog.getText = original_get_text
         dialog.close()
         app.processEvents()
 

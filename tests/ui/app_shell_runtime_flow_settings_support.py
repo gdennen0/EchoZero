@@ -680,6 +680,64 @@ def test_app_shell_runtime_object_action_session_discovers_scope_and_copy_source
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
+def test_app_shell_runtime_object_action_session_saves_and_loads_pipeline_profiles():
+    from echozero.application.settings import AppSettingsService
+
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        analysis_service=build_mock_analysis_service(),
+        app_settings_service=AppSettingsService(_MemoryAppSettingsStore()),
+    )
+
+    try:
+        audio_path = write_test_wav(temp_root / "fixtures" / "session-profiles.wav")
+        runtime.add_song_from_path("Session Profiles", audio_path)
+
+        session = runtime.open_object_action_session(
+            "timeline.extract_stems",
+            {"layer_id": "source_audio"},
+            object_id="source_audio",
+            object_type="layer",
+        )
+        assert session.can_manage_profiles is True
+        assert session.profile_names == ()
+
+        session = runtime.dispatch_object_action_command(
+            session.session_id,
+            ReplaceSessionValues({"model": "mdx_extra_q", "device": "cpu"}),
+        )
+        session = runtime.dispatch_object_action_command(
+            session.session_id,
+            SaveSessionProfile("Festival Stems"),
+        )
+        assert session.profile_names == ("Festival Stems",)
+
+        session = runtime.dispatch_object_action_command(
+            session.session_id,
+            ReplaceSessionValues({"model": "latest_model", "device": ""}),
+        )
+        session = runtime.dispatch_object_action_command(
+            session.session_id,
+            LoadSessionProfile("Festival Stems"),
+        )
+        assert session.values["model"] == "mdx_extra_q"
+        assert session.values["device"] == "cpu"
+        assert session.has_unsaved_changes is True
+
+        settings_service = runtime.app_settings_service
+        assert settings_service is not None
+        assert settings_service.pipeline_profiles_for_template("stem_separation") == {
+            "Festival Stems": {
+                "model": "mdx_extra_q",
+                "device": "cpu",
+            }
+        }
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
 def test_app_shell_runtime_object_action_session_without_layer_saves_but_disables_run():
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(

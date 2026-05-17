@@ -146,6 +146,9 @@ class AppShellEditingShell(Protocol):
         storage_backed: bool,
         mark_dirty: bool,
         operation: Callable[[], TimelinePresentation],
+        defer_storage_sync: bool = False,
+        storage_layer_ids: list[LayerId] | None = None,
+        history_layer_ids: list[LayerId] | None = None,
     ) -> TimelinePresentation: ...
 
     def _store_manual_layer(self, layer: Layer) -> None: ...
@@ -499,47 +502,66 @@ class AppShellEditingMixin:
         self: AppShellEditingShell,
         intent: TimelineIntent,
     ) -> TimelinePresentation:
+        command_result = _prepare_timeline_command(self, intent)
         if isinstance(intent, CommitMissedEventReview):
             return self._run_undoable_operation(
                 label=history_label_for_intent(intent) or "Add Missed Event",
                 storage_backed=True,
                 mark_dirty=True,
-                operation=lambda: commit_missed_event_review(self, intent),
+                operation=lambda: commit_missed_event_review(self, intent, sync_runtime=False),
+                storage_layer_ids=list(command_result.storage_layer_ids) or [intent.layer_id],
+                history_layer_ids=list(command_result.history_layer_ids) or [intent.layer_id],
             )
         if isinstance(intent, CommitMissedEventsReview):
             return self._run_undoable_operation(
                 label=history_label_for_intent(intent) or "Add Missed Events",
                 storage_backed=True,
                 mark_dirty=True,
-                operation=lambda: commit_missed_events_review(self, intent),
+                operation=lambda: commit_missed_events_review(self, intent, sync_runtime=False),
+                storage_layer_ids=list(command_result.storage_layer_ids)
+                or _review_layer_ids_for_intent(intent),
+                history_layer_ids=list(command_result.history_layer_ids)
+                or _review_layer_ids_for_intent(intent),
             )
         if isinstance(intent, CommitVerifiedEventReview):
             return self._run_undoable_operation(
                 label=history_label_for_intent(intent) or "Verify Event",
                 storage_backed=True,
                 mark_dirty=True,
-                operation=lambda: commit_verified_review(self, intent),
+                operation=lambda: commit_verified_review(self, intent, sync_runtime=False),
+                storage_layer_ids=list(command_result.storage_layer_ids) or [intent.layer_id],
+                history_layer_ids=list(command_result.history_layer_ids) or [intent.layer_id],
             )
         if isinstance(intent, CommitVerifiedEventsReview):
             return self._run_undoable_operation(
                 label=history_label_for_intent(intent) or "Verify Events",
                 storage_backed=True,
                 mark_dirty=True,
-                operation=lambda: commit_verified_events_review(self, intent),
+                operation=lambda: commit_verified_events_review(self, intent, sync_runtime=False),
+                storage_layer_ids=list(command_result.storage_layer_ids)
+                or _review_layer_ids_for_intent(intent),
+                history_layer_ids=list(command_result.history_layer_ids)
+                or _review_layer_ids_for_intent(intent),
             )
         if isinstance(intent, CommitRejectedEventReview):
             return self._run_undoable_operation(
                 label=history_label_for_intent(intent) or "Reject Event",
                 storage_backed=True,
                 mark_dirty=True,
-                operation=lambda: commit_rejected_review(self, intent),
+                operation=lambda: commit_rejected_review(self, intent, sync_runtime=False),
+                storage_layer_ids=list(command_result.storage_layer_ids) or [intent.layer_id],
+                history_layer_ids=list(command_result.history_layer_ids) or [intent.layer_id],
             )
         if isinstance(intent, CommitRejectedEventsReview):
             return self._run_undoable_operation(
                 label=history_label_for_intent(intent) or "Reject Events",
                 storage_backed=True,
                 mark_dirty=True,
-                operation=lambda: commit_rejected_events_review(self, intent),
+                operation=lambda: commit_rejected_events_review(self, intent, sync_runtime=False),
+                storage_layer_ids=list(command_result.storage_layer_ids)
+                or _review_layer_ids_for_intent(intent),
+                history_layer_ids=list(command_result.history_layer_ids)
+                or _review_layer_ids_for_intent(intent),
             )
         if isinstance(intent, CommitRelabeledEventReview):
             return self._run_undoable_operation(
@@ -547,6 +569,8 @@ class AppShellEditingMixin:
                 storage_backed=True,
                 mark_dirty=True,
                 operation=lambda: commit_relabel_review(self, intent),
+                storage_layer_ids=list(command_result.storage_layer_ids) or [intent.layer_id],
+                history_layer_ids=list(command_result.history_layer_ids) or [intent.layer_id],
             )
         if isinstance(intent, CommitBoundaryCorrectedEventReview):
             return self._run_undoable_operation(
@@ -554,6 +578,8 @@ class AppShellEditingMixin:
                 storage_backed=True,
                 mark_dirty=True,
                 operation=lambda: commit_boundary_corrected_review(self, intent),
+                storage_layer_ids=list(command_result.storage_layer_ids) or [intent.layer_id],
+                history_layer_ids=list(command_result.history_layer_ids) or [intent.layer_id],
             )
         if is_undoable_intent(intent):
             return self._run_undoable_operation(
@@ -561,13 +587,59 @@ class AppShellEditingMixin:
                 storage_backed=is_storage_backed_undoable_intent(intent),
                 mark_dirty=isinstance(intent, _DIRTYING_INTENT_TYPES),
                 operation=lambda: self._app.dispatch(intent),
+                storage_layer_ids=list(command_result.storage_layer_ids) or None,
+                history_layer_ids=list(command_result.history_layer_ids) or None,
             )
 
         presentation = self._app.dispatch(intent)
         if isinstance(intent, ToggleLayerExpanded):
-            self._sync_storage_backed_timeline()
+            defer_sync = getattr(self, "_should_defer_storage_sync_for_live_transport", None)
+            if callable(defer_sync) and bool(defer_sync()):
+                defer_timeline = getattr(self, "_defer_storage_backed_timeline_sync", None)
+                if callable(defer_timeline):
+                    defer_timeline()
+                else:
+                    self._sync_storage_backed_timeline()
+            else:
+                self._sync_storage_backed_timeline()
         if is_history_barrier_intent(intent):
             self._clear_history()
         if isinstance(intent, _DIRTYING_INTENT_TYPES):
             self._is_dirty = True
         return presentation
+
+
+def _review_layer_ids_for_intent(intent: object) -> list[LayerId]:
+    entries = getattr(intent, "event_refs", None)
+    if entries is None:
+        entries = getattr(intent, "intents", None)
+    layer_ids: list[LayerId] = []
+    seen: set[str] = set()
+    for entry in list(entries or []):
+        layer_id = getattr(entry, "layer_id", None)
+        if layer_id is None:
+            continue
+        key = str(layer_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        layer_ids.append(LayerId(key))
+    return layer_ids
+
+
+def _prepare_timeline_command(
+    shell: AppShellEditingShell,
+    intent: TimelineIntent,
+):
+    runtime = getattr(shell, "_timeline_command_runtime", None)
+    if runtime is not None and callable(getattr(runtime, "prepare", None)):
+        return runtime.prepare(shell._app.timeline, intent)
+
+    class _EmptyCommandResult:
+        changed_layer_ids = ()
+        history_layer_ids = ()
+        storage_layer_ids = ()
+        scoped_history = False
+        playback_impact = "none"
+
+    return _EmptyCommandResult()

@@ -108,6 +108,7 @@ class AppSettingsService:
             ma3_osc=self._updated_ma3_osc_preferences(current.ma3_osc, updates),
             song_import=self._updated_song_import_preferences(current.song_import, updates),
             pipeline_defaults_by_template=current.pipeline_defaults_by_template,
+            pipeline_profiles_by_template=current.pipeline_profiles_by_template,
             recent_project_paths=current.recent_project_paths,
         )
         return build_app_settings_page(
@@ -144,6 +145,7 @@ class AppSettingsService:
                 updates,
             ),
             pipeline_defaults_by_template=current.pipeline_defaults_by_template,
+            pipeline_profiles_by_template=current.pipeline_profiles_by_template,
             recent_project_paths=current.recent_project_paths,
         )
         return self.replace_preferences(next_preferences)
@@ -194,6 +196,55 @@ class AppSettingsService:
                 ma3_osc=self._preferences.ma3_osc,
                 song_import=self._preferences.song_import,
                 pipeline_defaults_by_template=updated_defaults,
+                pipeline_profiles_by_template=self._preferences.pipeline_profiles_by_template,
+                recent_project_paths=self._preferences.recent_project_paths,
+            )
+        )
+
+    def pipeline_profiles_for_template(
+        self,
+        template_id: str,
+    ) -> dict[str, dict[str, object]]:
+        """Return saved machine-local pipeline profiles for one template."""
+
+        return {
+            name: dict(values)
+            for name, values in self._preferences.pipeline_profiles_by_template.get(
+                template_id,
+                {},
+            ).items()
+        }
+
+    def save_pipeline_profile(
+        self,
+        template_id: str,
+        profile_name: str,
+        values: Mapping[str, object],
+    ) -> AppSettingsUpdateResult:
+        """Persist one named machine-local pipeline profile for one template."""
+
+        text = str(template_id).strip()
+        if not text:
+            raise AppSettingsValidationError("Pipeline profiles require a template id.")
+        name = str(profile_name).strip()
+        if not name:
+            raise AppSettingsValidationError("Pipeline profiles require a profile name.")
+        updated_profiles = {
+            key: {profile: dict(profile_values) for profile, profile_values in template.items()}
+            for key, template in self._preferences.pipeline_profiles_by_template.items()
+        }
+        template_profiles = dict(updated_profiles.get(text, {}))
+        template_profiles[name] = {
+            str(key).strip(): value for key, value in values.items() if str(key).strip()
+        }
+        updated_profiles[text] = template_profiles
+        return self.replace_preferences(
+            AppPreferences(
+                audio_output=self._preferences.audio_output,
+                ma3_osc=self._preferences.ma3_osc,
+                song_import=self._preferences.song_import,
+                pipeline_defaults_by_template=self._preferences.pipeline_defaults_by_template,
+                pipeline_profiles_by_template=updated_profiles,
                 recent_project_paths=self._preferences.recent_project_paths,
             )
         )
@@ -288,6 +339,7 @@ class AppSettingsService:
                 ma3_osc=self._preferences.ma3_osc,
                 song_import=self._preferences.song_import,
                 pipeline_defaults_by_template=self._preferences.pipeline_defaults_by_template,
+                pipeline_profiles_by_template=self._preferences.pipeline_profiles_by_template,
                 recent_project_paths=tuple(ordered),
             )
         )
@@ -312,6 +364,7 @@ class AppSettingsService:
                 ma3_osc=self._preferences.ma3_osc,
                 song_import=self._preferences.song_import,
                 pipeline_defaults_by_template=self._preferences.pipeline_defaults_by_template,
+                pipeline_profiles_by_template=self._preferences.pipeline_profiles_by_template,
                 recent_project_paths=filtered,
             )
         )

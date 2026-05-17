@@ -262,6 +262,40 @@ def test_selected_tiny_demoted_event_has_stronger_outer_outline():
     assert selected_sample.blue() > unselected_sample.blue() + 20
 
 
+def test_selected_demoted_event_preserves_demoted_fill_color() -> None:
+    event = EventPresentation(
+        event_id=EventId("demoted_selected_fill"),
+        start=1.0,
+        end=1.3,
+        label="Demoted",
+        color="#22cc88",
+        badges=["demoted"],
+        is_selected=True,
+    )
+    presentation = EventLanePresentation(
+        layer_id="layer_1",
+        take_id=None,
+        events=[event],
+        pixels_per_second=100.0,
+        scroll_x=0.0,
+        header_width=320,
+        event_height=22,
+        viewport_width=800,
+    )
+
+    image = QImage(800, 120, QImage.Format.Format_ARGB32)
+    image.fill(0)
+    painter = QPainter(image)
+    try:
+        EventLaneBlock().paint(painter, 20, presentation)
+    finally:
+        painter.end()
+
+    sample = image.pixelColor(430, 31)
+    expected = TIMELINE_STYLE.event_lane.demoted_fill_hex
+    assert sample.name().lower() == expected.lower()
+
+
 def test_section_lane_renders_zero_width_section_cues_as_minimum_event_width():
     section = EventPresentation(
         event_id=EventId("section"),

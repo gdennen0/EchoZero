@@ -169,6 +169,9 @@ class AppPreferences:
     ma3_osc: MA3OscPreferences = field(default_factory=MA3OscPreferences)
     song_import: SongImportPreferences = field(default_factory=SongImportPreferences)
     pipeline_defaults_by_template: dict[str, dict[str, Any]] = field(default_factory=dict)
+    pipeline_profiles_by_template: dict[str, dict[str, dict[str, Any]]] = field(
+        default_factory=dict
+    )
     recent_project_paths: tuple[str, ...] = ()
 
 
@@ -296,6 +299,9 @@ def app_preferences_from_dict(payload: dict[str, Any] | None) -> AppPreferences:
         pipeline_defaults_by_template=_coerce_pipeline_defaults_by_template(
             data.get("pipeline_defaults_by_template")
         ),
+        pipeline_profiles_by_template=_coerce_pipeline_profiles_by_template(
+            data.get("pipeline_profiles_by_template")
+        ),
         recent_project_paths=_coerce_recent_project_paths(data.get("recent_project_paths")),
     )
 
@@ -391,3 +397,28 @@ def _coerce_recent_project_paths(value: object) -> tuple[str, ...]:
         if text:
             entries.append(text)
     return tuple(entries)
+
+
+def _coerce_pipeline_profiles_by_template(
+    value: object,
+) -> dict[str, dict[str, dict[str, Any]]]:
+    if not isinstance(value, dict):
+        return {}
+    resolved: dict[str, dict[str, dict[str, Any]]] = {}
+    for raw_template_id, raw_profiles in value.items():
+        template_id = str(raw_template_id).strip()
+        if not template_id or not isinstance(raw_profiles, dict):
+            continue
+        normalized_profiles: dict[str, dict[str, Any]] = {}
+        for raw_profile_name, raw_profile_values in raw_profiles.items():
+            profile_name = str(raw_profile_name).strip()
+            if not profile_name or not isinstance(raw_profile_values, dict):
+                continue
+            normalized_profiles[profile_name] = {
+                str(raw_key).strip(): raw_value
+                for raw_key, raw_value in raw_profile_values.items()
+                if str(raw_key).strip()
+            }
+        if normalized_profiles:
+            resolved[template_id] = normalized_profiles
+    return resolved

@@ -2,6 +2,7 @@ from tests.ui.runtime_audio_support import (
     test_audio_engine_keeps_injected_streams_on_low_latency_with_unspecified_callback_blocksize,
     test_widget_dispatch_preserves_local_scroll_when_seek_updates_arrive_with_stale_scroll_state,
     test_widget_dispatch_flushes_pending_paused_mix_before_play,
+    test_widget_live_structural_dispatch_queues_without_hot_path_playback_classify,
     test_widget_dispatch_preserves_runtime_playhead_on_audio_route_update,
     test_widget_dispatch_uses_exact_runtime_clock_time_when_pausing,
     test_widget_runtime_tick_preserves_paused_playhead_when_backend_visually_regresses_to_zero,
