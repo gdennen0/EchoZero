@@ -58,7 +58,9 @@ from echozero.ui.qt.app_shell_project_timeline_storage import (
 from echozero.ui.qt.app_shell_project_timeline_types import (
     AudioPresentationFields,
     TimelinePresentationOverlay,
+    VideoPresentationFields,
 )
+from echozero.persistence.video import resolve_project_video_path
 from echozero.ui.qt.timeline.style import TIMELINE_STYLE
 
 
@@ -170,11 +172,59 @@ def build_project_native_baseline_timeline(
             playback_source_ref=str(source_audio_path),
         )
     }
+    layer_video: dict[LayerId, VideoPresentationFields] = {}
+    video_attachment = project_storage.song_video_attachments.get_by_song(active_song.id)
+    if video_attachment is not None:
+        video_layer_id = LayerId(f"layer_video_{active_song.id}")
+        layers.append(
+            Layer(
+                id=video_layer_id,
+                timeline_id=timeline_id,
+                name="Video Reference",
+                kind=LayerKind.REFERENCE,
+                order_index=1,
+                presentation_hints=LayerPresentationHints(
+                    color=TIMELINE_STYLE.fixture.layer_color_tokens.get(
+                        "reference",
+                        "#9a948c",
+                    ),
+                ),
+            )
+        )
+        placement = project_storage.song_video_placements.get(version.id)
+        video_start_seconds = 0.0 if placement is None else float(placement.video_start_seconds)
+        video_path = resolve_project_video_path(
+            project_storage.working_dir,
+            video_attachment.video_file,
+        )
+        if video_attachment.extracted_audio_file:
+            video_audio_path = resolve_project_audio_path(
+                project_storage,
+                video_attachment.extracted_audio_file,
+            )
+            video_waveform_key = ensure_registered_waveform(
+                "video-audio-"
+                f"{video_attachment.id}-"
+                f"{video_attachment.extracted_audio_hash or video_attachment.video_hash}",
+                video_audio_path,
+            )
+            layer_audio[video_layer_id] = AudioPresentationFields(
+                waveform_key=video_waveform_key,
+                source_audio_path=str(video_audio_path),
+                playback_source_ref=None,
+            )
+        layer_video[video_layer_id] = VideoPresentationFields(
+            video_path=str(video_path),
+            video_start_seconds=video_start_seconds,
+            video_duration_seconds=float(video_attachment.duration_seconds),
+        )
     for layer_record in project_storage.layers.list_by_version(version.id):
         layer, layer_fields, take_fields = build_storage_layer(
             project_storage, timeline_id, layer_record
         )
         if layer is not None:
+            if video_attachment is not None:
+                layer.order_index += 2
             layers.append(layer)
             layer_audio[layer.id] = layer_fields
             take_audio.update(take_fields)
@@ -206,6 +256,7 @@ def build_project_native_baseline_timeline(
             available_song_versions=selection.available_song_versions,
             layer_audio=layer_audio,
             take_audio=take_audio,
+            layer_video=layer_video,
         ),
         SongId(active_song.id),
         SongVersionId(version.id),
@@ -238,6 +289,7 @@ def build_empty_project_timeline(project_storage: ProjectStorage) -> Timeline:
 __all__ = [
     "AudioPresentationFields",
     "TimelinePresentationOverlay",
+    "VideoPresentationFields",
     "apply_timeline_presentation_overlay",
     "audio_presentation_fields",
     "available_song_options",

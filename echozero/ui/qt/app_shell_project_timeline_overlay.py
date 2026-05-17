@@ -81,15 +81,20 @@ def apply_timeline_presentation_overlay(
             for take in layer.takes
         ]
         layers.append(
-            replace(
-                layer,
-                badges=layer_badges(
-                    layer.title, layer.kind, parent_layer_id=layer.parent_layer_id
+            _apply_video_fields(
+                replace(
+                    layer,
+                    badges=layer_badges(
+                        layer.title,
+                        layer.kind,
+                        parent_layer_id=layer.parent_layer_id,
+                    ),
+                    waveform_key=layer_fields.waveform_key,
+                    source_audio_path=layer_fields.source_audio_path,
+                    playback_source_ref=layer_fields.playback_source_ref,
+                    takes=takes,
                 ),
-                waveform_key=layer_fields.waveform_key,
-                source_audio_path=layer_fields.source_audio_path,
-                playback_source_ref=layer_fields.playback_source_ref,
-                takes=takes,
+                overlay=overlay,
             )
         )
 
@@ -125,9 +130,28 @@ def layer_badges(
         badges.append("child")
     if kind is LayerKind.AUDIO and name.strip().lower() != "imported song":
         badges.append("stem")
+    if kind is LayerKind.REFERENCE:
+        badges.append("video")
     if "drum" in name.strip().lower():
         badges.append("drums")
     return badges
+
+
+def _apply_video_fields(
+    layer: LayerPresentation,
+    *,
+    overlay: TimelinePresentationOverlay,
+) -> LayerPresentation:
+    video_fields = (overlay.layer_video or {}).get(layer.layer_id)
+    if video_fields is None:
+        return layer
+    return replace(
+        layer,
+        reference_kind="video",
+        video_path=video_fields.video_path,
+        video_start_seconds=float(video_fields.video_start_seconds),
+        video_duration_seconds=float(video_fields.video_duration_seconds),
+    )
 
 
 def format_time(seconds: float) -> str:

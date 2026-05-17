@@ -570,6 +570,18 @@ class TimelineWidgetContractActionMixin:
         if action_id == "song.version.set_ma3_timecode_pool":
             self._run_set_song_version_ma3_timecode_pool_action(params)
             return
+        if action_id in {"video.import", "video.replace"}:
+            self._run_import_or_replace_video_action()
+            return
+        if action_id == "video.remove":
+            self._run_remove_video_action()
+            return
+        if action_id == "video.open_window":
+            self._run_open_video_window_action()
+            return
+        if action_id == "video.reset_offset":
+            self._run_reset_video_offset_action()
+            return
         if action_id in {
             "song.version.set_first_beat_here",
             "song.version.set_first_beat_to_playhead",
@@ -893,6 +905,56 @@ class TimelineWidgetContractActionMixin:
             )
         )
         return options
+
+    def _run_import_or_replace_video_action(self) -> None:
+        host = cast(_ContractActionHost, self)
+        runtime = host._resolve_runtime_shell()
+        importer = getattr(runtime, "import_or_replace_song_video", None)
+        if runtime is None or not callable(importer):
+            host._message_box.warning(
+                host._widget,
+                "Video Reference",
+                "This runtime does not support song video references.",
+            )
+            return
+        path, _selected_filter = host._file_dialog.getOpenFileName(
+            host._widget,
+            "Select Video Reference",
+            "",
+            "Video Files (*.mp4 *.mov *.m4v *.avi *.mkv);;All Files (*)",
+        )
+        if not path:
+            return
+        updated = importer(Path(path))
+        if updated is not None:
+            host._set_presentation(updated)
+
+    def _run_remove_video_action(self) -> None:
+        host = cast(_ContractActionHost, self)
+        runtime = host._resolve_runtime_shell()
+        remover = getattr(runtime, "remove_active_song_video", None)
+        if runtime is None or not callable(remover):
+            return
+        updated = remover()
+        if updated is not None:
+            host._set_presentation(updated)
+
+    def _run_open_video_window_action(self) -> None:
+        host = cast(_ContractActionHost, self)
+        runtime = host._resolve_runtime_shell()
+        opener = getattr(runtime, "open_video_window", None)
+        if callable(opener):
+            opener()
+
+    def _run_reset_video_offset_action(self) -> None:
+        host = cast(_ContractActionHost, self)
+        runtime = host._resolve_runtime_shell()
+        setter = getattr(runtime, "set_active_song_video_start_seconds", None)
+        if not callable(setter):
+            return
+        updated = setter(0.0)
+        if updated is not None:
+            host._set_presentation(updated)
 
     def _run_add_song_from_path_action(self, params: dict[str, object] | None = None) -> None:
         host = cast(_ContractActionHost, self)

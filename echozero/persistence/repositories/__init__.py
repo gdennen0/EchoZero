@@ -17,6 +17,10 @@ from echozero.persistence.repositories.song_default_pipeline_config import (
     SongDefaultPipelineConfigRepository,
 )
 from echozero.persistence.repositories.take import TakeRepository
+from echozero.persistence.repositories.video import (
+    SongVideoAttachmentRepository,
+    SongVideoPlacementRepository,
+)
 
 __all__ = [
     "ProjectRepository",
@@ -29,4 +33,6 @@ __all__ = [
     "ObjectCandidateRepository",
     "PipelineConfigRepository",
     "SongDefaultPipelineConfigRepository",
+    "SongVideoAttachmentRepository",
+    "SongVideoPlacementRepository",
 ]

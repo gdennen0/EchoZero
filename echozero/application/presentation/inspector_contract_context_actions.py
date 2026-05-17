@@ -360,7 +360,7 @@ def shared_context_sections(
             )
 
     if layer is not None:
-        mix_controls_enabled = layer.kind is not LayerKind.EVENT
+        mix_controls_enabled = layer.kind not in {LayerKind.EVENT, LayerKind.REFERENCE}
         scoped_layer_params = _selected_layer_scope_params(
             presentation,
             layer=layer,
@@ -386,7 +386,7 @@ def shared_context_sections(
                     params={"layer_id": layer.layer_id},
                 )
             )
-        if layer.kind is not LayerKind.EVENT:
+        if mix_controls_enabled:
             layer_actions = [
                 InspectorAction(
                     action_id=_layer_mute_action_id(layer),
@@ -413,40 +413,65 @@ def shared_context_sections(
         if layer.kind is LayerKind.AUDIO:
             layer_actions.extend(_layer_smpte_import_actions(layer))
             layer_actions.append(_layer_routing_settings_action(layer))
-        layer_actions.extend(
-            (
+        if layer.kind is LayerKind.REFERENCE and layer.reference_kind == "video":
+            layer_actions = [
                 InspectorAction(
-                    action_id="gain_down",
-                    label="Set Gain -6 dB",
-                    group="gain",
-                    params={
-                        **scoped_layer_params,
-                        "gain_db": -6.0,
-                    },
-                    enabled=mix_controls_enabled,
+                    action_id="video.open_window",
+                    label="Open Video Window",
+                    group="layer",
+                    params=scoped_layer_params,
                 ),
                 InspectorAction(
-                    action_id="gain_unity",
-                    label="Set Gain 0 dB",
-                    group="gain",
-                    params={
-                        **scoped_layer_params,
-                        "gain_db": 0.0,
-                    },
-                    enabled=mix_controls_enabled,
+                    action_id="video.replace",
+                    label="Replace Video",
+                    group="layer",
+                    params=scoped_layer_params,
                 ),
                 InspectorAction(
-                    action_id="gain_up",
-                    label="Set Gain +6 dB",
-                    group="gain",
-                    params={
-                        **scoped_layer_params,
-                        "gain_db": 6.0,
-                    },
-                    enabled=mix_controls_enabled,
+                    action_id="video.reset_offset",
+                    label="Reset Video Offset",
+                    group="layer",
+                    params=scoped_layer_params,
                 ),
+                InspectorAction(
+                    action_id="video.remove",
+                    label="Remove Video",
+                    group="layer",
+                    params=scoped_layer_params,
+                ),
+            ]
+        if mix_controls_enabled:
+            layer_actions.extend(
+                (
+                    InspectorAction(
+                        action_id="gain_down",
+                        label="Set Gain -6 dB",
+                        group="gain",
+                        params={
+                            **scoped_layer_params,
+                            "gain_db": -6.0,
+                        },
+                    ),
+                    InspectorAction(
+                        action_id="gain_unity",
+                        label="Set Gain 0 dB",
+                        group="gain",
+                        params={
+                            **scoped_layer_params,
+                            "gain_db": 0.0,
+                        },
+                    ),
+                    InspectorAction(
+                        action_id="gain_up",
+                        label="Set Gain +6 dB",
+                        group="gain",
+                        params={
+                            **scoped_layer_params,
+                            "gain_db": 6.0,
+                        },
+                    ),
+                )
             )
-        )
         layer_actions.extend(pipeline_actions_for_layer(layer))
         sections.append(
             InspectorContextSection(
@@ -528,6 +553,18 @@ def song_context_actions(
             )
         )
     if presentation.active_song_id:
+        has_video = any(
+            layer.kind is LayerKind.REFERENCE and layer.reference_kind == "video"
+            for layer in presentation.layers
+        )
+        actions.append(
+            InspectorAction(
+                action_id="video.replace" if has_video else "video.import",
+                label="Replace Video" if has_video else "Import Video",
+                group="song",
+                params={"song_id": presentation.active_song_id},
+            )
+        )
         actions.append(
             InspectorAction(
                 action_id="song.rename",

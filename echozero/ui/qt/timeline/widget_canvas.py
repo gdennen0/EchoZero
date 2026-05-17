@@ -155,6 +155,7 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
     section_label_double_clicked = pyqtSignal(object)
     section_boundary_double_clicked = pyqtSignal(object)
     section_marker_move_requested = pyqtSignal(object, object, float)
+    video_offset_changed = pyqtSignal(object, float)
     header_width_changed = pyqtSignal(int)
 
     def __init__(
@@ -208,6 +209,8 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
         self._row_body_select_rects: list[tuple[object, LayerId, TakeId | None]] = []
         self._header_hover_rects: list[tuple[object, LayerPresentation]] = []
         self._event_drop_rects: list[tuple[object, LayerId]] = []
+        self._video_clip_rects: list[tuple[object, LayerId, float]] = []
+        self._video_drag_candidate: tuple[LayerId, float, float] | None = None
         self._layer_drag_candidate: _LayerDragCandidate | None = None
         self._dragging_layer_reorder = False
         self._layer_drag_target_y: float | None = None

@@ -13,7 +13,7 @@ from typing import Callable
 import numpy as np
 
 from echozero.application.presentation.models import TimelinePresentation
-from echozero.application.shared.enums import PlaybackMode
+from echozero.application.shared.enums import LayerKind, PlaybackMode
 from echozero.application.shared.ids import LayerId, TakeId
 from echozero.application.shared.layer_kinds import is_event_like_layer_kind
 from echozero.application.playback.track_identity import (
@@ -353,7 +353,7 @@ class PlaybackTrackBuilder:
         playback_output_channels: int,
     ) -> PlaybackTrack | None:
         source_audio_path = self._audio_source_ref(layer)
-        if source_audio_path and not self._is_event_like_layer(layer):
+        if source_audio_path and self._is_continuous_audio_layer(layer):
             return PlaybackTrack(
                 track_id=str(getattr(layer, "layer_id")),
                 source_layer_id=getattr(layer, "layer_id"),
@@ -398,7 +398,7 @@ class PlaybackTrackBuilder:
         layer_id = str(getattr(layer, "layer_id"))
         take_id = str(getattr(take, "take_id"))
         source_audio_path = self._audio_source_ref(take)
-        if source_audio_path and not self._is_event_like_layer(layer):
+        if source_audio_path and self._is_continuous_audio_layer(layer):
             return PlaybackTrack(
                 track_id=f"{layer_id}:{take_id}",
                 source_layer_id=getattr(layer, "layer_id"),
@@ -493,13 +493,20 @@ class PlaybackTrackBuilder:
     def _layer_has_playable_source(layer: object) -> bool:
         has_continuous_source = bool(
             PlaybackTrackBuilder._audio_source_ref(layer)
-            and not PlaybackTrackBuilder._is_event_like_layer(layer)
+            and PlaybackTrackBuilder._is_continuous_audio_layer(layer)
         )
         return bool(has_continuous_source or PlaybackTrackBuilder._is_event_track_source(layer))
 
     @staticmethod
     def _is_event_like_layer(layer: object) -> bool:
         return is_event_like_layer_kind(getattr(layer, "kind", None))
+
+    @staticmethod
+    def _is_continuous_audio_layer(layer: object) -> bool:
+        kind = getattr(layer, "kind", None)
+        if isinstance(kind, LayerKind):
+            return kind is LayerKind.AUDIO
+        return str(kind or "").strip().lower() == LayerKind.AUDIO.value
 
     @staticmethod
     def _is_event_track_source(layer: object) -> bool:

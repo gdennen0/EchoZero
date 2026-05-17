@@ -30,6 +30,7 @@ class WaveformLanePresentation:
     source_audio_path: str | None = None
     unavailable_reason: str | None = None
     repaint_target: QObject | None = None
+    time_offset_seconds: float = 0.0
 
 
 class WaveformLaneBlock:
@@ -93,8 +94,9 @@ class WaveformLaneBlock:
         content_width = max(1.0, content_right - content_left)
         pps = max(1.0, presentation.pixels_per_second)
 
-        start_time = max(0.0, presentation.scroll_x / pps)
-        end_time = max(start_time, (presentation.scroll_x + content_width) / pps)
+        offset = float(presentation.time_offset_seconds)
+        start_time = max(0.0, (presentation.scroll_x - (offset * pps)) / pps)
+        end_time = max(start_time, (presentation.scroll_x + content_width - (offset * pps)) / pps)
 
         spp = cached.seconds_per_peak
         start_idx = max(0, int(floor(start_time / spp)) - 1)
@@ -114,6 +116,7 @@ class WaveformLaneBlock:
             pixels_per_second=pps,
             scroll_x=presentation.scroll_x,
             content_start_x=content_left,
+            time_offset_seconds=offset,
             pixel_step_px=column_step_px,
         ):
             if x < int(content_left - 1) or x > int(content_right + 1):
@@ -142,6 +145,7 @@ def iter_compacted_waveform_columns(
     pixels_per_second: float,
     scroll_x: float,
     content_start_x: float,
+    time_offset_seconds: float = 0.0,
     pixel_step_px: int = 1,
 ) -> Iterator[tuple[int, float, float]]:
     """Yield one min/max envelope per on-screen pixel column."""
@@ -162,6 +166,7 @@ def iter_compacted_waveform_columns(
         pixels_per_second=max(1.0, float(pixels_per_second)),
         scroll_x=float(scroll_x),
         content_start_x=float(content_start_x),
+        time_offset_seconds=float(time_offset_seconds),
         pixel_step_px=step_px,
     )
     for i in range(int(x_buckets.shape[0])):
@@ -185,6 +190,7 @@ def _compact_peak_span_numpy(
     pixels_per_second: float,
     scroll_x: float,
     content_start_x: float,
+    time_offset_seconds: float = 0.0,
     pixel_step_px: int,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Vectorized compaction: collapse many peaks into min/max by screen x bucket."""
@@ -195,9 +201,11 @@ def _compact_peak_span_numpy(
         return empty_i, empty_f, empty_f
 
     idx = np.arange(start, end + 1, dtype=np.float64)
-    x = (content_start_x + (idx * seconds_per_peak * pixels_per_second) - scroll_x).astype(
-        np.int32
-    )
+    x = (
+        content_start_x
+        + ((idx * seconds_per_peak + float(time_offset_seconds)) * pixels_per_second)
+        - scroll_x
+    ).astype(np.int32)
     if pixel_step_px > 1:
         x = (x // pixel_step_px) * pixel_step_px
 

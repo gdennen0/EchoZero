@@ -1011,6 +1011,11 @@ class TimelineWidgetRuntimeMixin:
             runtime_time=current_time,
             playing=playing,
         )
+        update_runtime_video = (
+            getattr(runtime, "update_runtime_video", None) if runtime is not None else None
+        )
+        if callable(update_runtime_video):
+            update_runtime_video(current_time, playing)
         current_label = self._runtime_time_label(current_time)
         if (
             abs(current_time - self.presentation.playhead) < 0.001

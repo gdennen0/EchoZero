@@ -98,6 +98,17 @@ class _TimelineCanvasInteractionMixin:
             event.accept()
             return
 
+        if self._video_drag_candidate is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            _layer_id, anchor_x, anchor_start = self._video_drag_candidate
+            delta_seconds = (float(event.position().x()) - float(anchor_x)) / max(
+                1.0,
+                float(self.presentation.pixels_per_second),
+            )
+            self._move_drag_preview_time = float(anchor_start) + delta_seconds
+            event.accept()
+            self.update()
+            return
+
         if self._dragging_playhead and event.buttons() & Qt.MouseButton.LeftButton:
             self.playhead_drag_requested.emit(self._seek_time_at_x(event.position().x()))
             event.accept()
@@ -169,6 +180,7 @@ class _TimelineCanvasInteractionMixin:
         self._layer_row_resize_candidate = None
         self._dragging_playhead = False
         self._drag_candidate = None
+        self._video_drag_candidate = None
         self._section_marker_drag_candidate = None
         self._dragging_section_marker = False
         self._dragging_events = False
@@ -224,6 +236,14 @@ class _TimelineCanvasInteractionMixin:
                     event.accept()
                     return
         if event.button() == Qt.MouseButton.LeftButton and self._edit_mode == "select":
+            video_hit = self._video_clip_hit(pos)
+            if video_hit is not None:
+                _rect, layer_id, start_seconds = video_hit
+                self._video_drag_candidate = (layer_id, float(pos.x()), float(start_seconds))
+                self._move_drag_preview_time = None
+                self._snap_indicator_time = None
+                event.accept()
+                return
             if self._header_resize_handle_contains(pos):
                 self._header_resize_candidate = (float(pos.x()), int(self._header_width))
                 self._set_resize_cursor_for_position(pos)
@@ -577,7 +597,7 @@ class _TimelineCanvasInteractionMixin:
         group = (action.group or "").strip().lower()
         kind = (hit_kind or "").strip().lower()
         allowed_groups_by_kind = {
-            "timeline": {"tools", "transport"},
+            "timeline": {"song", "tools", "transport"},
             "layer": {
                 "batch",
                 "layer",
@@ -622,6 +642,19 @@ class _TimelineCanvasInteractionMixin:
             if self._layer_drag_candidate is not None:
                 self._commit_layer_drag(event.modifiers())
                 event.accept()
+                return
+            if self._video_drag_candidate is not None:
+                layer_id, anchor_x, anchor_start = self._video_drag_candidate
+                delta_seconds = (float(event.position().x()) - float(anchor_x)) / max(
+                    1.0,
+                    float(self.presentation.pixels_per_second),
+                )
+                self.video_offset_changed.emit(layer_id, float(anchor_start) + delta_seconds)
+                self._video_drag_candidate = None
+                self._move_drag_preview_time = None
+                self._snap_indicator_time = None
+                event.accept()
+                self.update()
                 return
             if self._drawing_candidate is not None:
                 self._commit_draw_preview(event.position(), modifiers=event.modifiers())
@@ -1387,6 +1420,9 @@ class _TimelineCanvasInteractionMixin:
         if self._edit_mode == "select" and self._section_marker_hit(pos) is not None:
             self.setCursor(Qt.CursorShape.SizeAllCursor)
             return
+        if self._edit_mode == "select" and self._video_clip_hit(pos) is not None:
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
+            return
         if self._edit_mode == "select" and self._draggable_event_hit(pos) is not None:
             self.setCursor(Qt.CursorShape.SizeAllCursor)
             return
@@ -1425,6 +1461,12 @@ class _TimelineCanvasInteractionMixin:
         for event_rect in reversed(self._event_rects):
             if event_rect[0].contains(pos):
                 return event_rect
+        return None
+
+    def _video_clip_hit(self: Any, pos: QPointF):
+        for rect, layer_id, start_seconds in reversed(self._video_clip_rects):
+            if rect.contains(pos):
+                return rect, layer_id, start_seconds
         return None
 
     def _dispatch_fix_event_click(self: Any, event_rect) -> bool:

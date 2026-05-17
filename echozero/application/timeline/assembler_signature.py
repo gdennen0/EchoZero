@@ -75,6 +75,10 @@ def build_layer_signature(
                 str(layer.sync.live_sync_state.value),
                 layer.sync.live_sync_pause_reason,
                 bool(layer.sync.live_sync_divergent),
+                getattr(layer, "reference_kind", None),
+                getattr(layer, "video_path", None),
+                float(getattr(layer, "video_start_seconds", 0.0)),
+                float(getattr(layer, "video_duration_seconds", 0.0)),
                 take_sigs,
             )
         )

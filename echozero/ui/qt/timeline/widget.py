@@ -227,6 +227,7 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._canvas.move_selected_events_to_adjacent_layer_requested.connect(
             self._move_selected_events_to_adjacent_layer
         )
+        self._canvas.video_offset_changed.connect(self._set_video_reference_offset)
         self._canvas.take_action_selected.connect(self._trigger_take_action)
         self._canvas.contract_action_selected.connect(self._handle_contract_action)
         self._canvas.playhead_drag_requested.connect(self._seek)
@@ -401,6 +402,16 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
 
     def _preview_selected_event_from_shift_space(self) -> None:
         self._preview_selected_event_clip()
+
+    def _set_video_reference_offset(self, layer_id: object, offset_seconds: float) -> None:
+        _ = layer_id
+        runtime = self._resolve_runtime_shell()
+        setter = getattr(runtime, "set_active_song_video_start_seconds", None)
+        if not callable(setter):
+            return
+        updated = setter(float(offset_seconds))
+        if updated is not None:
+            self.set_presentation(updated)
 
     def _open_settings_dialog(self) -> None:
         actions = getattr(self, "_launcher_actions", {})

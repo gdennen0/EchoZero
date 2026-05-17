@@ -27,6 +27,8 @@ from echozero.persistence.entities import (
     ProjectSettingsRecord,
     SongDefaultPipelineConfigRecord,
     SongRecord,
+    SongVideoAttachmentRecord,
+    SongVideoPlacementRecord,
     SongVersionRecord,
 )
 from echozero.persistence.repositories import ProjectRepository
@@ -339,6 +341,99 @@ class ProjectStorage(
     def is_dirty(self) -> bool:
         """Whether there are unsaved changes."""
         return bool(self.dirty_tracker.is_dirty())
+
+    # -- Song video references ---------------------------------------------
+
+    def import_or_replace_song_video(
+        self,
+        song_id: str,
+        video_source: Path,
+    ) -> SongVideoAttachmentRecord:
+        """Attach one imported video reference to a song, replacing any existing video."""
+
+        from echozero.persistence.video import cleanup_unreferenced_video_media, import_video
+
+        with self._lock:
+            self._check_closed()
+            song = self.songs.get(song_id)
+            if song is None:
+                raise ValueError(f"SongRecord not found: {song_id}")
+            previous = self.song_video_attachments.get_by_song(song_id)
+            imported = import_video(video_source, self.working_dir)
+            now = datetime.now(timezone.utc)
+            record = SongVideoAttachmentRecord(
+                id=uuid.uuid4().hex,
+                song_id=song_id,
+                video_file=imported.video_file,
+                video_hash=imported.video_hash,
+                duration_seconds=imported.metadata.duration_seconds,
+                extracted_audio_file=imported.extracted_audio_file,
+                extracted_audio_hash=imported.extracted_audio_hash,
+                width=imported.metadata.width,
+                height=imported.metadata.height,
+                fps=imported.metadata.fps,
+                created_at=now,
+                updated_at=now,
+            )
+            self.song_video_attachments.upsert(record)
+            for version in self.song_versions.list_by_song(song_id):
+                if self.song_video_placements.get(version.id) is None:
+                    self.song_video_placements.upsert(
+                        SongVideoPlacementRecord(
+                            song_version_id=version.id,
+                            video_start_seconds=0.0,
+                        )
+                    )
+            self.db.commit()
+            if previous is not None:
+                cleanup_unreferenced_video_media(
+                    self.working_dir,
+                    candidates=(previous.video_file, previous.extracted_audio_file),
+                    referenced_attachments=self.song_video_attachments.list_all(),
+                )
+            self.dirty_tracker.mark_dirty(song_id)
+            return record
+
+    def remove_song_video(self, song_id: str) -> None:
+        """Remove the song-level video attachment and its per-version placements."""
+
+        from echozero.persistence.video import cleanup_unreferenced_video_media
+
+        with self._lock:
+            self._check_closed()
+            previous = self.song_video_attachments.get_by_song(song_id)
+            for version in self.song_versions.list_by_song(song_id):
+                self.song_video_placements.delete(version.id)
+            self.song_video_attachments.delete_by_song(song_id)
+            self.db.commit()
+            if previous is not None:
+                cleanup_unreferenced_video_media(
+                    self.working_dir,
+                    candidates=(previous.video_file, previous.extracted_audio_file),
+                    referenced_attachments=self.song_video_attachments.list_all(),
+                )
+            self.dirty_tracker.mark_dirty(song_id)
+
+    def set_song_video_start_seconds(
+        self,
+        song_version_id: str,
+        video_start_seconds: float,
+    ) -> SongVideoPlacementRecord:
+        """Persist the timeline offset for a song version's video reference."""
+
+        with self._lock:
+            self._check_closed()
+            version = self.song_versions.get(song_version_id)
+            if version is None:
+                raise ValueError(f"SongVersionRecord not found: {song_version_id}")
+            record = SongVideoPlacementRecord(
+                song_version_id=song_version_id,
+                video_start_seconds=float(video_start_seconds),
+            )
+            self.song_video_placements.upsert(record)
+            self.db.commit()
+            self.dirty_tracker.mark_dirty(version.song_id)
+            return record
 
     # -- Context manager ----------------------------------------------------
 

@@ -8,7 +8,7 @@ import numpy as np
 
 from echozero.application.playback.tracks import PlaybackTrackBuilder
 from echozero.application.shared.ids import ObjectContentId, ObjectRevisionId, TimelineObjectId
-from echozero.application.shared.enums import PlaybackMode
+from echozero.application.shared.enums import LayerKind, PlaybackMode
 from echozero.application.timeline.object_content import SourceRef
 
 
@@ -16,6 +16,7 @@ def _presentation(*, output_bus: str | None, playback_output_channels: int) -> o
     layer = SimpleNamespace(
         layer_id="layer_song",
         title="Song",
+        kind=LayerKind.AUDIO,
         source_audio_path="song.wav",
         output_bus=output_bus,
         muted=False,
@@ -211,6 +212,35 @@ def test_playback_track_builder_event_slice_overlap_scales_to_prevent_hard_clip(
     assert rendered is not None
     assert float(np.max(np.abs(rendered))) <= 1.0
     assert float(np.max(np.abs(rendered))) >= 0.95
+
+
+def test_playback_track_builder_excludes_video_reference_waveform_from_mix() -> None:
+    builder = PlaybackTrackBuilder(
+        lambda _path: (np.array([0.25, -0.25], dtype=np.float32), 44100)
+    )
+    presentation = SimpleNamespace(
+        layers=[
+            SimpleNamespace(
+                layer_id="layer_video",
+                title="Video Reference",
+                kind=LayerKind.REFERENCE,
+                source_audio_path="audio/video_refs/ref.wav",
+                playback_enabled=False,
+                playback_mode=PlaybackMode.NONE,
+                output_bus=None,
+                muted=False,
+                soloed=False,
+                takes=[],
+            )
+        ],
+        selected_layer_id="layer_video",
+        selected_take_id=None,
+        playback_output_channels=2,
+    )
+
+    plan = builder.build_track_plan(presentation)
+
+    assert len(plan.tracks) == 0
 
 
 def test_playback_track_builder_event_slice_applies_boundary_fades_for_long_clips() -> None:

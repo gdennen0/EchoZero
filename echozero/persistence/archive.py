@@ -66,6 +66,18 @@ def pack_ez(working_dir: Path, dest_path: Path) -> None:
                             compress_type=zipfile.ZIP_STORED,
                         )
 
+            # Video references (STORED — already compressed)
+            video_dir = working_dir / "video"
+            if video_dir.exists():
+                for video_file in sorted(video_dir.rglob("*")):
+                    if video_file.is_file():
+                        rel_path = video_file.relative_to(working_dir)
+                        zf.write(
+                            video_file,
+                            str(rel_path).replace("\\", "/"),
+                            compress_type=zipfile.ZIP_STORED,
+                        )
+
         # Atomic rename
         tmp_path.replace(dest_path)
     except Exception:
