@@ -351,13 +351,14 @@ class ProjectStorage(
     ) -> SongVideoAttachmentRecord:
         """Attach one imported video reference to a song, replacing any existing video."""
 
-        from echozero.persistence.video import import_video
+        from echozero.persistence.video import cleanup_unreferenced_video_media, import_video
 
         with self._lock:
             self._check_closed()
             song = self.songs.get(song_id)
             if song is None:
                 raise ValueError(f"SongRecord not found: {song_id}")
+            previous = self.song_video_attachments.get_by_song(song_id)
             imported = import_video(video_source, self.working_dir)
             now = datetime.now(timezone.utc)
             record = SongVideoAttachmentRecord(
@@ -384,18 +385,33 @@ class ProjectStorage(
                         )
                     )
             self.db.commit()
+            if previous is not None:
+                cleanup_unreferenced_video_media(
+                    self.working_dir,
+                    candidates=(previous.video_file, previous.extracted_audio_file),
+                    referenced_attachments=self.song_video_attachments.list_all(),
+                )
             self.dirty_tracker.mark_dirty(song_id)
             return record
 
     def remove_song_video(self, song_id: str) -> None:
         """Remove the song-level video attachment and its per-version placements."""
 
+        from echozero.persistence.video import cleanup_unreferenced_video_media
+
         with self._lock:
             self._check_closed()
+            previous = self.song_video_attachments.get_by_song(song_id)
             for version in self.song_versions.list_by_song(song_id):
                 self.song_video_placements.delete(version.id)
             self.song_video_attachments.delete_by_song(song_id)
             self.db.commit()
+            if previous is not None:
+                cleanup_unreferenced_video_media(
+                    self.working_dir,
+                    candidates=(previous.video_file, previous.extracted_audio_file),
+                    referenced_attachments=self.song_video_attachments.list_all(),
+                )
             self.dirty_tracker.mark_dirty(song_id)
 
     def set_song_video_start_seconds(

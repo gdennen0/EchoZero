@@ -6,7 +6,7 @@ Connects timeline presentation and transport intents to Qt Multimedia playback.
 
 from __future__ import annotations
 
-import subprocess
+from collections.abc import Callable
 
 from PyQt6.QtCore import QRectF, Qt, QUrl
 from PyQt6.QtGui import QColor, QImage, QPainter, QPaintEvent, QPen, QResizeEvent
@@ -14,7 +14,24 @@ from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoFrame, QVideoSi
 from PyQt6.QtWidgets import QMainWindow, QWidget
 
 from echozero.application.presentation.models import TimelinePresentation
-from echozero.application.timeline.video import VideoTimelineMapping, video_mapping_from_presentation
+from echozero.application.timeline.video import (
+    VideoClockSync,
+    VideoTimelineMapping,
+    video_mapping_from_presentation,
+)
+
+
+class _VideoWindow(QMainWindow):
+    """Top-level reference-video window with an explicit close callback."""
+
+    def __init__(self, on_closed: Callable[[], None] | None = None) -> None:
+        super().__init__()
+        self._on_closed = on_closed
+
+    def closeEvent(self, event) -> None:  # noqa: N802, ANN001
+        super().closeEvent(event)
+        if self._on_closed is not None:
+            self._on_closed()
 
 
 class _VideoFrameWidget(QWidget):
@@ -23,6 +40,8 @@ class _VideoFrameWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._image = QImage()
+        self._status_text = "Video Reference"
+        self._status_is_error = False
         self.setMinimumSize(480, 270)
         self.setAutoFillBackground(False)
 
@@ -39,14 +58,28 @@ class _VideoFrameWidget(QWidget):
         self._image = image
         self.update()
 
+    def set_status(self, text: str, *, is_error: bool = False) -> None:
+        """Show a video status message when no decoded frame is available."""
+
+        self._status_text = str(text or "Video Reference")
+        self._status_is_error = bool(is_error)
+        if is_error:
+            self._image = QImage()
+        self.update()
+
     def paintEvent(self, event: QPaintEvent | None) -> None:  # noqa: N802
         del event
         painter = QPainter(self)
         try:
             painter.fillRect(self.rect(), QColor("#050505"))
             if self._image.isNull():
-                painter.setPen(QPen(QColor("#7f7f7f"), 1))
-                painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Video Reference")
+                color = QColor("#d88939") if self._status_is_error else QColor("#7f7f7f")
+                painter.setPen(QPen(color, 1))
+                painter.drawText(
+                    self.rect().adjusted(24, 24, -24, -24),
+                    Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
+                    self._status_text,
+                )
                 return
             target = self._scaled_target_rect(self._image.width(), self._image.height())
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
@@ -81,8 +114,8 @@ class _VideoFrameWidget(QWidget):
 class VideoPlaybackController:
     """Small QMediaPlayer wrapper that treats the EZ timeline as clock authority."""
 
-    def __init__(self) -> None:
-        self._window = QMainWindow()
+    def __init__(self, on_closed: Callable[[], None] | None = None) -> None:
+        self._window = _VideoWindow(on_closed)
         self._window.setWindowTitle("EchoZero Video Reference")
         self._video_widget = _VideoFrameWidget(self._window)
         self._window.setCentralWidget(self._video_widget)
@@ -93,9 +126,25 @@ class VideoPlaybackController:
         self._video_sink.videoFrameChanged.connect(self._video_widget.set_frame)
         self._player.setAudioOutput(self._audio_output)
         self._player.setVideoSink(self._video_sink)
+        self._player.errorOccurred.connect(self._on_error)
+        self._player.mediaStatusChanged.connect(self._on_media_status_changed)
         self._mapping: VideoTimelineMapping | None = None
         self._loaded_path: str | None = None
-        self._seek_frame_cache: dict[int, QImage] = {}
+        self._clock_sync = VideoClockSync()
+        self._error_text = ""
+        self._media_status_text = ""
+
+    @property
+    def error_text(self) -> str:
+        """Return the latest Qt media error text, if any."""
+
+        return self._error_text
+
+    @property
+    def media_status_text(self) -> str:
+        """Return the latest Qt media status text."""
+
+        return self._media_status_text
 
     def show(self) -> None:
         """Show the video reference window."""
@@ -118,35 +167,29 @@ class VideoPlaybackController:
         if mapping is None:
             self._player.stop()
             self._loaded_path = None
+            self._video_widget.set_status("No video reference")
             return
         if mapping.video_path != self._loaded_path:
             self._loaded_path = mapping.video_path
-            self._seek_frame_cache.clear()
+            self._error_text = ""
+            self._video_widget.set_status("Loading video reference")
             self._player.setSource(QUrl.fromLocalFile(mapping.video_path))
         self.seek(float(presentation.playhead))
 
     def play(self, song_seconds: float) -> None:
         """Start video playback if the song playhead is inside the video range."""
 
-        if self._mapping is None:
-            return
-        self.seek(song_seconds)
-        if self._mapping.contains_song_time(song_seconds):
-            self._player.play()
-        else:
-            self._player.pause()
+        self.update(song_seconds, True)
 
     def pause(self, song_seconds: float) -> None:
         """Pause video playback after seeking to the song playhead."""
 
-        self.seek(song_seconds)
-        self._player.pause()
+        self.update(song_seconds, False)
 
     def stop(self) -> None:
         """Pause video playback at the song timeline zero mapping."""
 
-        self.seek(0.0)
-        self._player.pause()
+        self.update(0.0, False)
 
     def seek(self, song_seconds: float) -> None:
         """Seek video media to the mapped song timeline position."""
@@ -157,45 +200,42 @@ class VideoPlaybackController:
         media_ms = int(round(media_seconds * 1000.0))
         if abs(int(self._player.position()) - media_ms) > 35:
             self._player.setPosition(media_ms)
-        self._show_seek_frame(media_seconds)
 
-    def _show_seek_frame(self, media_seconds: float) -> None:
-        if not self._loaded_path:
-            return
-        cache_key = int(round(max(0.0, float(media_seconds)) * 10.0))
-        cached = self._seek_frame_cache.get(cache_key)
-        if cached is not None:
-            self._video_widget.set_image(cached)
-            return
-        try:
-            completed = subprocess.run(
-                [
-                    "ffmpeg",
-                    "-hide_banner",
-                    "-loglevel",
-                    "error",
-                    "-ss",
-                    f"{max(0.0, float(media_seconds)):.3f}",
-                    "-i",
-                    self._loaded_path,
-                    "-frames:v",
-                    "1",
-                    "-f",
-                    "image2pipe",
-                    "-vcodec",
-                    "png",
-                    "-",
-                ],
-                check=True,
-                capture_output=True,
-                timeout=3.0,
-            )
-        except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
-            return
-        image = QImage()
-        if not image.loadFromData(completed.stdout, "PNG"):
-            return
-        if len(self._seek_frame_cache) > 24:
-            self._seek_frame_cache.clear()
-        self._seek_frame_cache[cache_key] = image
-        self._video_widget.set_image(image)
+    def update(self, song_seconds: float, audio_is_playing: bool) -> None:
+        """Slave video playback to one sampled song transport clock value."""
+
+        decision = self._clock_sync.decision(
+            self._mapping,
+            song_seconds=float(song_seconds),
+            audio_is_playing=bool(audio_is_playing),
+            media_seconds=float(self._player.position()) / 1000.0,
+        )
+        media_ms = int(round(decision.media_seconds * 1000.0))
+        if decision.should_seek:
+            self._player.setPosition(media_ms)
+        if decision.should_play:
+            self._player.play()
+        else:
+            self._player.pause()
+
+    def _on_error(self, *args: object) -> None:
+        text = ""
+        if args:
+            text = str(args[-1] or "").strip()
+        if not text:
+            text = str(self._player.errorString() or "").strip()
+        if not text:
+            text = "Video could not be decoded by Qt Multimedia."
+        self._error_text = text
+        self._video_widget.set_status(text, is_error=True)
+
+    def _on_media_status_changed(self, status: object) -> None:
+        self._media_status_text = str(status)
+        if status == QMediaPlayer.MediaStatus.InvalidMedia:
+            text = str(self._player.errorString() or "").strip() or "Invalid video media"
+            self._error_text = text
+            self._video_widget.set_status(text, is_error=True)
+        elif status == QMediaPlayer.MediaStatus.NoMedia:
+            self._video_widget.set_status("No video reference")
+        elif status == QMediaPlayer.MediaStatus.LoadingMedia:
+            self._video_widget.set_status("Loading video reference")

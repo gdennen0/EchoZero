@@ -85,6 +85,26 @@ class TimelineApplication:
         self.timeline = timeline
         self.session.active_timeline_id = timeline.id
 
+    def update_runtime_video(
+        self,
+        *,
+        song_seconds: float,
+        is_playing: bool,
+        presentation: TimelinePresentation | None = None,
+    ) -> None:
+        """Update video reference playback from the authoritative runtime clock."""
+
+        runtime_video = self.runtime_video
+        if runtime_video is None:
+            return
+        current_presentation = presentation if presentation is not None else self.presentation()
+        sync_presentation = getattr(runtime_video, "sync_presentation", None)
+        if callable(sync_presentation):
+            sync_presentation(current_presentation)
+        update = getattr(runtime_video, "update", None)
+        if callable(update):
+            update(float(song_seconds), bool(is_playing))
+
     def enable_sync(self, mode) -> SyncState:
         self.dispatch(EnableSync(mode=mode))
         return self.session.sync_state
@@ -177,3 +197,7 @@ class TimelineApplication:
             runtime_video.stop()
         elif isinstance(intent, Seek):
             runtime_video.seek(float(intent.position))
+        if isinstance(intent, (Play, Pause, Stop, Seek)):
+            update = getattr(runtime_video, "update", None)
+            if callable(update):
+                update(float(presentation.playhead), bool(presentation.is_playing))

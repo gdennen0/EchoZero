@@ -31,6 +31,8 @@ def pack_ez(working_dir: Path, dest_path: Path) -> None:
         +-- audio/
             +-- a3f2c8d1....wav
             +-- 91bd4e7a....wav
+        +-- video/
+            +-- a3f2c8d1....mov
     """
     tmp_path = dest_path.with_suffix(".ez.tmp")
 
@@ -62,6 +64,17 @@ def pack_ez(working_dir: Path, dest_path: Path) -> None:
                         rel_path = audio_file.relative_to(working_dir)
                         zf.write(
                             audio_file,
+                            str(rel_path).replace("\\", "/"),
+                            compress_type=zipfile.ZIP_STORED,
+                        )
+
+            video_dir = working_dir / "video"
+            if video_dir.exists():
+                for video_file in sorted(video_dir.rglob("*")):
+                    if video_file.is_file():
+                        rel_path = video_file.relative_to(working_dir)
+                        zf.write(
+                            video_file,
                             str(rel_path).replace("\\", "/"),
                             compress_type=zipfile.ZIP_STORED,
                         )

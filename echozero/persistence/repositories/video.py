@@ -78,6 +78,16 @@ class SongVideoAttachmentRepository(BaseRepository[SongVideoAttachmentRecord]):
         )
         return None if row is None else self._from_row(row)
 
+    def list_all(self) -> list[SongVideoAttachmentRecord]:
+        """Return every persisted video attachment."""
+
+        rows = self._fetchall(
+            "SELECT id, song_id, video_file, video_hash, duration_seconds, "
+            "extracted_audio_file, extracted_audio_hash, width, height, fps, "
+            "created_at, updated_at FROM song_video_attachments ORDER BY song_id"
+        )
+        return [self._from_row(row) for row in rows]
+
     def delete_by_song(self, song_id: str) -> None:
         """Delete any video attachment for a song."""
 

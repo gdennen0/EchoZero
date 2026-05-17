@@ -6,6 +6,7 @@ Connects project storage to timeline presentation without teaching the engine ab
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 import hashlib
 import json
 import shutil
@@ -13,6 +14,8 @@ import subprocess
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
+
+from echozero.persistence.entities import SongVideoAttachmentRecord
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +126,31 @@ def resolve_project_video_path(working_dir: Path, video_file: str) -> Path:
     return (working_dir / raw_path).resolve()
 
 
+def cleanup_unreferenced_video_media(
+    working_dir: Path,
+    *,
+    candidates: Iterable[str | None],
+    referenced_attachments: Iterable[SongVideoAttachmentRecord],
+) -> None:
+    """Remove obsolete project-local video reference files that no song still uses."""
+
+    referenced = {
+        path
+        for attachment in referenced_attachments
+        for path in (attachment.video_file, attachment.extracted_audio_file)
+        if path
+    }
+    for candidate in candidates:
+        rel_path = str(candidate or "").strip()
+        if not rel_path or rel_path in referenced:
+            continue
+        if not _is_cleanup_managed_media_path(rel_path):
+            continue
+        path = _safe_project_child(working_dir, rel_path)
+        if path is not None and path.is_file():
+            path.unlink()
+
+
 def _copy_video_file(source_path: Path, working_dir: Path) -> tuple[str, str]:
     video_dir = working_dir / "video"
     video_dir.mkdir(parents=True, exist_ok=True)
@@ -157,6 +185,24 @@ def _extract_reference_audio(source_path: Path, working_dir: Path, video_hash: s
         ]
     )
     return dest_path
+
+
+def _is_cleanup_managed_media_path(rel_path: str) -> bool:
+    path = Path(rel_path)
+    if path.is_absolute() or ".." in path.parts:
+        return False
+    normalized = path.as_posix()
+    return normalized.startswith("video/") or normalized.startswith("audio/video_refs/")
+
+
+def _safe_project_child(working_dir: Path, rel_path: str) -> Path | None:
+    root = working_dir.resolve()
+    path = (root / rel_path).resolve()
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return None
+    return path
 
 
 def _run_json(args: list[str]) -> dict[str, object]:

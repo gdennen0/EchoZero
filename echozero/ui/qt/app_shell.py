@@ -571,15 +571,35 @@ class StageZeroRuntimeController(
         from echozero.ui.qt.video_window import VideoPlaybackController
 
         if self._video_playback_controller is None:
-            self._video_playback_controller = VideoPlaybackController()
+            self._video_playback_controller = VideoPlaybackController(
+                on_closed=self._on_video_window_closed
+            )
             self._app.runtime_video = self._video_playback_controller
         self._video_playback_controller.sync_presentation(self.presentation())
         self._video_playback_controller.show()
+
+    def update_runtime_video(self, song_seconds: float, is_playing: bool) -> None:
+        """Update the video reference surface from the runtime audio clock."""
+
+        self._app.update_runtime_video(
+            song_seconds=float(song_seconds),
+            is_playing=bool(is_playing),
+            presentation=self.presentation(),
+        )
 
     def _sync_video_playback_from_presentation(self) -> None:
         if self._video_playback_controller is None:
             return
         self._video_playback_controller.sync_presentation(self.presentation())
+
+    def _on_video_window_closed(self) -> None:
+        if self._video_playback_controller is not None:
+            stop = getattr(self._video_playback_controller, "stop", None)
+            if callable(stop):
+                stop()
+        self._video_playback_controller = None
+        if self._app.runtime_video is not None:
+            self._app.runtime_video = None
 
     def get_project_ma3_push_offset_seconds(self) -> float:
         return _get_project_ma3_push_offset_seconds(self)

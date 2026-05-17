@@ -32,6 +32,47 @@ class VideoTimelineMapping:
         return 0.0 <= media_seconds <= self.duration_seconds
 
 
+@dataclass(frozen=True, slots=True)
+class VideoClockDecision:
+    """One requested media-player action for the current audio-clock sample."""
+
+    should_play: bool
+    media_seconds: float
+    should_seek: bool
+
+
+@dataclass(slots=True)
+class VideoClockSync:
+    """Computes video media actions from the authoritative song transport clock."""
+
+    drift_threshold_seconds: float = 0.08
+
+    def decision(
+        self,
+        mapping: VideoTimelineMapping | None,
+        *,
+        song_seconds: float,
+        audio_is_playing: bool,
+        media_seconds: float,
+    ) -> VideoClockDecision:
+        """Return how a video player should follow the song transport clock."""
+
+        if mapping is None:
+            return VideoClockDecision(
+                should_play=False,
+                media_seconds=0.0,
+                should_seek=abs(float(media_seconds)) > self.drift_threshold_seconds,
+            )
+        target_seconds = mapping.media_seconds_for_song_time(song_seconds)
+        should_play = bool(audio_is_playing and mapping.contains_song_time(song_seconds))
+        return VideoClockDecision(
+            should_play=should_play,
+            media_seconds=target_seconds,
+            should_seek=abs(float(media_seconds) - target_seconds)
+            > self.drift_threshold_seconds,
+        )
+
+
 def video_mapping_from_presentation(
     presentation: TimelinePresentation,
 ) -> VideoTimelineMapping | None:
