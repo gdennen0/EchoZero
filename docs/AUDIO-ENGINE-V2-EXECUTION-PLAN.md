@@ -1,6 +1,6 @@
 # Audio Engine v2 Execution Plan
 
-Status: active phased plan
+Status: active
 Last verified: 2026-05-15
 
 This plan rebuilds EchoZero playback in small tested phases. The live v1 engine

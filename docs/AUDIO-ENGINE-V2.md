@@ -1,6 +1,6 @@
 # Audio Engine v2
 
-Status: draft implementation spec
+Status: draft
 Last verified: 2026-05-15
 
 Audio Engine v2 is the target DAW-style playback backend for EchoZero. This

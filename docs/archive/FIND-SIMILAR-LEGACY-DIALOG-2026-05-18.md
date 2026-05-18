@@ -1,6 +1,7 @@
 # Find Similar Legacy Dialog Archive
 
-Status: archived
+Status: historical
+Last reviewed: 2026-05-18
 Archived: 2026-05-18
 
 The previous Find Similar popup exposed comparison method, scan scope, sensitivity,

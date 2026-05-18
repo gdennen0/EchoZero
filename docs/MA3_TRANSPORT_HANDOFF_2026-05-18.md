@@ -1,5 +1,8 @@
 # MA3 Transport Handoff - 2026-05-18
 
+Status: reference
+Last reviewed: 2026-05-18
+
 ## What Changed
 
 - Added app-level external transport normalization in `echozero/application/transport/external.py`.

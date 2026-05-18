@@ -529,6 +529,41 @@ def shared_context_sections(
                     ),
                 )
             )
+        elif layer.kind is LayerKind.EVENT:
+            layer_actions.extend(
+                (
+                    InspectorAction(
+                        action_id="gain_down",
+                        label="Set Gain -6 dB",
+                        group="gain",
+                        params={
+                            **scoped_layer_params,
+                            "gain_db": -6.0,
+                        },
+                        enabled=False,
+                    ),
+                    InspectorAction(
+                        action_id="gain_unity",
+                        label="Set Gain 0 dB",
+                        group="gain",
+                        params={
+                            **scoped_layer_params,
+                            "gain_db": 0.0,
+                        },
+                        enabled=False,
+                    ),
+                    InspectorAction(
+                        action_id="gain_up",
+                        label="Set Gain +6 dB",
+                        group="gain",
+                        params={
+                            **scoped_layer_params,
+                            "gain_db": 6.0,
+                        },
+                        enabled=False,
+                    ),
+                )
+            )
         layer_actions.extend(pipeline_actions_for_layer(layer))
         sections.append(
             InspectorContextSection(
