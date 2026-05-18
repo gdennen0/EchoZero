@@ -47,6 +47,25 @@ def test_run_echozero_routes_packaged_playback_service_mode(monkeypatch):
     ]
 
 
+def test_run_echozero_defaults_qt_ffmpeg_video_decode_to_software(monkeypatch):
+    monkeypatch.delenv("QT_FFMPEG_DECODING_HW_DEVICE_TYPES", raising=False)
+
+    run_echozero._configure_qt_ffmpeg_video_defaults()
+
+    assert (
+        run_echozero.os.environ["QT_FFMPEG_DECODING_HW_DEVICE_TYPES"]
+        == run_echozero._QT_FFMPEG_DISABLE_DECODING_HW_BACKENDS
+    )
+
+
+def test_run_echozero_keeps_operator_qt_ffmpeg_hw_decode_override(monkeypatch):
+    monkeypatch.setenv("QT_FFMPEG_DECODING_HW_DEVICE_TYPES", "videotoolbox")
+
+    run_echozero._configure_qt_ffmpeg_video_defaults()
+
+    assert run_echozero.os.environ["QT_FFMPEG_DECODING_HW_DEVICE_TYPES"] == "videotoolbox"
+
+
 class FakeRuntimeAudio:
     def __init__(self) -> None:
         self.shutdown_calls = 0

@@ -163,18 +163,22 @@ class VideoPlaybackController:
         """Load and seek the video reference represented by a timeline presentation."""
 
         mapping = video_mapping_from_presentation(presentation)
+        previous_mapping = self._mapping
         self._mapping = mapping
         if mapping is None:
             self._player.stop()
             self._loaded_path = None
             self._video_widget.set_status("No video reference")
             return
+        mapping_changed = mapping != previous_mapping
         if mapping.video_path != self._loaded_path:
             self._loaded_path = mapping.video_path
             self._error_text = ""
             self._video_widget.set_status("Loading video reference")
             self._player.setSource(QUrl.fromLocalFile(mapping.video_path))
-        self.seek(float(presentation.playhead))
+            mapping_changed = True
+        if mapping_changed:
+            self.seek(float(presentation.playhead))
 
     def play(self, song_seconds: float) -> None:
         """Start video playback if the song playhead is inside the video range."""
@@ -213,9 +217,11 @@ class VideoPlaybackController:
         media_ms = int(round(decision.media_seconds * 1000.0))
         if decision.should_seek:
             self._player.setPosition(media_ms)
+        playback_state = self._player.playbackState()
         if decision.should_play:
-            self._player.play()
-        else:
+            if playback_state != QMediaPlayer.PlaybackState.PlayingState:
+                self._player.play()
+        elif playback_state == QMediaPlayer.PlaybackState.PlayingState:
             self._player.pause()
 
     def _on_error(self, *args: object) -> None:

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -71,6 +72,16 @@ def __getattr__(name: str):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 _REPO_UI_AUTOMATION_SRC = Path(__file__).resolve().parent / "packages" / "ui_automation" / "src"
+_QT_FFMPEG_DISABLE_DECODING_HW_BACKENDS = ","
+
+
+def _configure_qt_ffmpeg_video_defaults() -> None:
+    """Keep Qt Multimedia video decode predictable on macOS launch paths."""
+
+    os.environ.setdefault(
+        "QT_FFMPEG_DECODING_HW_DEVICE_TYPES",
+        _QT_FFMPEG_DISABLE_DECODING_HW_BACKENDS,
+    )
 
 
 def _run_playback_service(argv: list[str]) -> int:
@@ -135,6 +146,7 @@ def main(argv: list[str] | None = None) -> int:
 
         return service_main(raw_args[1:])
 
+    _configure_qt_ffmpeg_video_defaults()
     _ensure_qt_launch_symbols()
 
     parser = argparse.ArgumentParser(description="Run the EchoZero Stage Zero shell.")

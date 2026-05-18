@@ -17,6 +17,7 @@ from echozero.application.presentation.models import (
     LayerPresentation,
     TakeLanePresentation,
 )
+from echozero.application.shared.cue_numbers import cue_number_from_ref_text, cue_number_text
 from echozero.application.shared.enums import LayerKind, PlaybackMode
 from echozero.application.shared.layer_kinds import is_event_like_layer_kind
 from echozero.application.shared.ids import LayerId, TakeId
@@ -77,6 +78,21 @@ def badge_tooltip_labels(badges: list[str]) -> list[str]:
             continue
         labels.append(mapping.get(key, key.replace("-", " ").title()))
     return labels
+
+
+def section_region_label_text(region: Any) -> str:
+    raw_cue_ref = str(getattr(region, "cue_ref", "") or "").strip()
+    cue_ref = raw_cue_ref
+    if cue_ref.casefold() == "none":
+        cue_ref = ""
+    elif cue_ref:
+        cue_ref = cue_number_text(cue_number_from_ref_text(cue_ref)) or cue_ref
+    name = str(getattr(region, "name", "") or "").strip()
+    if raw_cue_ref and name.casefold() == raw_cue_ref.casefold():
+        return cue_ref
+    if cue_ref and name and name.casefold() != cue_ref.casefold():
+        return f"{cue_ref} {name}"
+    return cue_ref or name
 
 
 class _TimelineCanvasPaintMixin:
@@ -248,11 +264,7 @@ class _TimelineCanvasPaintMixin:
                 int(round(top + max(1, row_height) - 1)),
             )
             painter.restore()
-            label_text = (
-                region.cue_ref
-                if str(region.name or "").casefold() == str(region.cue_ref or "").casefold()
-                else f"{region.cue_ref} {region.name}"
-            )
+            label_text = section_region_label_text(region)
             boundary_rect = QRectF(
                 left - 6.0,
                 float(top),

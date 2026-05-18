@@ -10,6 +10,7 @@ from echozero.application.presentation.models import (
 from echozero.application.timeline.intents import ReplaceSectionCues
 from echozero.ui.FEEL import TIMELINE_ADD_MODE_DEFAULT_EVENT_DURATION_SECONDS
 from echozero.ui.qt.timeline.section_manager import SectionCueDraft
+from echozero.ui.qt.timeline.widget_canvas_paint_mixin import section_region_label_text
 from tests.ui.timeline_shell_shared_support import *  # noqa: F401,F403
 
 
@@ -159,6 +160,60 @@ def test_ruler_does_not_render_section_region_highlight():
     finally:
         widget.close()
         app.processEvents()
+
+
+def test_section_region_label_omits_missing_cue_ref_text():
+    assert (
+        section_region_label_text(
+            SectionRegionPresentation(
+                cue_id="cue_intro",
+                start=0.0,
+                end=4.0,
+                cue_ref=None,
+                name="Intro",
+            )
+        )
+        == "Intro"
+    )
+    assert (
+        section_region_label_text(
+            SectionRegionPresentation(
+                cue_id="cue_verse",
+                start=4.0,
+                end=8.0,
+                cue_ref="none",
+                name="Verse",
+            )
+        )
+        == "Verse"
+    )
+
+
+def test_section_region_label_renders_cue_refs_as_numbers():
+    assert (
+        section_region_label_text(
+            SectionRegionPresentation(
+                cue_id="cue_intro",
+                start=0.0,
+                end=4.0,
+                cue_ref="Cue 1",
+                name="Intro",
+            )
+        )
+        == "1 Intro"
+    )
+    assert (
+        section_region_label_text(
+            SectionRegionPresentation(
+                cue_id="cue_1",
+                start=4.0,
+                end=8.0,
+                cue_ref="Cue 1",
+                name="Cue 1",
+            )
+        )
+        == "1"
+    )
 
 
 def test_double_click_section_label_dispatches_replace_section_cues_with_new_name(monkeypatch):

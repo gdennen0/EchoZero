@@ -328,6 +328,19 @@ def test_video_window_exposes_error_status_surface() -> None:
     assert "error_text" in source
 
 
+def test_video_window_does_not_resync_seek_on_every_runtime_tick() -> None:
+    source = (_REPO_ROOT / "echozero/ui/qt/video_window.py").read_text()
+
+    assert "if mapping_changed:\n            self.seek" in source
+
+
+def test_video_window_debounces_repeated_play_pause_commands() -> None:
+    source = (_REPO_ROOT / "echozero/ui/qt/video_window.py").read_text()
+
+    assert "playbackState()" in source
+    assert "PlaybackState.PlayingState" in source
+
+
 def test_replacing_and_removing_video_cleans_only_unreferenced_project_media(
     tmp_path,
     monkeypatch,
