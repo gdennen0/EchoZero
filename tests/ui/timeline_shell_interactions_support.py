@@ -1334,6 +1334,37 @@ def test_global_mode_shortcuts_switch_canvas_modes() -> None:
         app.processEvents()
 
 
+def test_fix_mode_shortcuts_switch_fix_tools() -> None:
+    app = QApplication.instance() or QApplication([])
+    presentation = _fix_mode_test_presentation()
+    widget = TimelineWidget(presentation, on_intent=lambda intent: presentation)
+    try:
+        _render_for_hit_testing(widget)
+        widget._editor_bar._mode_buttons["fix"].click()
+        QApplication.processEvents()
+
+        QTest.keyClick(widget._canvas, Qt.Key.Key_C, Qt.KeyboardModifier.ShiftModifier)
+        QApplication.processEvents()
+        assert widget._canvas._edit_mode == "fix"
+        assert widget._canvas._fix_action == "promote"
+        assert widget._editor_bar._fix_action_buttons["promote"].isChecked() is True
+
+        QTest.keyClick(widget._canvas, Qt.Key.Key_X, Qt.KeyboardModifier.ShiftModifier)
+        QApplication.processEvents()
+        assert widget._canvas._edit_mode == "fix"
+        assert widget._canvas._fix_action == "select"
+        assert widget._editor_bar._fix_action_buttons["select"].isChecked() is True
+
+        QTest.keyClick(widget._canvas, Qt.Key.Key_Z, Qt.KeyboardModifier.ShiftModifier)
+        QApplication.processEvents()
+        assert widget._canvas._edit_mode == "fix"
+        assert widget._canvas._fix_action == "remove"
+        assert widget._editor_bar._fix_action_buttons["remove"].isChecked() is True
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_fix_mode_shift_x_switches_back_to_fix_select_tool() -> None:
     app = QApplication.instance() or QApplication([])
     presentation = _fix_mode_test_presentation()
