@@ -3,6 +3,7 @@ Exists to keep fixture and presentation coverage separate from action and intera
 Connects the compatibility wrapper to the bounded layout support slice.
 """
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction
 from tests.ui.timeline_shell_shared_support import *  # noqa: F401,F403
 
@@ -272,6 +273,33 @@ def test_timeline_widget_file_menu_shows_open_recent_project_submenu():
         assert [action.text() for action in recent_menu.actions()] == [
             "1. alpha.ez (C:/projects/alpha.ez)",
             "2. bravo.ez (C:/projects/bravo.ez)",
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_timeline_widget_menu_bar_shows_right_aligned_logo():
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(build_demo_app().presentation())
+    try:
+        actions = {
+            "new_project": QAction("&New Project", widget),
+            "open_project": QAction("&Open Project", widget),
+        }
+
+        widget.configure_launcher_actions(actions)
+
+        logo = widget._launcher_menu_bar.cornerWidget(Qt.Corner.TopRightCorner)
+        assert logo is widget._launcher_menu_logo
+        assert logo is not None
+        assert logo.objectName() == "timelineLauncherMenuLogo"
+        assert logo.pixmap() is not None
+        assert logo.pixmap().height() == 16
+        assert widget._launcher_menu_bar.isVisibleTo(widget)
+        assert [action.text() for action in widget._launcher_menu_bar.actions()] == [
+            "&File",
+            "&Edit",
         ]
     finally:
         widget.close()

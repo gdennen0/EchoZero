@@ -9,7 +9,7 @@ from collections.abc import Callable
 from typing import Any, Protocol, cast
 
 from PyQt6.QtGui import QCursor
-from PyQt6.QtWidgets import QMenu, QWidget
+from PyQt6.QtWidgets import QWidget
 
 from echozero.application.presentation.inspector_contract import (
     InspectorAction,
@@ -55,8 +55,9 @@ from echozero.application.timeline.intents import (
 )
 from echozero.application.timeline.models import EventRef
 from echozero.application.timeline.object_actions import ObjectActionSettingsPlan
-from echozero.ui.qt.timeline.object_info_panel import ObjectInfoPanel
 from echozero.ui.FEEL import TIMELINE_ADD_MODE_DEFAULT_EVENT_DURATION_SECONDS
+from echozero.ui.qt.timeline.context_menu_builder import build_layer_pipeline_context_menu
+from echozero.ui.qt.timeline.object_info_panel import ObjectInfoPanel
 
 
 class _TimelineRuntimeShell(Protocol):
@@ -722,42 +723,25 @@ class TimelineWidgetContractMixin:
         describe = (
             getattr(runtime, "describe_object_action", None) if runtime is not None else None
         )
-        menu = QMenu(cast(QWidget, self))
-        for index, action in enumerate(pipeline_actions):
-            if index:
-                menu.addSeparator()
-            plan = None
+
+        def resolve_pipeline_plan(action: InspectorAction) -> ObjectActionSettingsPlan | None:
             if callable(describe):
                 try:
-                    plan = describe(
+                    return describe(
                         action.action_id,
                         action.params,
                         object_id=layer_id,
                         object_type="layer",
                     )
                 except Exception:
-                    plan = None
-            settings_entry = menu.addAction(f"Open {action.label} Settings")
-            if settings_entry is not None:
-                settings_entry.setData(
-                    InspectorAction(
-                        action_id=action.action_id,
-                        label=action.label,
-                        kind="settings",
-                        params=dict(action.params),
-                    )
-                )
-            run_entry = menu.addAction(
-                f"{plan.run_label} {action.label}" if plan is not None else f"Run {action.label}"
-            )
-            if run_entry is not None:
-                run_entry.setData(
-                    InspectorAction(
-                        action_id=action.action_id,
-                        label=action.label,
-                        params=dict(action.params),
-                    )
-                )
+                    return None
+            return None
+
+        menu = build_layer_pipeline_context_menu(
+            cast(QWidget, self),
+            pipeline_actions,
+            pipeline_plan_resolver=resolve_pipeline_plan,
+        )
 
         chosen = menu.exec(QCursor.pos())
         if chosen is None:

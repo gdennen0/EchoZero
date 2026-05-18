@@ -60,6 +60,7 @@ from echozero.application.timeline.intents import (
     SetLayerSolo,
     SelectAdjacentEventInSelectedLayer,
     SetSelectedEvents,
+    SnapEventsToBeatGrid,
     Stop,
     TimelineIntent,
     TriggerTakeAction,
@@ -102,6 +103,7 @@ _STRUCTURAL_INTENT_TYPES = (
     MoveEvent,
     MoveSelectedEvents,
     NudgeSelectedEvents,
+    SnapEventsToBeatGrid,
     DuplicateSelectedEvents,
     ReorderLayer,
     ReplaceSectionCues,
@@ -271,7 +273,10 @@ class TimelineWidgetRuntimeMixin:
         presentation: TimelinePresentation,
     ) -> TimelinePresentation:
         current = self.presentation
-        if current.timeline_id != presentation.timeline_id:
+        if (
+            current.timeline_id != presentation.timeline_id
+            or current.active_song_version_id != presentation.active_song_version_id
+        ):
             return presentation
         return replace(
             presentation,
@@ -808,11 +813,19 @@ class TimelineWidgetRuntimeMixin:
                     runtime_time=runtime_time,
                     playing=runtime_playing,
                 )
+            runtime_label = self._runtime_time_label(runtime_time)
+            if (
+                not runtime_playing
+                and not was_playing
+                and not isinstance(intent, (Play, Pause, Seek, Stop))
+            ):
+                runtime_time = max(0.0, float(self.presentation.playhead))
+                runtime_label = self.presentation.current_time_label
             updated = replace(
                 updated,
                 playhead=runtime_time,
                 is_playing=runtime_playing,
-                current_time_label=self._runtime_time_label(runtime_time),
+                current_time_label=runtime_label,
             )
             self._sync_runtime_audio_for_intent(
                 intent,
@@ -1011,12 +1024,15 @@ class TimelineWidgetRuntimeMixin:
             runtime_time=current_time,
             playing=playing,
         )
+        current_label = self._runtime_time_label(current_time)
+        if not playing and not bool(self.presentation.is_playing):
+            current_time = max(0.0, float(self.presentation.playhead))
+            current_label = self.presentation.current_time_label
         update_runtime_video = (
             getattr(runtime, "update_runtime_video", None) if runtime is not None else None
         )
         if callable(update_runtime_video):
             update_runtime_video(current_time, playing)
-        current_label = self._runtime_time_label(current_time)
         if (
             abs(current_time - self.presentation.playhead) < 0.001
             and playing == self.presentation.is_playing

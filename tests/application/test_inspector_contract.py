@@ -139,15 +139,20 @@ def _section_rows(contract):
     return {row.label: row.value for section in contract.sections for row in section.rows}
 
 
+def _workspace_directions(contract):
+    return {
+        str(action.params.get("direction", "")).lower()
+        for section in contract.context_sections
+        for action in section.actions
+        if action.action_id == "transfer.workspace_open"
+    }
+
+
 def test_inspector_contract_no_selection_state():
     contract = build_timeline_inspector_contract(_contract_test_presentation())
     all_actions = [action for section in contract.context_sections for action in section.actions]
     action_ids = [action.action_id for action in all_actions]
-    workspace_directions = {
-        str(action.params.get("direction", "")).lower()
-        for action in all_actions
-        if action.action_id == "transfer.workspace_open"
-    }
+    workspace_directions = _workspace_directions(contract)
 
     assert contract.identity is None
     assert contract.title == "No timeline object selected."
@@ -256,6 +261,7 @@ def test_inspector_contract_layer_selection_state():
         "transfer.match_ma3_cues",
         "transfer.send_to_track_once",
     } <= set(action_ids)
+    assert _workspace_directions(contract) == {"pull", "push"}
     assert "event-batch" in section_ids
     assert "sync-transfer" in section_ids
     assert "live-sync" not in [section.section_id for section in contract.context_sections]
@@ -503,6 +509,7 @@ def test_inspector_contract_hides_legacy_transfer_surface_even_if_legacy_state_e
     assert "transfer.plan_apply" not in action_ids
     assert "transfer.plan_cancel" not in action_ids
     assert "transfer.workspace_open" in action_ids
+    assert _workspace_directions(contract) == {"pull", "push"}
 
 
 def test_inspector_contract_hides_transfer_preset_actions_from_primary_transfer_surface():
@@ -607,7 +614,42 @@ def test_inspector_contract_main_event_state():
         "transfer.match_ma3_cues",
         "transfer.send_to_track_once",
     } <= set(action_ids)
+    assert _workspace_directions(contract) == {"pull", "push"}
     assert "selection.improve_model_from_selection" in action_ids
+
+
+def test_inspector_contract_selected_sequence_exposes_find_similar_sequence_action():
+    presentation = _contract_test_presentation()
+    presentation.layers[0].events.extend(
+        [
+            EventPresentation(event_id=EventId("main_evt_2"), start=1.5, end=1.7, label="Main 2"),
+            EventPresentation(event_id=EventId("main_evt_3"), start=2.25, end=2.45, label="Main 3"),
+        ]
+    )
+    presentation.selected_layer_id = LayerId("layer_kick")
+    presentation.selected_take_id = TakeId("take_main")
+    presentation.selected_event_ids = [
+        EventId("main_evt"),
+        EventId("main_evt_2"),
+        EventId("main_evt_3"),
+    ]
+
+    contract = build_timeline_inspector_contract(presentation)
+    actions = {
+        action.action_id: action
+        for section in contract.context_sections
+        for action in section.actions
+    }
+    group_action = actions["selection.create_event_sequence"]
+    action = actions["selection.find_similar_event_sequences"]
+
+    assert group_action.label == "Group as Event Sequence"
+    assert group_action.params == {}
+    assert action.label == "Find Similar Event Sequences"
+    assert action.params["scope_mode"] == "current_layer"
+    assert action.params["strictness"] == "balanced"
+    assert action.params["timing_weight"] == 0.62
+    assert action.params["label_weight"] == 0.30
 
 
 def test_inspector_contract_prefers_selected_event_ids_over_stale_selected_event_refs():
@@ -720,11 +762,11 @@ def test_inspector_contract_take_event_state():
     assert {
         "transfer.workspace_open",
         "transfer.route_layer_track",
-        "transfer.workspace_open",
         "transfer.send_selection",
         "transfer.match_ma3_cues",
         "transfer.send_to_track_once",
     } <= set(action_ids)
+    assert _workspace_directions(contract) == {"pull", "push"}
 
 
 def test_inspector_contract_event_preview_action_includes_typed_preview_payload():
@@ -861,11 +903,11 @@ def test_inspector_contract_empty_main_take_layer_keeps_ma3_transfer_actions_vis
     assert {
         "transfer.workspace_open",
         "transfer.route_layer_track",
-        "transfer.workspace_open",
         "transfer.send_selection",
         "transfer.match_ma3_cues",
         "transfer.send_to_track_once",
     } <= action_ids
+    assert _workspace_directions(contract) == {"pull", "push"}
 
 
 def test_inspector_contract_render_text_tracks_selection_transition_sequence():

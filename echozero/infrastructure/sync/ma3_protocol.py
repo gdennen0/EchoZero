@@ -38,6 +38,12 @@ def format_ma3_lua_command(command: str) -> str:
     return f'Lua "{escaped}"'
 
 
+def format_ma3_set_target_call(host: str, port: int) -> str:
+    """Return one EZ Lua call that configures the EchoZero OSC callback target."""
+
+    return f"EZ.SetTarget({_format_lua_string(host)}, {int(port)})"
+
+
 def _format_lua_string(value: object) -> str:
     text = str(value or "")
     escaped = text.replace("\\", "\\\\").replace("'", "\\'")

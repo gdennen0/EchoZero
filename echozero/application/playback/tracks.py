@@ -113,7 +113,7 @@ class PlaybackTrack:
 
         if self.buffer is None or self.sample_rate <= 0:
             raise ValueError(f"Playback track '{self.track_id}' is missing resolved audio.")
-        return AudioTrack(
+        track = AudioTrack(
             layer_id=engine_track_id,
             name=self.name,
             buffer=self.buffer,
@@ -122,6 +122,9 @@ class PlaybackTrack:
             engine_sample_rate=engine_sample_rate,
             output_bus=self.output_bus,
         )
+        track.muted = bool(self.muted)
+        track.solo = bool(self.soloed)
+        return track
 
 
 @dataclass(slots=True, frozen=True)

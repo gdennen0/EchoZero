@@ -127,7 +127,8 @@ class V2LiveAudioEngine:
             runtime=RtRuntimeState(
                 graph=prepare_rt_graph(self._prepared_graph),
                 transport=TransportState(),
-            )
+            ),
+            sample_rate=int(self.sample_rate),
         )
         self._policy = TransitionPolicy(
             ramp_frames=max(2, int(round(self.sample_rate * _DECLICK_RAMP_SECONDS)))
@@ -147,9 +148,7 @@ class V2LiveAudioEngine:
         self._overlay_read_index = 0
         self._overlay_volume = np.float32(1.0)
         self._runtime_event_sequence = 0
-        self._recent_runtime_events: deque[dict[str, object]] = deque(
-            maxlen=_RUNTIME_EVENT_LIMIT
-        )
+        self._recent_runtime_events: deque[dict[str, object]] = deque(maxlen=_RUNTIME_EVENT_LIMIT)
         self._diagnostics_capture_active = False
         self._diagnostics_capture_include_audio = False
         self._diagnostics_capture_blocks: deque[dict[str, object]] = deque(maxlen=0)
@@ -338,7 +337,7 @@ class V2LiveAudioEngine:
 
     def apply_track_mix_updates(
         self,
-        updates: dict[str, tuple[bool, float, str | None]],
+        updates: dict[str, tuple[bool, float, str | None] | tuple[bool, float, str | None, bool]],
     ) -> bool:
         changed = False
         next_tracks: list[AudioTrack] = []
@@ -347,11 +346,15 @@ class V2LiveAudioEngine:
             if desired is None:
                 next_tracks.append(track)
                 continue
-            muted, volume, output_bus = desired
+            muted, volume, output_bus, soloed = _unpack_track_mix_update(
+                desired,
+                current_solo=bool(track.solo),
+            )
             if (
                 bool(track.muted) == bool(muted)
                 and abs(float(track.volume) - float(volume)) <= 1e-6
                 and track.output_bus == output_bus
+                and bool(track.solo) == bool(soloed)
             ):
                 next_tracks.append(track)
                 continue
@@ -366,12 +369,17 @@ class V2LiveAudioEngine:
                 output_bus=output_bus,
             )
             cloned.muted = bool(muted)
-            cloned.solo = bool(track.solo)
+            cloned.solo = bool(soloed)
             next_tracks.append(cloned)
             changed = True
         if changed:
             route_changed = any(
-                str(track.id) in updates and track.output_bus != updates[str(track.id)][2]
+                str(track.id) in updates
+                and track.output_bus
+                != _unpack_track_mix_update(
+                    updates[str(track.id)],
+                    current_solo=bool(track.solo),
+                )[2]
                 for track in self._tracks
             )
             self._tracks = tuple(next_tracks)
@@ -439,8 +447,10 @@ class V2LiveAudioEngine:
 
     def stop(self) -> None:
         self._end_of_content = False
+        was_playing = bool(self._transport.is_playing)
         self._transport.stop()
-        self._render_state = replace(self._render_state, frame_position=0)
+        if not was_playing:
+            self._render_state = replace(self._render_state, frame_position=0)
         self._last_audible_time_seconds = 0.0
         self._last_audible_monotonic_seconds = None
         self._queue_transport_command(TransportCommand.stop(self._next_sequence()))
@@ -450,7 +460,11 @@ class V2LiveAudioEngine:
         self._end_of_content = False
         self._transport.seek(position_samples)
         seconds = float(self._clock.position_seconds)
-        self._render_state = replace(self._render_state, frame_position=max(0, position_samples))
+        if not self._transport.is_playing:
+            self._render_state = replace(
+                self._render_state,
+                frame_position=max(0, position_samples),
+            )
         self._last_audible_time_seconds = seconds
         self._last_audible_monotonic_seconds = None
         self._queue_transport_command(
@@ -888,6 +902,16 @@ def _copy_with_edge_fades(buffer: np.ndarray, ramp_frames: int) -> np.ndarray:
         faded[:fade_frames] *= fade_in[:, None]
         faded[frames - fade_frames : frames] *= fade_out[:, None]
     return faded
+
+
+def _unpack_track_mix_update(
+    desired: tuple[bool, float, str | None] | tuple[bool, float, str | None, bool],
+    *,
+    current_solo: bool,
+) -> tuple[bool, float, str | None, bool]:
+    muted, volume, output_bus, *rest = desired
+    soloed = bool(rest[0]) if rest else bool(current_solo)
+    return bool(muted), float(volume), output_bus, soloed
 
 
 __all__ = ["V2LiveAudioEngine"]

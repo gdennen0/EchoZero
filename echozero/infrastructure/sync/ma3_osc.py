@@ -49,6 +49,7 @@ from echozero.infrastructure.sync.ma3_protocol import (
     format_get_datapool_objects_command,
     format_list_presets_command,
     format_ma3_lua_command,
+    format_ma3_set_target_call,
     format_preview_copy_cue_with_status_command,
     format_preview_recipe_cue_only_command,
     format_preview_replace_preset_when_group_command,
@@ -1695,6 +1696,7 @@ class MA3OSCBridge:
             )
 
         sequence_no = self._track_sequence_no_for_coord(coord, tc_no=tc_no, tg_no=tg_no)
+        known_sequence_cue_numbers = self._sequence_cue_number_texts(sequence_no)
         first_event = True
         sent_event_count = 0
         for raw_event in selected_events or []:
@@ -1712,6 +1714,11 @@ class MA3OSCBridge:
 
             start = max(0.0, float(snapshot.start or 0.0) + resolved_start_offset)
             send_start_index = self._message_count()
+            self._ensure_sequence_cue_exists(
+                sequence_no=sequence_no,
+                cue_number=cue_number,
+                known_cue_numbers=known_sequence_cue_numbers,
+            )
             self._send_sequence_cue_label_command(
                 sequence_no=sequence_no,
                 cue_number=cue_number,
@@ -1765,6 +1772,40 @@ class MA3OSCBridge:
             if track.coord == coord and track.sequence_no is not None:
                 return int(track.sequence_no)
         return None
+
+    def _sequence_cue_number_texts(self, sequence_no: int | None) -> set[str]:
+        if sequence_no is None:
+            return set()
+        return {
+            cue_number_text(cue_number) or str(cue_number)
+            for raw_cue in self.list_sequence_cues(sequence_no=int(sequence_no))
+            for cue_number in [
+                parse_positive_cue_number(
+                    raw_cue.get("cue_number")
+                    or raw_cue.get("cue_no")
+                    or raw_cue.get("no")
+                    or raw_cue.get("cue_ref")
+                )
+            ]
+            if cue_number is not None
+        }
+
+    def _ensure_sequence_cue_exists(
+        self,
+        *,
+        sequence_no: int | None,
+        cue_number: CueNumber | None,
+        known_cue_numbers: set[str],
+    ) -> None:
+        cue_number_label = cue_number_text(cue_number)
+        if sequence_no is None or cue_number_label is None:
+            return
+        if cue_number_label in known_cue_numbers:
+            return
+        self._send_raw_console_command(
+            f"Store Sequence {int(sequence_no)} Cue {cue_number_label} /nc"
+        )
+        known_cue_numbers.add(cue_number_label)
 
     def _send_sequence_cue_label_command(
         self,
@@ -1972,7 +2013,7 @@ class MA3OSCBridge:
             listen_host=host,
             command_host=self._command_host_hint(),
         )
-        self._send_command(f"EZ.SetTarget({_format_lua_string(target_host)}, {int(port)})")
+        self._send_command(format_ma3_set_target_call(target_host, int(port)))
         # Real MA3 applies a new OSC target asynchronously; the next response-bound
         # command can race the update unless we give the console a brief settle window.
         sleep(_TARGET_CONFIG_SETTLE_SECONDS)

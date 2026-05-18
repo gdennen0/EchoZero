@@ -27,6 +27,7 @@ from echozero.application.timeline.intents import (
     PasteCopiedEvents,
     ReorderLayer,
     ReplaceSectionCues,
+    SnapEventsToBeatGrid,
     SetGain,
     TimelineIntent,
     ToggleLayerExpanded,
@@ -130,6 +131,8 @@ def _changed_layer_ids_for_intent(
         if target_layer_id is not None:
             layer_ids.append(LayerId(str(target_layer_id)))
         return _unique_layer_ids(layer_ids)
+    if isinstance(intent, SnapEventsToBeatGrid):
+        return _changed_layer_ids_for_event_batch_scope(timeline, intent)
     if isinstance(intent, PasteCopiedEvents):
         if intent.target_layer_id is not None:
             return (LayerId(str(intent.target_layer_id)),)
@@ -160,6 +163,7 @@ def _playback_impact_for_intent(intent: TimelineIntent) -> PlaybackImpact:
             MoveEvent,
             MoveSelectedEvents,
             NudgeSelectedEvents,
+            SnapEventsToBeatGrid,
             TrimEvent,
         ),
     ):
@@ -202,6 +206,7 @@ def _supports_scoped_history(intent: TimelineIntent) -> bool:
             NudgeSelectedEvents,
             PasteCopiedEvents,
             SetGain,
+            SnapEventsToBeatGrid,
             TrimEvent,
             UpdateEventLabel,
         ),
@@ -220,6 +225,31 @@ def _selected_layer_id(timeline: Timeline) -> tuple[LayerId, ...]:
     if selected_layer_id is None:
         return ()
     return (LayerId(str(selected_layer_id)),)
+
+
+def _changed_layer_ids_for_event_batch_scope(
+    timeline: Timeline,
+    intent: SnapEventsToBeatGrid,
+) -> tuple[LayerId, ...]:
+    scope = intent.scope
+    if scope.mode in {"take", "layer_main"} and scope.layer_id is not None:
+        return (LayerId(str(scope.layer_id)),)
+    if scope.mode == "selected_layers_main":
+        selected_layer_ids = list(timeline.selection.selected_layer_ids)
+        if not selected_layer_ids and timeline.selection.selected_layer_id is not None:
+            selected_layer_ids = [timeline.selection.selected_layer_id]
+        return _unique_layer_ids(selected_layer_ids)
+    selected_refs = list(timeline.selection.selected_event_refs)
+    if selected_refs:
+        return _unique_layer_ids(event_ref.layer_id for event_ref in selected_refs)
+    event_ids = set(timeline.selection.selected_event_ids)
+    return _unique_layer_ids(
+        layer.id
+        for layer in timeline.layers
+        for take in layer.takes
+        for event in take.events
+        if event.id in event_ids
+    )
 
 
 def _unique_layer_ids(values) -> tuple[LayerId, ...]:

@@ -77,6 +77,12 @@ def test_object_palette_stylesheet_uses_shared_tokens():
     assert TIMELINE_STYLE.object_palette.body_object_name in stylesheet
 
 
+def test_object_info_panel_qss_styles_inspector_checkboxes():
+    stylesheet = build_echozero_app_qss()
+
+    assert "QCheckBox[inspectorCheckbox='true']::indicator:checked" in stylesheet
+
+
 def test_ruler_paints_bottom_divider_through_header_gap_and_split_seam():
     app = QApplication.instance() or QApplication([])
     image = QImage(220, 28, QImage.Format.Format_ARGB32)
@@ -1409,16 +1415,27 @@ def test_timeline_editor_mode_bar_groups_tools_and_syncs_state():
         assert bar._mode_buttons["select"].isHidden() is False
         assert bar._mode_buttons["move"].isHidden() is True
         assert bar._mode_buttons["draw"].isHidden() is False
-        assert bar._mode_buttons["erase"].isHidden() is True
+        assert bar._mode_buttons["erase"].isHidden() is False
         assert bar._mode_buttons["fix"].isHidden() is False
-        assert bar._mode_buttons["move"].text() == "MOV"
-        assert bar._mode_buttons["draw"].text() == "+EV"
-        assert bar._mode_buttons["erase"].text() == "DEL"
-        assert bar._mode_buttons["fix"].text() == "FIX"
+        assert bar._mode_buttons["move"].text() == ""
+        assert bar._mode_buttons["draw"].text() == ""
+        assert bar._mode_buttons["erase"].text() == ""
+        assert bar._mode_buttons["fix"].text() == ""
+        assert bar._mode_buttons["draw"].icon().isNull() is False
+        assert bar._mode_buttons["erase"].icon().isNull() is False
+        assert {
+            bar._mode_buttons["select"].minimumSize(),
+            bar._mode_buttons["draw"].minimumSize(),
+            bar._mode_buttons["erase"].minimumSize(),
+            bar._snap_button.minimumSize(),
+            bar._grid_button.minimumSize(),
+            bar._settings_button.minimumSize(),
+        } == {bar._mode_buttons["select"].minimumSize()}
         assert bar._fix_action_buttons["select"].objectName() == "timelineEditorFixSelectButton"
         assert bar._mode_buttons["draw"].isChecked()
         assert bar._snap_button.isChecked()
-        assert bar._grid_button.text() == "GRD:B"
+        assert bar._grid_button.text() == ""
+        assert bar._grid_button.icon().isNull() is False
 
         bar.set_state(
             edit_mode="erase",
@@ -1498,14 +1515,15 @@ def test_timeline_editor_mode_bar_switches_to_compact_density_when_narrow():
         app.processEvents()
 
         assert bar.property("compact") is True
-        assert bar._mode_buttons["select"].text() == "S"
-        assert bar._mode_buttons["move"].text() == "M"
+        assert bar._mode_buttons["select"].text() == ""
+        assert bar._mode_buttons["move"].text() == ""
         assert bar._mode_buttons["move"].isHidden() is True
-        assert bar._mode_buttons["erase"].isHidden() is True
-        assert bar._settings_button.text() == "CFG"
-        assert bar._osc_settings_button.text() == "OSC"
-        assert bar._pipeline_settings_button.text() == "PIP"
-        assert bar._grid_button.text() == "GRD:T"
+        assert bar._mode_buttons["erase"].isHidden() is False
+        assert bar._settings_button.text() == ""
+        assert bar._osc_settings_button.text() == ""
+        assert bar._pipeline_settings_button.text() == ""
+        assert bar._grid_button.text() == ""
+        assert bar._settings_button.icon().isNull() is False
         assert bar._fix_action_buttons["select"].isVisible() is False
     finally:
         bar.close()

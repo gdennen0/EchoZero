@@ -73,7 +73,9 @@ echozero = [
     "foundry/contracts/*.json",
     "foundry/web_assets/*",
     "testing/e2e/scenarios/*.json",
+    "ui/qt/timeline/assets/*.png",
     "ui/qt/timeline/fixtures/*.json",
+    "ui/style/qt/assets/*",
 ]
 ui_automation = ["py.typed"]
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 from copy import deepcopy
 import uuid
 
-from echozero.application.shared.cue_numbers import CueNumber, cue_number_text
+from echozero.application.shared.cue_numbers import CueNumber
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.layer_kinds import is_event_like_layer_kind
 from echozero.application.shared.ids import EventId, LayerId, TakeId
@@ -19,7 +19,6 @@ from echozero.application.timeline.models import (
     Layer,
     Take,
     Timeline,
-    cue_number_from_ref,
 )
 from echozero.application.timeline.object_content import is_imported_song_layer
 from echozero.application.timeline.orchestrator_selection_state_mixin import (
@@ -59,11 +58,9 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
         if layer.kind is LayerKind.SECTION:
             target_take = self._resolve_or_create_main_take(layer)
             section_start = float(time_range.start)
-            section_cue_number = self._next_section_cue_number(target_take)
-            cue_suffix = cue_number_text(section_cue_number) or str(section_cue_number)
             normalized_label = str(label or "").strip()
             section_label = (
-                f"Section {cue_suffix}"
+                "Section"
                 if not normalized_label or normalized_label.casefold() == "event"
                 else normalized_label
             )
@@ -75,14 +72,14 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
                 origin="manual_added",
                 classifications={"label": section_label} if section_label else {},
                 metadata={},
-                cue_number=section_cue_number,
                 label=section_label,
-                cue_ref=f"Cue {cue_suffix}",
+                cue_ref=None,
                 source_event_id=source_event_id,
                 payload_ref=payload_ref,
                 color=color,
             )
             target_take.events = self._sorted_events([*target_take.events, new_event])
+            self._normalize_section_take_events(target_take)
             timeline.selection.selected_layer_id = layer.id
             timeline.selection.selected_layer_ids = [layer.id]
             timeline.selection.selected_take_id = target_take.id
@@ -120,11 +117,23 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
         )
 
     @staticmethod
-    def _next_section_cue_number(take: Take) -> CueNumber:
-        if not take.events:
-            return 1
-        highest_existing = max(float(event.cue_number) for event in take.events)
-        return max(1, int(highest_existing) + 1)
+    def _is_generic_section_label(label: str | None) -> bool:
+        normalized = str(label or "").strip().casefold()
+        if not normalized:
+            return True
+        if normalized in {"cue", "event", "section"}:
+            return True
+        return normalized.startswith("cue ") or normalized.startswith("section ")
+
+    def _normalize_section_take_events(self, take: Take) -> None:
+        ordered_events = self._sorted_events(take.events)
+        for event in ordered_events:
+            event.cue_number = None
+            event.cue_ref = None
+            if self._is_generic_section_label(event.label):
+                event.label = "Section"
+                event.classifications["label"] = "Section"
+        take.events = ordered_events
 
     def _handle_delete_events(
         self,
@@ -348,14 +357,7 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
                     origin=existing.origin if existing is not None else "manual_added",
                     classifications={"label": cue.name} if cue.name else {},
                     metadata=deepcopy(existing.metadata) if existing is not None else {},
-                    cue_number=(
-                        cue.cue_number
-                        if cue.cue_number is not None
-                        else cue_number_from_ref(
-                            cue.cue_ref,
-                            fallback=existing.cue_number if existing is not None else 1,
-                        )
-                    ),
+                    cue_number=None,
                     source_event_id=existing.source_event_id if existing is not None else None,
                     parent_event_id=existing.parent_event_id if existing is not None else None,
                     payload_ref=payload_ref,

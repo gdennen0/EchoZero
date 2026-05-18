@@ -5,6 +5,7 @@ Connects presentation-owned song state to the Stage Zero shell's left-side brows
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import cast
 
 from PyQt6.QtCore import QEvent, QObject, QPoint, QItemSelectionModel, QTimer, Qt, pyqtSignal
@@ -52,6 +53,20 @@ _PANEL_MIN_EXPANDED_WIDTH = 200
 _PANEL_MAX_EXPANDED_WIDTH = 340
 _PANEL_COLLAPSED_GLYPH = "▶"
 _PANEL_EXPANDED_GLYPH = "◀"
+_SONG_LIST_VERTICAL_STRETCH = 2
+_VERSION_LIST_VERTICAL_STRETCH = 1
+
+
+def _add_context_action(
+    menu: QMenu,
+    label: str,
+    callback: Callable[[], None],
+    *,
+    destructive: bool = False,
+) -> None:
+    action = menu.addAction(label, callback)
+    if action is not None:
+        action.setProperty("destructive", destructive)
 
 
 class SongBrowserPanel(QWidget):
@@ -199,7 +214,7 @@ class SongBrowserPanel(QWidget):
         self._songs_tree.customContextMenuRequested.connect(self._open_song_context_menu)
         self._songs_tree.audio_drop_requested.connect(self.audio_paths_dropped.emit)
         self._songs_tree.song_reorder_drop_completed.connect(self._handle_song_drop_reordered)
-        browser_layout.addWidget(self._songs_tree, 2)
+        browser_layout.addWidget(self._songs_tree, _SONG_LIST_VERTICAL_STRETCH)
 
         version_header = QWidget(self._browser_page)
         version_header.setObjectName("songBrowserVersionsHeader")
@@ -223,7 +238,7 @@ class SongBrowserPanel(QWidget):
         self._version_list.itemClicked.connect(self._handle_version_clicked)
         self._version_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._version_list.customContextMenuRequested.connect(self._open_version_context_menu)
-        browser_layout.addWidget(self._version_list, 2)
+        browser_layout.addWidget(self._version_list, _VERSION_LIST_VERTICAL_STRETCH)
 
         self._batch_bar = QWidget(self._browser_page)
         self._batch_bar.setObjectName("songBrowserBatchBar")
@@ -753,10 +768,15 @@ class SongBrowserPanel(QWidget):
             return
 
         if item is None:
-            menu.addAction("Add Song", lambda: self.add_song_requested.emit())
+            _add_context_action(menu, "Add Song", lambda: self.add_song_requested.emit())
             if selected_song_ids:
                 menu.addSeparator()
-                menu.addAction("Delete Selected Songs", self._emit_batch_delete_songs)
+                _add_context_action(
+                    menu,
+                    "Delete Selected Songs",
+                    self._emit_batch_delete_songs,
+                    destructive=True,
+                )
             menu.exec(viewport.mapToGlobal(point))
             return
 
@@ -765,21 +785,56 @@ class SongBrowserPanel(QWidget):
             return
 
         if len(selected_song_ids) > 1 and song_id in self._selected_song_ids:
-            menu.addAction("Move Selected Songs to Top", self._emit_batch_move_songs_to_top)
-            menu.addAction("Move Selected Songs to Bottom", self._emit_batch_move_songs_to_bottom)
+            _add_context_action(
+                menu,
+                "Move Selected Songs to Top",
+                self._emit_batch_move_songs_to_top,
+            )
+            _add_context_action(
+                menu,
+                "Move Selected Songs to Bottom",
+                self._emit_batch_move_songs_to_bottom,
+            )
             menu.addSeparator()
-            menu.addAction("Delete Selected Songs", self._emit_batch_delete_songs)
+            _add_context_action(
+                menu,
+                "Delete Selected Songs",
+                self._emit_batch_delete_songs,
+                destructive=True,
+            )
             menu.exec(viewport.mapToGlobal(point))
             return
 
-        menu.addAction("Select Song", lambda: self.song_selected.emit(song_id))
-        menu.addAction("Rename Song...", lambda: self.rename_song_requested.emit(song_id))
-        menu.addAction("Add Version...", lambda: self.add_song_version_requested.emit(song_id))
+        _add_context_action(menu, "Select Song", lambda: self.song_selected.emit(song_id))
         menu.addSeparator()
-        menu.addAction("Move Up", lambda: self.move_song_up_requested.emit(song_id))
-        menu.addAction("Move Down", lambda: self.move_song_down_requested.emit(song_id))
+        _add_context_action(
+            menu,
+            "Rename Song...",
+            lambda: self.rename_song_requested.emit(song_id),
+        )
+        _add_context_action(
+            menu,
+            "Add Version...",
+            lambda: self.add_song_version_requested.emit(song_id),
+        )
         menu.addSeparator()
-        menu.addAction("Delete Song", lambda: self.delete_song_requested.emit(song_id))
+        _add_context_action(
+            menu,
+            "Move Up",
+            lambda: self.move_song_up_requested.emit(song_id),
+        )
+        _add_context_action(
+            menu,
+            "Move Down",
+            lambda: self.move_song_down_requested.emit(song_id),
+        )
+        menu.addSeparator()
+        _add_context_action(
+            menu,
+            "Delete Song",
+            lambda: self.delete_song_requested.emit(song_id),
+            destructive=True,
+        )
         menu.exec(viewport.mapToGlobal(point))
 
     def _open_version_context_menu(self, point: QPoint) -> None:
@@ -791,7 +846,11 @@ class SongBrowserPanel(QWidget):
 
         if item is None:
             if self._presentation.active_song_id.strip():
-                menu.addAction("Add Version...", self._emit_add_version_for_active_song)
+                _add_context_action(
+                    menu,
+                    "Add Version...",
+                    self._emit_add_version_for_active_song,
+                )
             menu.exec(viewport.mapToGlobal(point))
             return
 
@@ -799,14 +858,17 @@ class SongBrowserPanel(QWidget):
         if not isinstance(version_id, str) or not version_id:
             return
 
-        menu.addAction(
+        _add_context_action(
+            menu,
             "Switch to Version",
             lambda: self.song_version_selected.emit(version_id),
         )
         menu.addSeparator()
-        menu.addAction(
+        _add_context_action(
+            menu,
             "Delete Version",
             lambda: self.delete_song_version_requested.emit(version_id),
+            destructive=True,
         )
         menu.exec(viewport.mapToGlobal(point))
 

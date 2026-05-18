@@ -984,7 +984,6 @@ class PlaybackController:
                 engine_track_id=self._engine_track_id(track_plan, playback_track),
                 engine_sample_rate=self._engine.sample_rate,
             )
-            engine_track.muted = bool(playback_track.muted)
             engine_tracks.append(engine_track)
         self._engine.replace_tracks(engine_tracks)
         self._loaded_track_signature = track_plan.signature
@@ -1017,13 +1016,14 @@ class PlaybackController:
         structure_signature = self._track_structure_signature(mix_plan.tracks)
         if structure_signature != self._loaded_track_structure_signature:
             return True
-        desired_mix: dict[str, tuple[bool, float, str | None]] = {}
+        desired_mix: dict[str, tuple[bool, float, str | None, bool]] = {}
         for playback_track in mix_plan.tracks:
             engine_track_id = self._engine_track_id(mix_plan, playback_track)
             desired_mix[engine_track_id] = (
                 bool(playback_track.muted),
                 _db_to_linear(playback_track.gain_db),
                 playback_track.output_bus,
+                bool(playback_track.soloed),
             )
 
         existing_tracks = list(self._engine.tracks)
@@ -1046,11 +1046,12 @@ class PlaybackController:
             desired = desired_mix.get(track_id)
             if desired is None:
                 return True
-            muted, volume, output_bus = desired
+            muted, volume, output_bus, soloed = desired
             if (
                 bool(engine_track.muted) == muted
                 and abs(float(engine_track.volume) - float(volume)) <= 1e-6
                 and engine_track.output_bus == output_bus
+                and bool(engine_track.solo) == soloed
             ):
                 next_tracks.append(engine_track)
                 continue
@@ -1065,7 +1066,7 @@ class PlaybackController:
                 output_bus=output_bus,
             )
             cloned.muted = bool(muted)
-            cloned.solo = bool(engine_track.solo)
+            cloned.solo = bool(soloed)
             next_tracks.append(cloned)
 
         if applied_change:

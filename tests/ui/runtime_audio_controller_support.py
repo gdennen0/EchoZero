@@ -333,7 +333,7 @@ def test_runtime_controller_state_queries_do_not_decode_or_raise_for_missing_eve
         controller.shutdown()
 
 
-def test_runtime_controller_can_prefer_sounddevice_backend_for_audio_layers():
+def test_runtime_controller_defaults_to_v2_backend_for_audio_layers():
     presentation = _audio_presentation()
     controller = TimelineRuntimeAudioController(
         audio_loader=lambda _path: (np.ones(4410, dtype=np.float32), 44100),
@@ -342,9 +342,9 @@ def test_runtime_controller_can_prefer_sounddevice_backend_for_audio_layers():
         controller.build_for_presentation(presentation)
         state = controller.snapshot_state(presentation)
 
-        assert state.backend_name == "sounddevice"
+        assert state.backend_name == "audio_engine_v2"
         assert (
-            controller.engine.mixer.get_layer(TimelineRuntimeAudioController._PRIMARY_TRACK_ID)
+            controller.engine.get_layer(TimelineRuntimeAudioController._PRIMARY_TRACK_ID)
             is not None
         )
     finally:

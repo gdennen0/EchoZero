@@ -107,9 +107,9 @@ def test_song_sections_processor_uses_default_detector_and_marks_generator() -> 
     assert len(calls) == 1
     event = result.value.layers[0].events[0]
     assert event.metadata["generator"] == "mfcc_sequence_pooling_v1"
-    assert event.metadata["cue_ref"] == "part_01"
-    assert event.metadata["section_label"] == "Part 1"
-    assert event.classifications["label"] == "Part 1"
+    assert event.metadata["cue_ref"] == "Cue 1"
+    assert event.metadata["section_label"] == "Cue 1"
+    assert event.classifications["label"] == "Cue 1"
 
 
 def test_song_sections_processor_uses_determine_sections_mode_and_marks_generator() -> None:
@@ -138,9 +138,9 @@ def test_song_sections_processor_uses_determine_sections_mode_and_marks_generato
     assert isinstance(result, Ok)
     event = result.value.layers[0].events[0]
     assert event.metadata["generator"] == "determine_sections_style_v1"
-    assert event.metadata["cue_ref"] == "part_01"
-    assert event.metadata["section_label"] == "Part 1"
-    assert event.classifications["label"] == "Part 1"
+    assert event.metadata["cue_ref"] == "Cue 1"
+    assert event.metadata["section_label"] == "Cue 1"
+    assert event.classifications["label"] == "Cue 1"
 
 
 def test_song_sections_processor_uses_mir_mode_and_marks_generator() -> None:
@@ -173,9 +173,9 @@ def test_song_sections_processor_uses_mir_mode_and_marks_generator() -> None:
     assert isinstance(result, Ok)
     event = result.value.layers[0].events[0]
     assert event.metadata["generator"] == "mir_self_similarity_v1"
-    assert event.metadata["cue_ref"] == "part_01"
-    assert event.metadata["section_label"] == "Part 1"
-    assert event.classifications["label"] == "Part 1"
+    assert event.metadata["cue_ref"] == "Cue 1"
+    assert event.metadata["section_label"] == "Cue 1"
+    assert event.classifications["label"] == "Cue 1"
 
 
 def test_segment_song_structure_with_mir_finds_multiple_part_starts(tmp_path: Path) -> None:

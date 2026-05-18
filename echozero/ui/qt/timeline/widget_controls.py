@@ -8,13 +8,16 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import cast
 
-from PyQt6.QtCore import QRectF, QSize, Qt, pyqtSignal
+from PyQt6.QtCore import QPointF, QRectF, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import (
     QIcon,
     QMouseEvent,
     QPaintEvent,
     QPainter,
+    QPainterPath,
+    QPen,
     QPixmap,
+    QPolygonF,
     QResizeEvent,
     QShowEvent,
 )
@@ -70,7 +73,29 @@ class TimelineEditorModeBar(QWidget):
     osc_settings_requested = pyqtSignal()
     pipeline_settings_requested = pyqtSignal()
     _COMPACT_WIDTH_THRESHOLD_PX = 1180
-    _PRIMARY_VISIBLE_MODES: tuple[str, ...] = ("select", "draw", "fix")
+    _PRIMARY_VISIBLE_MODES: tuple[str, ...] = ("select", "draw", "erase", "fix")
+    _MODE_ICONS: dict[str, str] = {
+        "select": "cursor",
+        "move": "move",
+        "draw": "plus",
+        "fix": "spark",
+        "erase": "minus",
+    }
+    _BUTTON_ICONS: dict[str, str] = {
+        "snap": "magnet",
+        "grid": "grid",
+        "fit": "fit",
+        "add_at_playhead": "add_at_playhead",
+        "fix_remove": "minus",
+        "fix_select": "target",
+        "fix_promote": "plus",
+        "fix_include_demoted": "demoted",
+        "settings": "tune",
+        "osc_settings": "osc",
+        "pipeline_settings": "pipeline",
+    }
+    _TOOL_BUTTON_SIZE = QSize(28, 22)
+    _COMPACT_TOOL_BUTTON_SIZE = QSize(26, 22)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -80,20 +105,6 @@ class TimelineEditorModeBar(QWidget):
         self._pending_standalone_width: int | None = None
         self.setProperty("compact", False)
         self._toolbar_labels: list[QLabel] = []
-        self._mode_labels_full: dict[str, str] = {
-            "select": "SEL",
-            "move": "MOV",
-            "draw": "+EV",
-            "fix": "FIX",
-            "erase": "DEL",
-        }
-        self._mode_labels_compact: dict[str, str] = {
-            "select": "S",
-            "move": "M",
-            "draw": "+",
-            "fix": "F",
-            "erase": "-",
-        }
         layout = QHBoxLayout(self)
         layout.setContentsMargins(
             TIMELINE_EDITOR_BAR_PADDING_X_PX,
@@ -127,10 +138,11 @@ class TimelineEditorModeBar(QWidget):
             "erase": "Advanced mode: erase events with direct clicks (shortcut: E)",
         }
         for mode in ("select", "move", "draw", "erase", "fix"):
-            button = QPushButton(self._mode_labels_full[mode], mode_group)
+            button = QPushButton(mode_group)
             button.setProperty("timelineModeButton", True)
             button.setCheckable(True)
             button.setToolTip(mode_tooltips[mode])
+            self._set_button_icon(button, self._MODE_ICONS[mode])
             button.clicked.connect(
                 lambda _checked=False, mode_name=mode: self.edit_mode_changed.emit(mode_name)
             )
@@ -149,28 +161,37 @@ class TimelineEditorModeBar(QWidget):
         self._toolbar_labels.append(assist_label)
         assist_layout.addWidget(assist_label, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        self._snap_button = QPushButton("SNP", assist_group)
+        self._snap_button = QPushButton(assist_group)
         self._snap_button.setObjectName("timelineEditorSnapButton")
         self._snap_button.setCheckable(True)
         self._snap_button.setToolTip("Toggle snap to timeline grid")
+        self._set_button_icon(self._snap_button, self._BUTTON_ICONS["snap"])
         self._snap_button.clicked.connect(lambda checked: self.snap_toggled.emit(bool(checked)))
         assist_layout.addWidget(self._snap_button, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        self._grid_button = QPushButton("GRD:A", assist_group)
+        self._grid_button = QPushButton(assist_group)
         self._grid_button.setObjectName("timelineEditorGridButton")
         self._grid_button.setToolTip("Cycle grid mode")
+        self._set_button_icon(self._grid_button, self._BUTTON_ICONS["grid"])
         self._grid_button.clicked.connect(self._cycle_grid_mode)
         assist_layout.addWidget(self._grid_button, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        self._fit_button = QPushButton("FIT", assist_group)
+        self._fit_button = QPushButton(assist_group)
         self._fit_button.setObjectName("timelineEditorFitAllButton")
         self._fit_button.setToolTip("Fit full timeline into view")
+        self._set_button_icon(self._fit_button, self._BUTTON_ICONS["fit"])
         self._fit_button.clicked.connect(self.zoom_fit_requested.emit)
         assist_layout.addWidget(self._fit_button, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        self._add_event_at_playhead_button = QPushButton("+@", assist_group)
+        self._add_event_at_playhead_button = QPushButton(assist_group)
         self._add_event_at_playhead_button.setObjectName("timelineEditorAddAtPlayheadButton")
-        self._add_event_at_playhead_button.setToolTip("Add mode: add a 0.5s event at the current playhead")
+        self._add_event_at_playhead_button.setToolTip(
+            "Add mode: add a 0.5s event at the current playhead"
+        )
+        self._set_button_icon(
+            self._add_event_at_playhead_button,
+            self._BUTTON_ICONS["add_at_playhead"],
+        )
         self._add_event_at_playhead_button.clicked.connect(
             self.add_event_at_playhead_requested.emit
         )
@@ -178,10 +199,11 @@ class TimelineEditorModeBar(QWidget):
             self._add_event_at_playhead_button, 0, Qt.AlignmentFlag.AlignVCenter
         )
 
-        self._fix_remove_button = QPushButton("-", assist_group)
+        self._fix_remove_button = QPushButton(assist_group)
         self._fix_remove_button.setObjectName("timelineEditorFixRemoveButton")
         self._fix_remove_button.setCheckable(True)
         self._fix_remove_button.setToolTip("Fix mode tool: demote false event (shortcut: Shift+Z)")
+        self._set_button_icon(self._fix_remove_button, self._BUTTON_ICONS["fix_remove"])
         self._fix_remove_button.clicked.connect(
             lambda _checked=False: self.fix_action_changed.emit("remove")
         )
@@ -189,10 +211,11 @@ class TimelineEditorModeBar(QWidget):
         self._fix_action_group.addButton(self._fix_remove_button)
         self._fix_action_buttons["remove"] = self._fix_remove_button
 
-        self._fix_select_button = QPushButton("SEL", assist_group)
+        self._fix_select_button = QPushButton(assist_group)
         self._fix_select_button.setObjectName("timelineEditorFixSelectButton")
         self._fix_select_button.setCheckable(True)
         self._fix_select_button.setToolTip("Fix mode tool: normal click/select + preview")
+        self._set_button_icon(self._fix_select_button, self._BUTTON_ICONS["fix_select"])
         self._fix_select_button.clicked.connect(
             lambda _checked=False: self.fix_action_changed.emit("select")
         )
@@ -200,10 +223,13 @@ class TimelineEditorModeBar(QWidget):
         self._fix_action_group.addButton(self._fix_select_button)
         self._fix_action_buttons["select"] = self._fix_select_button
 
-        self._fix_promote_button = QPushButton("+", assist_group)
+        self._fix_promote_button = QPushButton(assist_group)
         self._fix_promote_button.setObjectName("timelineEditorFixPromoteButton")
         self._fix_promote_button.setCheckable(True)
-        self._fix_promote_button.setToolTip("Fix mode tool: promote missing event (shortcut: Shift+C)")
+        self._fix_promote_button.setToolTip(
+            "Fix mode tool: promote missing event (shortcut: Shift+C)"
+        )
+        self._set_button_icon(self._fix_promote_button, self._BUTTON_ICONS["fix_promote"])
         self._fix_promote_button.clicked.connect(
             lambda _checked=False: self.fix_action_changed.emit("promote")
         )
@@ -211,11 +237,15 @@ class TimelineEditorModeBar(QWidget):
         self._fix_action_group.addButton(self._fix_promote_button)
         self._fix_action_buttons["promote"] = self._fix_promote_button
 
-        self._fix_include_demoted_button = QPushButton("DEM", assist_group)
+        self._fix_include_demoted_button = QPushButton(assist_group)
         self._fix_include_demoted_button.setObjectName("timelineEditorFixDemotedNavButton")
         self._fix_include_demoted_button.setCheckable(True)
         self._fix_include_demoted_button.setToolTip(
             "Fix mode navigation: include demoted events in arrow key selection (shortcut: D)"
+        )
+        self._set_button_icon(
+            self._fix_include_demoted_button,
+            self._BUTTON_ICONS["fix_include_demoted"],
         )
         self._fix_include_demoted_button.clicked.connect(
             lambda checked: self.fix_nav_include_demoted_toggled.emit(bool(checked))
@@ -246,19 +276,25 @@ class TimelineEditorModeBar(QWidget):
         shell_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self._toolbar_labels.append(shell_label)
         shell_layout.addWidget(shell_label, 0, Qt.AlignmentFlag.AlignVCenter)
-        self._settings_button = QPushButton("CFG", shell_group)
+        self._settings_button = QPushButton(shell_group)
         self._settings_button.setObjectName("timelineEditorSettingsButton")
         self._settings_button.setToolTip("Open application preferences")
+        self._set_button_icon(self._settings_button, self._BUTTON_ICONS["settings"])
         self._settings_button.clicked.connect(self.settings_requested.emit)
         shell_layout.addWidget(self._settings_button, 0, Qt.AlignmentFlag.AlignVCenter)
-        self._osc_settings_button = QPushButton("OSC", shell_group)
+        self._osc_settings_button = QPushButton(shell_group)
         self._osc_settings_button.setObjectName("timelineEditorOscSettingsButton")
         self._osc_settings_button.setToolTip("Open OSC settings")
+        self._set_button_icon(self._osc_settings_button, self._BUTTON_ICONS["osc_settings"])
         self._osc_settings_button.clicked.connect(self.osc_settings_requested.emit)
         shell_layout.addWidget(self._osc_settings_button, 0, Qt.AlignmentFlag.AlignVCenter)
-        self._pipeline_settings_button = QPushButton("PIPE", shell_group)
+        self._pipeline_settings_button = QPushButton(shell_group)
         self._pipeline_settings_button.setObjectName("timelineEditorPipelineSettingsButton")
         self._pipeline_settings_button.setToolTip("Open reusable pipeline stage settings")
+        self._set_button_icon(
+            self._pipeline_settings_button,
+            self._BUTTON_ICONS["pipeline_settings"],
+        )
         self._pipeline_settings_button.clicked.connect(self.pipeline_settings_requested.emit)
         shell_layout.addWidget(
             self._pipeline_settings_button,
@@ -403,9 +439,8 @@ class TimelineEditorModeBar(QWidget):
         return None
 
     def _set_mode_button_labels(self, *, compact: bool) -> None:
-        labels = self._mode_labels_compact if compact else self._mode_labels_full
         for mode, button in self._mode_buttons.items():
-            button.setText(labels.get(mode, self._mode_labels_full.get(mode, mode.title())))
+            self._set_button_icon(button, self._MODE_ICONS[mode])
 
     def _sync_advanced_mode_button_visibility(self, *, edit_mode: str) -> None:
         active_mode = str(edit_mode or "select").strip().lower()
@@ -414,70 +449,175 @@ class TimelineEditorModeBar(QWidget):
             button.setVisible(mode in primary_visible or mode == active_mode)
 
     def _set_shell_button_labels(self, *, compact: bool) -> None:
-        self._settings_button.setIcon(QIcon())
-        if compact:
-            self._settings_button.setText("CFG")
-            self._osc_settings_button.setText("OSC")
-            self._pipeline_settings_button.setText("PIP")
-            return
-        self._settings_button.setText("CFG")
-        self._osc_settings_button.setText("OSC")
-        self._pipeline_settings_button.setText("PIP")
+        self._set_button_icon(self._settings_button, self._BUTTON_ICONS["settings"])
+        self._set_button_icon(self._osc_settings_button, self._BUTTON_ICONS["osc_settings"])
+        self._set_button_icon(
+            self._pipeline_settings_button,
+            self._BUTTON_ICONS["pipeline_settings"],
+        )
 
     def _refresh_settings_button_icon(self) -> None:
         icon_size = max(14, int(round(self._settings_button.fontMetrics().height() * 1.5)))
         self._settings_button.setIcon(self._build_gear_icon(icon_size))
         self._settings_button.setIconSize(QSize(icon_size, icon_size))
 
+    def _set_button_icon(self, button: QPushButton, icon_name: str) -> None:
+        icon_size = 16
+        button.setText("")
+        button.setIcon(self._build_toolbar_icon(button, icon_name, icon_size))
+        button.setIconSize(QSize(icon_size, icon_size))
+
     def _build_gear_icon(self, icon_size: int) -> QIcon:
-        pixmap = QPixmap(icon_size, icon_size)
+        return self._build_toolbar_icon(self._settings_button, "tune", icon_size)
+
+    def _build_toolbar_icon(self, button: QPushButton, icon_name: str, icon_size: int) -> QIcon:
+        ratio = max(1.0, float(self.devicePixelRatioF()))
+        pixmap = QPixmap(int(round(icon_size * ratio)), int(round(icon_size * ratio)))
+        pixmap.setDevicePixelRatio(ratio)
         pixmap.fill(Qt.GlobalColor.transparent)
         painter = QPainter(pixmap)
         try:
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-            painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
-            font = self._settings_button.font()
-            font.setPixelSize(max(1, int(round(icon_size * 0.86))))
-            painter.setFont(font)
-            painter.setPen(self._settings_button.palette().buttonText().color())
-            painter.drawText(
-                QRectF(0.0, 0.0, float(icon_size), float(icon_size)),
-                int(Qt.AlignmentFlag.AlignCenter),
-                "#",
-            )
+            painter.setPen(self._icon_pen(button))
+            self._draw_toolbar_icon(painter, icon_name)
         finally:
             painter.end()
         return QIcon(pixmap)
 
+    def _icon_pen(self, button: QPushButton) -> QPen:
+        color = button.palette().buttonText().color()
+        pen = QPen(color)
+        pen.setWidthF(1.35)
+        pen.setCapStyle(Qt.PenCapStyle.SquareCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+        return pen
+
+    def _draw_toolbar_icon(self, painter: QPainter, icon_name: str) -> None:
+        if icon_name == "cursor":
+            painter.drawPolyline(
+                QPolygonF(
+                    (
+                        QPointF(5.0, 3.0),
+                        QPointF(5.0, 12.0),
+                        QPointF(8.1, 9.4),
+                        QPointF(10.5, 14.0),
+                        QPointF(12.1, 13.1),
+                        QPointF(9.7, 8.6),
+                        QPointF(13.0, 8.6),
+                        QPointF(5.0, 3.0),
+                    )
+                )
+            )
+            return
+        if icon_name == "move":
+            painter.drawLine(QPointF(3.5, 8.0), QPointF(12.5, 8.0))
+            painter.drawLine(QPointF(3.5, 8.0), QPointF(6.0, 5.5))
+            painter.drawLine(QPointF(3.5, 8.0), QPointF(6.0, 10.5))
+            painter.drawLine(QPointF(12.5, 8.0), QPointF(10.0, 5.5))
+            painter.drawLine(QPointF(12.5, 8.0), QPointF(10.0, 10.5))
+            return
+        if icon_name == "plus":
+            painter.drawLine(QPointF(8.0, 4.0), QPointF(8.0, 12.0))
+            painter.drawLine(QPointF(4.0, 8.0), QPointF(12.0, 8.0))
+            return
+        if icon_name == "minus":
+            painter.drawLine(QPointF(4.0, 8.0), QPointF(12.0, 8.0))
+            return
+        if icon_name == "spark":
+            painter.drawLine(QPointF(8.0, 3.5), QPointF(8.0, 12.5))
+            painter.drawLine(QPointF(3.5, 8.0), QPointF(12.5, 8.0))
+            painter.drawLine(QPointF(5.0, 5.0), QPointF(11.0, 11.0))
+            painter.drawLine(QPointF(11.0, 5.0), QPointF(5.0, 11.0))
+            return
+        if icon_name == "magnet":
+            path = QPainterPath(QPointF(4.0, 5.0))
+            path.lineTo(QPointF(4.0, 10.0))
+            path.cubicTo(QPointF(4.0, 13.0), QPointF(12.0, 13.0), QPointF(12.0, 10.0))
+            path.lineTo(QPointF(12.0, 5.0))
+            painter.drawPath(path)
+            painter.drawLine(QPointF(3.0, 5.0), QPointF(5.5, 5.0))
+            painter.drawLine(QPointF(10.5, 5.0), QPointF(13.0, 5.0))
+            return
+        if icon_name == "grid":
+            for x in (5.0, 8.0, 11.0):
+                painter.drawLine(QPointF(x, 4.0), QPointF(x, 12.0))
+            for y in (5.0, 8.0, 11.0):
+                painter.drawLine(QPointF(4.0, y), QPointF(12.0, y))
+            return
+        if icon_name == "fit":
+            painter.drawLine(QPointF(4.0, 6.0), QPointF(4.0, 4.0))
+            painter.drawLine(QPointF(4.0, 4.0), QPointF(6.0, 4.0))
+            painter.drawLine(QPointF(10.0, 4.0), QPointF(12.0, 4.0))
+            painter.drawLine(QPointF(12.0, 4.0), QPointF(12.0, 6.0))
+            painter.drawLine(QPointF(12.0, 10.0), QPointF(12.0, 12.0))
+            painter.drawLine(QPointF(12.0, 12.0), QPointF(10.0, 12.0))
+            painter.drawLine(QPointF(6.0, 12.0), QPointF(4.0, 12.0))
+            painter.drawLine(QPointF(4.0, 12.0), QPointF(4.0, 10.0))
+            return
+        if icon_name == "add_at_playhead":
+            painter.drawLine(QPointF(11.5, 3.5), QPointF(11.5, 12.5))
+            painter.drawLine(QPointF(4.0, 8.0), QPointF(9.0, 8.0))
+            painter.drawLine(QPointF(6.5, 5.5), QPointF(6.5, 10.5))
+            return
+        if icon_name == "target":
+            painter.drawEllipse(QRectF(4.5, 4.5, 7.0, 7.0))
+            painter.drawPoint(QPointF(8.0, 8.0))
+            return
+        if icon_name == "demoted":
+            painter.drawLine(QPointF(4.0, 4.0), QPointF(4.0, 12.0))
+            painter.drawLine(QPointF(4.0, 4.0), QPointF(8.2, 4.0))
+            painter.drawLine(QPointF(8.2, 4.0), QPointF(11.5, 8.0))
+            painter.drawLine(QPointF(11.5, 8.0), QPointF(8.2, 12.0))
+            painter.drawLine(QPointF(8.2, 12.0), QPointF(4.0, 12.0))
+            painter.drawLine(QPointF(6.0, 8.0), QPointF(10.0, 8.0))
+            return
+        if icon_name == "tune":
+            for x, y in ((5.0, 5.0), (8.0, 11.0), (11.0, 7.0)):
+                painter.drawLine(QPointF(x, 3.5), QPointF(x, 12.5))
+                painter.drawEllipse(QRectF(x - 1.0, y - 1.0, 2.0, 2.0))
+            return
+        if icon_name == "osc":
+            painter.drawEllipse(QRectF(7.2, 7.2, 1.6, 1.6))
+            painter.drawEllipse(QRectF(5.0, 5.0, 6.0, 6.0))
+            painter.drawEllipse(QRectF(3.0, 3.0, 10.0, 10.0))
+            return
+        if icon_name == "pipeline":
+            painter.drawLine(QPointF(5.0, 4.0), QPointF(5.0, 12.0))
+            painter.drawLine(QPointF(11.0, 4.0), QPointF(11.0, 12.0))
+            painter.drawLine(QPointF(5.0, 8.0), QPointF(11.0, 8.0))
+            return
+
     def _sync_fix_include_demoted_button_label(self, *, enabled: bool) -> None:
-        state = "1" if enabled else "0"
-        self._fix_include_demoted_button.setText(f"DEM:{state}" if self._compact_mode else f"DEM {state}")
+        self._set_button_icon(
+            self._fix_include_demoted_button,
+            self._BUTTON_ICONS["fix_include_demoted"],
+        )
 
     def _sync_add_at_playhead_button_label(self) -> None:
-        self._add_event_at_playhead_button.setText("+@")
+        self._set_button_icon(
+            self._add_event_at_playhead_button,
+            self._BUTTON_ICONS["add_at_playhead"],
+        )
 
     def _apply_button_width_hints(self, *, compact: bool) -> None:
-        mode_width = 30 if compact else 38
-        snap_width = 30 if compact else 38
-        grid_width = 42 if compact else 50
-        shell_width = 34 if compact else 38
-        fix_small_width = 22 if compact else 24
-        fix_select_width = 28 if compact else 32
-        fix_toggle_width = 42 if compact else 48
-        add_playhead_width = 28 if compact else 32
+        button_size = self._COMPACT_TOOL_BUTTON_SIZE if compact else self._TOOL_BUTTON_SIZE
 
-        for button in self._mode_buttons.values():
-            button.setMinimumWidth(mode_width)
-        self._snap_button.setMinimumWidth(snap_width)
-        self._grid_button.setMinimumWidth(grid_width)
-        self._settings_button.setMinimumWidth(shell_width)
-        self._osc_settings_button.setMinimumWidth(shell_width)
-        self._pipeline_settings_button.setMinimumWidth(shell_width)
-        self._fix_remove_button.setMinimumWidth(fix_small_width)
-        self._fix_promote_button.setMinimumWidth(fix_small_width)
-        self._fix_select_button.setMinimumWidth(fix_select_width)
-        self._fix_include_demoted_button.setMinimumWidth(fix_toggle_width)
-        self._add_event_at_playhead_button.setMinimumWidth(add_playhead_width)
+        buttons = (
+            self._snap_button,
+            self._grid_button,
+            self._settings_button,
+            self._osc_settings_button,
+            self._pipeline_settings_button,
+            self._fix_remove_button,
+            self._fix_promote_button,
+            self._fix_select_button,
+            self._fix_include_demoted_button,
+            self._add_event_at_playhead_button,
+            *tuple(self._mode_buttons.values()),
+        )
+        for button in buttons:
+            button.setMinimumSize(button_size)
+            button.setMaximumSize(button_size)
 
     def _repolish_toolbar_widgets(self) -> None:
         widgets: tuple[QWidget, ...] = (
@@ -503,9 +643,7 @@ class TimelineEditorModeBar(QWidget):
             widget.update()
 
     def _sync_grid_button_text(self) -> None:
-        mode_label = grid_mode_label(self._grid_mode)
-        compact_label = {"Time": "T", "Beats": "B", "Off": "0", "Auto": "A"}.get(mode_label, mode_label[:1])
-        self._grid_button.setText(f"GRD:{compact_label}")
+        self._set_button_icon(self._grid_button, self._BUTTON_ICONS["grid"])
 
     def _sync_grid_button_tooltip(self) -> None:
         self._grid_button.setToolTip(

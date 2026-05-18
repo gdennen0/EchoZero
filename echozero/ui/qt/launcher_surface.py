@@ -26,6 +26,10 @@ from echozero.ui.qt.launcher_review_actions import build_review_launcher_actions
 from echozero.ui.qt.model_manager_dialog import ModelManagerDialog
 from echozero.ui.qt.osc_settings_dialog import OscSettingsDialog
 from echozero.ui.qt.preferences_dialog import PreferencesDialog
+from echozero.ui.qt.progress_overlay import (
+    begin_operation_progress_overlay,
+    finish_operation_progress_overlay,
+)
 from echozero.ui.qt.project_settings_dialog import ProjectSettingsDialog
 from echozero.ui.qt.timeline.widget import TimelineWidget
 from echozero.ui.qt.window_geometry import resolve_initial_window_size
@@ -495,6 +499,28 @@ class LauncherController:
         self._refresh_presentation()
         return True
 
+    def _run_save_action(self, action_name: str, message: str, callback) -> bool:
+        progress = begin_operation_progress_overlay(
+            self.widget if isinstance(self.widget, TimelineWidget) else None,
+            title=action_name,
+            message=message,
+        )
+        try:
+            callback()
+        except Exception as exc:
+            finish_operation_progress_overlay(progress)
+            progress = None
+            QMessageBox.critical(
+                self.widget,
+                f"{action_name} Failed",
+                f"{action_name} failed.\n\n{exc}",
+            )
+            return False
+        finally:
+            finish_operation_progress_overlay(progress)
+        self._refresh_presentation()
+        return True
+
     def _confirm_unsaved_changes(self, prompt: str) -> bool:
         if not bool(getattr(self.runtime, "is_dirty", False)):
             return True
@@ -564,8 +590,9 @@ class LauncherController:
         if path is None:
             return False
         self._stage_runtime_presentation_for_save()
-        if not self._run_action(
-            "Save Project",
+        if not self._run_save_action(
+            "Save Project As",
+            "Saving project archive...",
             lambda: self.runtime.save_project_as(path),
         ):
             return False
@@ -580,15 +607,20 @@ class LauncherController:
             return self.save_project_as()
         if self._has_lifecycle("save_project"):
             self._stage_runtime_presentation_for_save()
-            if not self._run_action("Save Project", self.runtime.save_project):
+            if not self._run_save_action(
+                "Save Project",
+                "Saving project archive...",
+                self.runtime.save_project,
+            ):
                 return False
             self._remember_recent_project_path(current_path)
             self._refresh_recent_project_menu()
             return True
         if self._has_lifecycle("save_project_as"):
             self._stage_runtime_presentation_for_save()
-            if not self._run_action(
+            if not self._run_save_action(
                 "Save Project",
+                "Saving project archive...",
                 lambda: self.runtime.save_project_as(current_path),
             ):
                 return False

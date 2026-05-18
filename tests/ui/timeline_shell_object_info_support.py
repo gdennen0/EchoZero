@@ -3,22 +3,62 @@ Exists to keep inspector and context hit-target coverage separate from transfer 
 Connects the compatibility wrapper to the bounded object-info support slice.
 """
 
-import json
 import wave
-from types import SimpleNamespace
 
 import numpy as np
-from PyQt6.QtWidgets import QComboBox
+from PyQt6.QtWidgets import QCheckBox, QComboBox, QMenu, QPushButton
 
-from echozero.application.timeline.event_comparison_service import (
-    TimbreFingerprintSettings,
-    build_timbre_fingerprint_preview,
+from echozero.application.timeline.intents import (
+    CreateEventSequenceFromSelection,
+    SelectSimilarEventSequences,
 )
 from echozero.ui.qt.timeline.object_info_panel_text import (
     rendered_contract_text as _rendered_object_info_text,
 )
 from echozero.ui.qt.timeline.find_similar_dialog import FindSimilarSoundsDialog
 from tests.ui.timeline_shell_shared_support import *  # noqa: F401,F403
+
+
+def _context_menu_leaf_labels(menu: QMenu) -> list[str]:
+    return [action.text() for action in _context_menu_leaf_actions(menu)]
+
+
+def _context_menu_leaf_actions(menu: QMenu):
+    actions = []
+    for action in menu.actions():
+        if action.isSeparator():
+            continue
+        submenu = action.menu()
+        if submenu is not None:
+            actions.extend(_context_menu_leaf_actions(submenu))
+            continue
+        actions.append(action)
+    return actions
+
+
+def _context_menu_leaf_action(menu: QMenu, label: str):
+    for action in _context_menu_leaf_actions(menu):
+        if action.text() == label:
+            return action
+    raise AssertionError(f"Missing context menu action: {label}")
+
+
+def _context_menu_group(menu: QMenu, label: str) -> QMenu:
+    normalized_label = label.replace("&", "&&")
+    for action in menu.actions():
+        if action.text() in {label, normalized_label} and action.menu() is not None:
+            return action.menu()
+    raise AssertionError(f"Missing context menu group: {label}")
+
+
+def _context_menu_group_labels(menu: QMenu, label: str) -> list[str]:
+    return _context_menu_leaf_labels(_context_menu_group(menu, label))
+
+
+def _context_menu_top_labels(menu: QMenu) -> list[str]:
+    return [
+        action.text().replace("&&", "&") for action in menu.actions() if not action.isSeparator()
+    ]
 
 
 def test_main_row_event_click_dispatches_main_take_identity():
@@ -75,6 +115,7 @@ def test_object_info_panel_shows_current_song_version_without_selection():
         assert "version id:" not in info
         assert "ma3 tc pool:" not in info
         assert widget._object_info._kind.text() == "Song Version"
+        assert "song.version.set_ma3_timecode_pool" in widget._object_info._action_buttons
     finally:
         widget.close()
         app.processEvents()
@@ -104,7 +145,7 @@ def test_object_info_panel_updates_for_layer_selection():
         app.processEvents()
 
 
-def test_object_info_panel_keeps_only_transfer_workspace_entrypoint():
+def test_object_info_panel_keeps_only_ma3_route_entrypoint():
     app = QApplication.instance() or QApplication([])
     harness = _SelectionInspectorHarness(
         replace(_selection_test_presentation(), selected_layer_id=LayerId("layer_kick"))
@@ -115,8 +156,8 @@ def test_object_info_panel_keeps_only_transfer_workspace_entrypoint():
 
         action_ids = set(widget._object_info._action_buttons)
 
-        assert "transfer.workspace_open" in action_ids
-        assert "transfer.route_layer_track" not in action_ids
+        assert "transfer.workspace_open" not in action_ids
+        assert "transfer.route_layer_track" in action_ids
         assert "transfer.send_selection" not in action_ids
         assert "transfer.match_ma3_cues" not in action_ids
         assert "transfer.send_to_track_once" not in action_ids
@@ -158,9 +199,10 @@ def test_object_info_panel_audio_surface_exposes_inline_routing_controls():
     try:
         _render_for_hit_testing(widget)
         assert widget._object_info._route_to_master_checkbox.text() == "Send to master mix"
+        assert widget._object_info._route_to_master_checkbox.property("inspectorCheckbox") is True
         assert widget._object_info._route_to_master_checkbox.isChecked() is True
         assert (
-            widget._object_info._routing_table.horizontalHeaderItem(0).text()
+            widget._object_info._routing_table.horizontalHeaderItem(1).text()
             == "Additional outputs"
         )
         assert widget._object_info._routing_table.rowCount() == 0
@@ -170,9 +212,16 @@ def test_object_info_panel_audio_surface_exposes_inline_routing_controls():
 
         widget._object_info._route_to_master_checkbox.setChecked(False)
         widget._object_info._routing_add_btn.click()
-        combo = widget._object_info._routing_table.cellWidget(0, 0)
+        checkbox = widget._object_info._routing_table.cellWidget(0, 0)
+        assert isinstance(checkbox, QCheckBox)
+        assert checkbox.objectName() == "inspectorRoutingLayerCheckbox"
+        assert checkbox.property("inspectorCheckbox") is True
+        assert checkbox.isChecked() is False
+        combo = widget._object_info._routing_table.cellWidget(0, 1)
         assert isinstance(combo, QComboBox)
         combo.setCurrentIndex(combo.findData("outputs_3_3"))
+        assert intents == [SetLayerOutputBus(layer_id=LayerId("layer_kick"), output_bus="none")]
+        checkbox.setChecked(True)
         widget._object_info._route_to_master_checkbox.setChecked(True)
         widget._object_info._routing_remove_btn.click()
 
@@ -518,12 +567,34 @@ def test_object_info_panel_batch_buttons_dispatch_scoped_event_intents():
     app = QApplication.instance() or QApplication([])
     intents: list[object] = []
     base = _selection_test_presentation()
+    base.layers[0].events.extend(
+        [
+            EventPresentation(
+                event_id=EventId("main_evt_2"),
+                start=1.5,
+                end=1.7,
+                label="Main 2",
+            ),
+            EventPresentation(
+                event_id=EventId("main_evt_3"),
+                start=2.25,
+                end=2.45,
+                label="Main 3",
+            ),
+        ]
+    )
     presentation = replace(
         base,
         selected_layer_id=LayerId("layer_kick"),
         selected_layer_ids=[LayerId("layer_kick")],
         selected_take_id=TakeId("take_main"),
-        selected_event_ids=[EventId("main_evt")],
+        selected_event_ids=[
+            EventId("main_evt"),
+            EventId("main_evt_2"),
+            EventId("main_evt_3"),
+        ],
+        bpm=120.0,
+        beat_anchor_seconds=0.25,
     )
     widget = TimelineWidget(
         presentation, on_intent=lambda intent: intents.append(intent) or presentation
@@ -560,10 +631,16 @@ def test_object_info_panel_batch_buttons_dispatch_scoped_event_intents():
         assert "selection.compare_events" in widget._object_info._action_buttons
         assert "selection.select_every_other" in widget._object_info._action_buttons
         assert "selection.renumber_cues_from_one" in widget._object_info._action_buttons
+        assert "selection.snap_to_beat_grid_16" in widget._object_info._action_buttons
+        assert "selection.create_event_sequence" in widget._object_info._action_buttons
+        assert "selection.find_similar_event_sequences" in widget._object_info._action_buttons
 
         widget._object_info._action_buttons["selection.compare_events"].click()
         widget._object_info._action_buttons["selection.select_every_other"].click()
         widget._object_info._action_buttons["selection.renumber_cues_from_one"].click()
+        widget._object_info._action_buttons["selection.snap_to_beat_grid_16"].click()
+        widget._object_info._action_buttons["selection.create_event_sequence"].click()
+        widget._object_info._action_buttons["selection.find_similar_event_sequences"].click()
 
         assert intents == [
             SetSelectedEvents(
@@ -585,6 +662,14 @@ def test_object_info_panel_batch_buttons_dispatch_scoped_event_intents():
                 start_at=1,
                 step=1,
             ),
+            SnapEventsToBeatGrid(
+                scope=EventBatchScope(mode="selected_events"),
+                grid_denominator=16,
+                bpm=120.0,
+                beat_anchor_seconds=0.25,
+            ),
+            CreateEventSequenceFromSelection(),
+            SelectSimilarEventSequences(),
         ]
     finally:
         widget.close()
@@ -870,7 +955,7 @@ def test_no_takes_layer_context_menu_excludes_take_actions():
         action_ids = [
             action.action_id for section in contract.context_sections for action in section.actions
         ]
-        menu_labels = [action.text() for action in menu.actions() if not action.isSeparator()]
+        menu_labels = _context_menu_leaf_labels(menu)
 
         assert "overwrite_main" not in action_ids
         assert "merge_main" not in action_ids
@@ -971,12 +1056,12 @@ def test_context_menu_uses_contract_actions_for_take_event_hit_target():
 
         contract = build_timeline_inspector_contract(widget.presentation, hit_target=hit_target)
         menu = widget._canvas._build_context_menu(contract)
-        menu_labels = [action.text() for action in menu.actions() if not action.isSeparator()]
+        menu_labels = _context_menu_leaf_labels(menu)
         contract_labels = [
             action.label for section in contract.context_sections for action in section.actions
         ]
 
-        assert menu_labels == contract_labels
+        assert set(menu_labels) == set(contract_labels)
         assert "Overwrite Main" in menu_labels
         assert "Merge Main" in menu_labels
         assert "Delete Take" in menu_labels
@@ -987,7 +1072,7 @@ def test_context_menu_uses_contract_actions_for_take_event_hit_target():
 
 def test_context_menu_timeline_hit_is_scoped_to_timeline_actions():
     app = QApplication.instance() or QApplication([])
-    widget = TimelineWidget(_selection_test_presentation())
+    widget = TimelineWidget(_song_switching_presentation())
     try:
         _render_for_hit_testing(widget)
 
@@ -996,15 +1081,51 @@ def test_context_menu_timeline_hit_is_scoped_to_timeline_actions():
             hit_target=TimelineInspectorHitTarget(kind="timeline", time_seconds=1.25),
         )
         menu = widget._canvas._build_context_menu(contract, hit_kind="timeline")
-        labels = [action.text() for action in menu.actions() if not action.isSeparator()]
+        top_labels = _context_menu_top_labels(menu)
+        add_labels = _context_menu_group_labels(menu, "Add")
+        transport_labels = _context_menu_group_labels(menu, "Transport")
+        labels = _context_menu_leaf_labels(menu)
 
-        assert "Add Song" in labels
-        assert "Add SMPTE Layer" in labels
-        assert "Add SMPTE Layer from Import Split" in labels
-        assert any(label.startswith("Seek to") for label in labels)
+        assert "Song" in top_labels
+        assert "Add" in top_labels
+        assert "Transport" in top_labels
+        assert "Add Song" in add_labels
+        assert "Add SMPTE Layer" in add_labels
+        assert "Add SMPTE Layer from Import Split" in add_labels
+        assert any(label.startswith("Seek to") for label in transport_labels)
         assert "Push to MA3" not in labels
         assert "Overwrite Main" not in labels
         assert "Delete Take" not in labels
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_context_menu_preserves_disabled_action_state_in_submenus():
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(
+        _song_switching_presentation(),
+        available_song_versions=[
+            SongVersionOptionPresentation(
+                song_version_id="song_version_festival",
+                label="Festival Edit",
+                is_active=True,
+            )
+        ],
+    )
+    widget = TimelineWidget(presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        contract = build_timeline_inspector_contract(
+            widget.presentation,
+            hit_target=TimelineInspectorHitTarget(kind="timeline", time_seconds=1.25),
+        )
+        menu = widget._canvas._build_context_menu(contract, hit_kind="timeline")
+        switch_action = _context_menu_leaf_action(menu, "Switch Version")
+
+        assert switch_action.data().action_id == "song.version.switch"
+        assert switch_action.isEnabled() is False
     finally:
         widget.close()
         app.processEvents()
@@ -1023,19 +1144,58 @@ def test_context_menu_layer_hit_is_scoped_to_layer_actions():
             ),
         )
         menu = widget._canvas._build_context_menu(contract, hit_kind="layer")
-        labels = [action.text() for action in menu.actions() if not action.isSeparator()]
+        top_labels = _context_menu_top_labels(menu)
+        transfer_labels = _context_menu_group_labels(menu, "Sync & Transfer")
+        batch_labels = _context_menu_group_labels(menu, "Batch Edit")
+        labels = _context_menu_leaf_labels(menu)
 
-        assert "Route Layer to MA3 Track" in labels
-        assert "Send Layer to MA3" in labels
-        assert "Send Selected Events to MA3" in labels
-        assert "Send to Different Track Once" in labels
+        assert "Batch Edit" in top_labels
+        assert "Sync & Transfer" in top_labels
+        assert "Layer" in top_labels
+        assert "Route Layer to MA3 Track" in transfer_labels
+        assert "Send Layer to MA3" in transfer_labels
+        assert "Send Selected Events to MA3" in transfer_labels
+        assert "Send to Different Track Once" in transfer_labels
+        route_action = _context_menu_leaf_action(menu, "Route Layer to MA3 Track")
+        assert route_action.data().action_id == "transfer.route_layer_track"
+        assert route_action.isEnabled() is True
         assert "Push to MA3" not in labels
         assert "Pull from MA3" not in labels
-        assert "Select Every Other in Layer" in labels
-        assert "Renumber Cues from 1 in Layer" in labels
+        assert "Select Every Other in Layer" in batch_labels
+        assert "Renumber Cues from 1 in Layer" in batch_labels
         assert "Add Song" not in labels
         assert "Nudge Left" not in labels
         assert "Overwrite Main" not in labels
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_context_menu_audio_layer_groups_mix_pipeline_and_destructive_actions():
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_audio_pipeline_presentation())
+    try:
+        _render_for_hit_testing(widget)
+
+        contract = build_timeline_inspector_contract(
+            widget.presentation,
+            hit_target=TimelineInspectorHitTarget(
+                kind="layer", layer_id=LayerId("layer_song"), time_seconds=1.0
+            ),
+        )
+        menu = widget._canvas._build_context_menu(contract, hit_kind="layer")
+        top_labels = _context_menu_top_labels(menu)
+        mix_labels = _context_menu_group_labels(menu, "Mix")
+        pipeline_labels = _context_menu_group_labels(menu, "Pipeline")
+        layer_labels = _context_menu_group_labels(menu, "Layer")
+
+        assert "Mix" in top_labels
+        assert "Pipeline" in top_labels
+        assert "Mute Layer" in mix_labels
+        assert "Set Gain 0 dB" in mix_labels
+        assert "Extract Stems" in pipeline_labels
+        assert layer_labels[-1] == "Delete Layer"
+        assert _context_menu_leaf_action(menu, "Delete Layer").property("destructive") is True
     finally:
         widget.close()
         app.processEvents()
@@ -1066,7 +1226,7 @@ def test_context_menu_section_layer_hit_shows_send_layer_to_ma3():
             ),
         )
         menu = widget._canvas._build_context_menu(contract, hit_kind="layer")
-        labels = [action.text() for action in menu.actions() if not action.isSeparator()]
+        labels = _context_menu_leaf_labels(menu)
 
         assert "Import Event Layer from MA3" in labels
         assert "Send Layer to MA3" in labels
@@ -1100,7 +1260,7 @@ def test_context_menu_smpte_layer_shows_import_smpte_audio_action():
             ),
         )
         menu = widget._canvas._build_context_menu(contract, hit_kind="layer")
-        labels = [action.text() for action in menu.actions() if not action.isSeparator()]
+        labels = _context_menu_leaf_labels(menu)
 
         assert "Import SMPTE Audio" in labels
     finally:
@@ -1124,18 +1284,25 @@ def test_context_menu_take_hit_is_scoped_to_take_actions():
             ),
         )
         menu = widget._canvas._build_context_menu(contract, hit_kind="take")
-        labels = [action.text() for action in menu.actions() if not action.isSeparator()]
+        top_labels = _context_menu_top_labels(menu)
+        take_labels = _context_menu_group_labels(menu, "Take")
+        batch_labels = _context_menu_group_labels(menu, "Batch Edit")
+        transfer_labels = _context_menu_group_labels(menu, "Sync & Transfer")
+        labels = _context_menu_leaf_labels(menu)
 
-        assert "Overwrite Main" in labels
-        assert "Merge Main" in labels
-        assert "Delete Take" in labels
-        assert "Select Every Other in Take" in labels
-        assert "Renumber Cues from 1 in Take" in labels
-        assert "Import Event Layer from MA3" in labels
-        assert "Route Layer to MA3 Track" in labels
-        assert "Send Layer to MA3" in labels
-        assert "Send Selected Events to MA3" in labels
-        assert "Send to Different Track Once" in labels
+        assert "Take" in top_labels
+        assert "Batch Edit" in top_labels
+        assert "Sync & Transfer" in top_labels
+        assert "Overwrite Main" in take_labels
+        assert "Merge Main" in take_labels
+        assert "Delete Take" in take_labels
+        assert "Select Every Other in Take" in batch_labels
+        assert "Renumber Cues from 1 in Take" in batch_labels
+        assert "Import Event Layer from MA3" in transfer_labels
+        assert "Route Layer to MA3 Track" in transfer_labels
+        assert "Send Layer to MA3" in transfer_labels
+        assert "Send Selected Events to MA3" in transfer_labels
+        assert "Send to Different Track Once" in transfer_labels
         assert "Add Song" not in labels
     finally:
         widget.close()
@@ -1165,16 +1332,23 @@ def test_context_menu_event_hit_is_scoped_to_event_selection_actions():
             ),
         )
         menu = widget._canvas._build_context_menu(contract, hit_kind="event")
-        labels = [action.text() for action in menu.actions() if not action.isSeparator()]
+        top_labels = _context_menu_top_labels(menu)
+        selection_labels = _context_menu_group_labels(menu, "Selection")
+        batch_labels = _context_menu_group_labels(menu, "Batch Edit")
+        transfer_labels = _context_menu_group_labels(menu, "Sync & Transfer")
+        labels = _context_menu_leaf_labels(menu)
 
-        assert "Nudge Left" in labels
-        assert "Duplicate" in labels
-        assert "Select Every Other" in labels
-        assert "Renumber Cues from 1" in labels
-        assert "Import Event Layer from MA3" in labels
-        assert "Send Layer to MA3" in labels
-        assert "Send Selected Events to MA3" in labels
-        assert "Send to Different Track Once" in labels
+        assert "Selection" in top_labels
+        assert "Batch Edit" in top_labels
+        assert "Sync & Transfer" in top_labels
+        assert "Nudge Left" in selection_labels
+        assert "Duplicate" in selection_labels
+        assert "Select Every Other" in batch_labels
+        assert "Renumber Cues from 1" in batch_labels
+        assert "Import Event Layer from MA3" in transfer_labels
+        assert "Send Layer to MA3" in transfer_labels
+        assert "Send Selected Events to MA3" in transfer_labels
+        assert "Send to Different Track Once" in transfer_labels
         assert "Push to MA3" not in labels
         assert "Add Song" not in labels
     finally:
@@ -1199,13 +1373,13 @@ def test_context_menu_unselected_main_event_can_send_single_event_to_ma3():
             ),
         )
         menu = widget._canvas._build_context_menu(contract, hit_kind="event")
-        labels = [action.text() for action in menu.actions() if not action.isSeparator()]
+        transfer_labels = _context_menu_group_labels(menu, "Sync & Transfer")
 
-        assert "Send Event to MA3" in labels
-        assert "Send Selected Events to MA3" not in labels
-        assert "Import Event Layer from MA3" in labels
-        assert "Send Layer to MA3" in labels
-        assert "Send to Different Track Once" in labels
+        assert "Send Event to MA3" in transfer_labels
+        assert "Send Selected Events to MA3" not in transfer_labels
+        assert "Import Event Layer from MA3" in transfer_labels
+        assert "Send Layer to MA3" in transfer_labels
+        assert "Send to Different Track Once" in transfer_labels
     finally:
         widget.close()
         app.processEvents()
@@ -1287,7 +1461,7 @@ def test_fix_mode_demoted_event_context_menu_exposes_and_dispatches_find_similar
             hit_target=hit_target,
         )
         menu = widget._canvas._build_context_menu(contract, hit_kind="event")
-        labels = [action.text() for action in menu.actions() if not action.isSeparator()]
+        labels = _context_menu_group_labels(menu, "Clip")
         assert "Compare Events..." in labels
 
         find_similar_action = next(
@@ -1319,37 +1493,53 @@ def test_fix_mode_demoted_event_context_menu_exposes_and_dispatches_find_similar
 
 def test_find_similar_shapes_dialog_constructs_for_real_event():
     app = QApplication.instance() or QApplication([])
-    presentation = _selection_test_presentation()
+    base = _selection_test_presentation()
+    presentation = replace(
+        base,
+        layers=[
+            replace(
+                base.layers[0],
+                events=[
+                    base.layers[0].events[0],
+                    EventPresentation(
+                        event_id=EventId("main_evt_2"),
+                        start=2.0,
+                        end=2.5,
+                        label="Main 2",
+                    ),
+                ],
+            )
+        ],
+    )
+    preview_calls = []
     dialog = FindSimilarSoundsDialog(
         presentation=presentation,
         layer_id=LayerId("layer_kick"),
         take_id=TakeId("take_main"),
         event_id=EventId("main_evt"),
         default_scope_mode="take",
+        preview_event_callback=lambda layer_id, take_id, event_id: preview_calls.append(
+            (layer_id, take_id, event_id)
+        ),
         parent=None,
     )
     try:
-        assert dialog.windowTitle() == "Compare Events"
-        assert dialog.height() >= 760
-        assert "candidate events across" in dialog._summary.text()
-        assert dialog._mode_combo.count() == 4
-        assert dialog._mode_combo.itemText(0) == "Shape Envelope"
-        assert dialog._mode_combo.itemText(1) == "Hybrid MIR"
-        assert dialog._mode_combo.itemText(2) == "Timbre Fingerprint"
-        assert dialog._mode_combo.itemText(3) == "Saved Mini-model"
-        assert dialog._mode_combo.currentData() == "hybrid_mir"
-        assert "Hybrid MIR blends envelope, transient, and spectral evidence" in dialog._summary.text()
-        assert dialog._smoothing_slider.value() == 3
-        assert dialog._points_slider.value() == 24
-        assert dialog._fuzziness_slider.value() == 35
-        assert dialog._run_button.text() == "Run Similarity"
-        assert "Ran similarity check" in dialog._run_status_label.text()
+        assert dialog.windowTitle() == "Find Similar"
+        assert dialog.height() >= 600
+        assert dialog._scope_combo.currentData() == "take"
+        assert dialog._candidate_list.count() >= 1
+        assert dialog._preview_widget.rows[0].is_anchor is False
+        assert "shown" in dialog._candidate_count_label.text()
+        dialog._play_button.click()
+        assert preview_calls
         payload = dialog.selected_payload()
-        assert payload["shape_smoothing"] == 3
-        assert payload["shape_control_points"] == 24
-        assert payload["shape_fuzziness"] == 35
+        assert payload["comparison_mode"] == "find_similar_review_profile"
         assert payload["outcome_action"] == "select"
         assert payload["new_layer_title"] == "Similar Events"
+        button_text = " ".join(button.text() for button in dialog.findChildren(QPushButton))
+        assert "Train" not in button_text
+        assert dialog._primary_button.text() == "Select Matches"
+        assert not dialog._primary_button.isEnabled()
         dialog._outcome_combo.setCurrentIndex(dialog._outcome_combo.findData("create_layer"))
         dialog._layer_name_edit.setText("Matched Kicks")
         payload = dialog.selected_payload()
@@ -1361,9 +1551,9 @@ def test_find_similar_shapes_dialog_constructs_for_real_event():
         app.processEvents()
 
 
-def test_find_similar_shapes_dialog_previews_anchor_and_candidate_shapes(tmp_path, monkeypatch):
+def test_find_similar_dialog_labels_candidates_and_payload_uses_reviewed_matches(tmp_path):
     app = QApplication.instance() or QApplication([])
-    audio_path = tmp_path / "shape-preview.wav"
+    audio_path = tmp_path / "review-preview.wav"
     sample_rate = 8000
     seconds = 3.0
     t = np.linspace(0.0, seconds, int(sample_rate * seconds), endpoint=False, dtype=np.float32)
@@ -1384,6 +1574,15 @@ def test_find_similar_shapes_dialog_previews_anchor_and_candidate_shapes(tmp_pat
     layer = replace(
         base.layers[0],
         source_audio_path=str(audio_path),
+        events=[
+            replace(base.layers[0].events[0], start=1.0, end=1.5),
+            EventPresentation(
+                event_id=EventId("main_evt_2"),
+                start=2.0,
+                end=2.5,
+                label="Main 2",
+            ),
+        ],
         takes=[
             replace(
                 base.layers[0].takes[0],
@@ -1393,16 +1592,6 @@ def test_find_similar_shapes_dialog_previews_anchor_and_candidate_shapes(tmp_pat
         ],
     )
     presentation = replace(base, layers=[layer])
-    import echozero.ui.qt.timeline.find_similar_dialog as dialog_module
-
-    read_calls = []
-    original_read = dialog_module.read_mono_audio_slice
-
-    def counting_read(*args, **kwargs):
-        read_calls.append((args, kwargs))
-        return original_read(*args, **kwargs)
-
-    monkeypatch.setattr(dialog_module, "read_mono_audio_slice", counting_read)
     dialog = FindSimilarSoundsDialog(
         presentation=presentation,
         layer_id=LayerId("layer_kick"),
@@ -1413,169 +1602,114 @@ def test_find_similar_shapes_dialog_previews_anchor_and_candidate_shapes(tmp_pat
     )
     try:
         rows = dialog._preview_widget.rows
-        assert len(rows) == 2
-        assert rows[0].is_anchor is True
-        assert len(rows[0].shape) == 24
-        assert rows[1].score is not None
-        assert len(rows[1].shape) == 24
+        assert len(rows) == 1
+        assert rows[0].is_anchor is False
+        assert rows[0].score is not None
+        assert len(rows[0].shape) == 32
+        assert dialog._session.confidence_threshold == 0.90
+        dialog._candidate_list.setCurrentRow(0)
+        dialog._match_button.click()
+        assert "2 / 2 matches" in dialog._status_label.text()
+        assert dialog._primary_button.isEnabled()
+        assert "Ready to select" in dialog._model_status_label.text()
+        dialog._primary_button.click()
         payload = dialog.selected_payload()
-        assert payload["match_count"] >= 1
-        assert payload["matched_event_refs"]
+        assert payload["comparison_mode"] == "find_similar_review_profile"
+        assert payload["match_count"] == 2
+        assert payload["confidence_threshold"] == 0.90
+        assert payload["model_applied_event_refs"] == payload["event_refs"]
+        assert payload["profile_selected_event_refs"] == payload["event_refs"]
+        assert payload["profile_ready"] is True
+        assert payload["matched_event_refs"][1].event_id == EventId("main_evt_2")
         dialog.set_scan_preview_limit(1)
         app.processEvents()
-        assert len(dialog._preview_widget.rows) == 2
-        cached_call_count = len(read_calls)
-        dialog._points_slider.setValue(12)
-        app.processEvents()
-        assert "Settings changed. Run Similarity" in dialog._run_status_label.text()
-        assert len(dialog._preview_widget.rows[0].shape) == 24
-        dialog._run_button.click()
-        app.processEvents()
-        assert len(dialog._preview_widget.rows[0].shape) == 12
-        assert len(read_calls) == cached_call_count
+        assert len(dialog._preview_widget.rows) == 1
     finally:
         dialog.close()
         app.processEvents()
 
 
-def test_find_similar_dialog_timbre_mode_and_mini_model_affordance(tmp_path, monkeypatch):
+def test_find_similar_dialog_ranks_top_candidates_and_shift_shortcuts():
     app = QApplication.instance() or QApplication([])
-    audio_path = tmp_path / "timbre-preview.wav"
-    sample_rate = 8000
-    seconds = 3.0
-    times = np.linspace(0.0, seconds, int(sample_rate * seconds), endpoint=False, dtype=np.float32)
-    samples = np.zeros_like(times)
-    first = slice(int(1.0 * sample_rate), int(1.5 * sample_rate))
-    second = slice(int(2.0 * sample_rate), int(2.5 * sample_rate))
-    samples[first] = (
-        np.sin(2.0 * np.pi * 130.0 * times[first]) * np.hanning(first.stop - first.start) * 0.8
+    preview_calls = []
+    base = _selection_test_presentation()
+    layer = replace(
+        base.layers[0],
+        events=[
+            base.layers[0].events[0],
+            EventPresentation(event_id=EventId("low_evt"), start=2.0, end=2.4, label="Low"),
+            EventPresentation(event_id=EventId("high_evt"), start=3.0, end=3.4, label="High"),
+        ],
     )
-    samples[second] = (
-        np.sin(2.0 * np.pi * 2200.0 * times[second]) * np.hanning(second.stop - second.start) * 0.8
+    dialog = FindSimilarSoundsDialog(
+        presentation=replace(base, layers=[layer]),
+        layer_id=LayerId("layer_kick"),
+        take_id=TakeId("take_main"),
+        event_id=EventId("main_evt"),
+        default_scope_mode="take",
+        preview_event_callback=lambda layer_id, take_id, event_id: preview_calls.append(
+            (layer_id, take_id, event_id)
+        ),
+        parent=None,
     )
-    with wave.open(str(audio_path), "wb") as handle:
-        handle.setnchannels(1)
-        handle.setsampwidth(2)
-        handle.setframerate(sample_rate)
-        handle.writeframes(np.clip(samples * 32767.0, -32768, 32767).astype("<i2").tobytes())
-
-    train_calls = []
-
-    def fake_train_timbre_mini_model(*, anchor_sample, positive_samples, **_kwargs):
-        train_calls.append((anchor_sample, tuple(positive_samples)))
-        return SimpleNamespace(
-            artifact_path=tmp_path / "saved-model.json", positive_sample_count=2
+    try:
+        dialog._session = replace(
+            dialog._session,
+            candidates=tuple(
+                replace(
+                    candidate,
+                    score=0.20 if candidate.event_ref.event_id == EventId("low_evt") else 0.90,
+                )
+                for candidate in dialog._session.candidates
+            ),
         )
-
-    monkeypatch.setattr(
-        "echozero.ui.qt.timeline.find_similar_dialog.train_timbre_mini_model",
-        fake_train_timbre_mini_model,
-    )
-    base = _selection_test_presentation()
-    layer = replace(
-        base.layers[0],
-        source_audio_path=str(audio_path),
-        takes=[
-            replace(
-                base.layers[0].takes[0],
-                take_id=TakeId("take_main"),
-                source_audio_path=str(audio_path),
-            )
-        ],
-    )
-    presentation = replace(base, layers=[layer])
-    dialog = FindSimilarSoundsDialog(
-        presentation=presentation,
-        layer_id=LayerId("layer_kick"),
-        take_id=TakeId("take_main"),
-        event_id=EventId("main_evt"),
-        default_scope_mode="take",
-        parent=None,
-    )
-    try:
-        dialog._mode_combo.setCurrentIndex(dialog._mode_combo.findData("timbre_fingerprint"))
+        dialog._refresh_all()
         app.processEvents()
-        assert dialog._preview_widget.rows[0].is_anchor is True
-        assert dialog._preview_widget.rows[1].score is not None
-        dialog._train_model_checkbox.setChecked(True)
-        payload = dialog.selected_payload()
-        assert payload["comparison_mode"] == "timbre_fingerprint"
-        assert payload["mini_model_requested"] is True
-        assert payload["mini_model_path"].endswith("saved-model.json")
-        assert train_calls[0][0].event_ref.event_id == EventId("main_evt")
+
+        first_ref = dialog._candidate_list.item(0).data(Qt.ItemDataRole.UserRole)
+        second_ref = dialog._candidate_list.item(1).data(Qt.ItemDataRole.UserRole)
+        assert first_ref.event_id == EventId("high_evt")
+        assert second_ref.event_id == EventId("low_evt")
+
+        dialog._candidate_list.setCurrentRow(0)
+        dialog._candidate_list.setFocus()
+        QTest.keyClick(dialog._candidate_list, Qt.Key.Key_Space, Qt.KeyboardModifier.ShiftModifier)
+        assert preview_calls[-1][2] == EventId("high_evt")
+        QTest.keyClick(dialog._candidate_list, Qt.Key.Key_C, Qt.KeyboardModifier.ShiftModifier)
+        assert dialog._session.positive_count == 1
+        QTest.keyClick(dialog._candidate_list, Qt.Key.Key_T)
+        assert dialog.result() == 0
     finally:
         dialog.close()
         app.processEvents()
 
 
-def test_find_similar_dialog_saved_mini_model_path_scores_and_payload(tmp_path, monkeypatch):
+def test_find_similar_dialog_not_match_reranks_and_save_review_model(tmp_path, monkeypatch):
     app = QApplication.instance() or QApplication([])
-    audio_path = tmp_path / "saved-model-preview.wav"
-    sample_rate = 8000
-    seconds = 3.0
-    times = np.linspace(0.0, seconds, int(sample_rate * seconds), endpoint=False, dtype=np.float32)
-    samples = np.zeros_like(times)
-    first = slice(int(1.0 * sample_rate), int(1.5 * sample_rate))
-    second = slice(int(2.0 * sample_rate), int(2.5 * sample_rate))
-    samples[first] = (
-        np.sin(2.0 * np.pi * 130.0 * times[first]) * np.hanning(first.stop - first.start) * 0.8
-    )
-    samples[second] = (
-        np.sin(2.0 * np.pi * 130.0 * times[second]) * np.hanning(second.stop - second.start) * 0.8
-    )
-    with wave.open(str(audio_path), "wb") as handle:
-        handle.setnchannels(1)
-        handle.setsampwidth(2)
-        handle.setframerate(sample_rate)
-        handle.writeframes(np.clip(samples * 32767.0, -32768, 32767).astype("<i2").tobytes())
-
-    centroid = build_timbre_fingerprint_preview(
-        audio_path=str(audio_path),
-        start_seconds=1.0,
-        end_seconds=1.5,
-        settings=TimbreFingerprintSettings(sample_count=64, padding_ms=20.0),
-        audio_cache={},
-    )
-    model_path = tmp_path / "saved-model.json"
-    model_path.write_text(
-        json.dumps(
-            {
-                "schema": "echozero.find-similar-mini-model.v1",
-                "model_id": "model-1",
-                "model_kind": "timbre_prototype",
-                "created_at": "2026-05-14T12:00:00+00:00",
-                "anchor_label": "Saved Kick",
-                "anchor_event_ref": {
-                    "layer_id": "layer_kick",
-                    "take_id": "take_main",
-                    "event_id": "main_evt",
-                },
-                "settings": {"sample_count": 64, "padding_ms": 20.0},
-                "positive_sample_count": 1,
-                "centroid": list(centroid or ()),
-            }
-        ),
-        encoding="utf-8",
-    )
+    saved_path = tmp_path / "review-model.json"
+    save_calls = []
     monkeypatch.setattr(
-        "echozero.ui.qt.timeline.find_similar_dialog.list_timbre_mini_models",
-        lambda: (
-            SimpleNamespace(label="Saved Kick", positive_sample_count=1, artifact_path=model_path),
-        ),
+        "echozero.ui.qt.timeline.find_similar_dialog.save_find_similar_review_model",
+        lambda _session: save_calls.append(_session) or saved_path,
     )
     base = _selection_test_presentation()
-    layer = replace(
-        base.layers[0],
-        source_audio_path=str(audio_path),
-        takes=[
+    presentation = replace(
+        base,
+        layers=[
             replace(
-                base.layers[0].takes[0],
-                take_id=TakeId("take_main"),
-                source_audio_path=str(audio_path),
+                base.layers[0],
+                events=[
+                    base.layers[0].events[0],
+                    EventPresentation(
+                        event_id=EventId("main_evt_2"),
+                        start=2.0,
+                        end=2.5,
+                        label="Main 2",
+                    ),
+                ],
             )
         ],
     )
-    presentation = replace(base, layers=[layer])
     dialog = FindSimilarSoundsDialog(
         presentation=presentation,
         layer_id=LayerId("layer_kick"),
@@ -1585,42 +1719,21 @@ def test_find_similar_dialog_saved_mini_model_path_scores_and_payload(tmp_path, 
         parent=None,
     )
     try:
-        dialog._mode_combo.setCurrentIndex(dialog._mode_combo.findData("timbre_mini_model"))
-        app.processEvents()
-        assert dialog._model_combo.currentData() == str(model_path)
-        assert dialog._preview_widget.rows[1].score is not None
+        dialog._candidate_list.setCurrentRow(0)
+        dialog._reject_button.click()
+        assert dialog._session.negative_count == 1
+        assert dialog._view_combo.currentData() == "best_next"
+        assert dialog._candidate_list.count() == 0
+        dialog._view_combo.setCurrentIndex(dialog._view_combo.findData("rejected"))
+        assert dialog._candidate_list.count() == 1
+        dialog._save_model_checkbox.setChecked(True)
         payload = dialog.selected_payload()
-        assert payload["comparison_mode"] == "timbre_mini_model"
-        assert payload["mini_model_path"] == str(model_path)
-        assert payload["comparison_options"] == {"artifact_path": str(model_path)}
-    finally:
-        dialog.close()
-        app.processEvents()
-
-
-def test_find_similar_dialog_saved_mini_model_without_model_falls_back_safely(monkeypatch):
-    app = QApplication.instance() or QApplication([])
-    monkeypatch.setattr(
-        "echozero.ui.qt.timeline.find_similar_dialog.list_timbre_mini_models",
-        lambda: (),
-    )
-    presentation = _selection_test_presentation()
-    dialog = FindSimilarSoundsDialog(
-        presentation=presentation,
-        layer_id=LayerId("layer_kick"),
-        take_id=TakeId("take_main"),
-        event_id=EventId("main_evt"),
-        default_scope_mode="take",
-        parent=None,
-    )
-    try:
-        dialog._mode_combo.setCurrentIndex(dialog._mode_combo.findData("timbre_mini_model"))
-        app.processEvents()
-        payload = dialog.selected_payload()
-
-        assert payload["comparison_mode"] == "timbre_fingerprint"
-        assert payload["mini_model_error"] == "No saved mini-model selected"
-        assert "comparison_options" not in payload
+        duplicate_payload = dialog.selected_payload()
+        assert payload["review_model_path"] == str(saved_path)
+        assert duplicate_payload["review_model_path"] == str(saved_path)
+        assert payload["review_model_schema"] == "echozero.find-similar-review-model.v1"
+        assert len(save_calls) == 1
+        assert "not similar" in dialog._status_label.text()
     finally:
         dialog.close()
         app.processEvents()

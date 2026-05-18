@@ -111,6 +111,64 @@ def test_assembler_filters_pipeline_banner_to_active_song_version():
     assert assembled.operation_progress_banner.fraction_complete == 0.2
 
 
+def test_assembler_projects_event_sequence_metadata():
+    main_take = Take(
+        id=TakeId("take_main"),
+        layer_id=LayerId("layer_1"),
+        name="Main",
+        events=[
+            Event(
+                id=EventId("main_a"),
+                take_id=TakeId("take_main"),
+                start=1.0,
+                end=1.2,
+                label="Kick",
+                metadata={
+                    "sequence": {
+                        "id": "seq_1",
+                        "name": "Verse hits",
+                        "order": 1,
+                        "size": 2,
+                        "created_from": "user",
+                    }
+                },
+            )
+        ],
+    )
+    layer = Layer(
+        id=LayerId("layer_1"),
+        timeline_id=TimelineId("timeline_1"),
+        name="Kick",
+        kind=LayerKind.EVENT,
+        order_index=0,
+        takes=[main_take],
+    )
+    timeline = Timeline(
+        id=TimelineId("timeline_1"),
+        song_version_id=SongVersionId("version_1"),
+        layers=[layer],
+    )
+    session = Session(
+        id=SessionId("session_1"),
+        project_id=ProjectId("project_1"),
+        active_song_id=SongId("song_1"),
+        active_song_version_id=SongVersionId("version_1"),
+        active_timeline_id=timeline.id,
+    )
+
+    assembled = TimelineAssembler().assemble(timeline, session)
+    event = assembled.layers[0].events[0]
+
+    assert event.sequence_metadata == {
+        "id": "seq_1",
+        "name": "Verse hits",
+        "order": 1,
+        "size": 2,
+        "created_from": "user",
+    }
+    assert "sequence" in event.badges
+
+
 def test_assembler_prefers_active_operation_banner_over_failed_banner():
     main_take = Take(
         id=TakeId("take_main"),

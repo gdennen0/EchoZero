@@ -207,9 +207,15 @@ def build_runtime_timeline_application(
             active_song_version_id=runtime_state.active_song_version_id,
         )
     )
-    timeline.viewport.pixels_per_second = runtime_state.pixels_per_second
-    timeline.viewport.scroll_x = runtime_state.scroll_x
-    timeline.viewport.scroll_y = runtime_state.scroll_y
+    saved_viewport = (runtime_state.song_version_viewports or {}).get(str(active_song_version_id))
+    if saved_viewport is not None:
+        timeline.viewport.pixels_per_second = saved_viewport.pixels_per_second
+        timeline.viewport.scroll_x = saved_viewport.scroll_x
+        timeline.viewport.scroll_y = saved_viewport.scroll_y
+    else:
+        timeline.viewport.pixels_per_second = runtime_state.pixels_per_second
+        timeline.viewport.scroll_x = runtime_state.scroll_x
+        timeline.viewport.scroll_y = runtime_state.scroll_y
     max_playhead = max(0.0, float(timeline.end))
     playhead = (
         min(runtime_state.playhead, max_playhead) if max_playhead > 0.0 else runtime_state.playhead

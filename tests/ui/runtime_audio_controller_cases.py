@@ -1,7 +1,7 @@
 from tests.ui.runtime_audio_support import (
     test_audio_engine_paused_mute_does_not_leak_previous_tail_on_play,
-    test_runtime_controller_can_prefer_sounddevice_backend_for_audio_layers,
     test_runtime_controller_audio_diagnostics_capture_writes_bundle,
+    test_runtime_controller_defaults_to_v2_backend_for_audio_layers,
     test_demo_dispatch_routes_mix_update_intents_to_runtime_audio,
     test_demo_dispatch_routes_transport_intents_into_runtime_audio,
     test_demo_dispatch_selection_does_not_reroute_runtime_audio,

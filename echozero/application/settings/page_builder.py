@@ -26,6 +26,7 @@ from echozero.application.settings.models import (
     SongImportNameMode,
     import_safe_pipeline_action_descriptors,
 )
+from echozero.application.settings.network_options import list_osc_receive_address_options
 from echozero.output_routing import output_bus_options
 
 
@@ -122,6 +123,9 @@ def build_app_settings_page(
     audio_device_options_provider: Callable[[], tuple[SettingsOption, ...]] = (
         list_audio_output_device_options
     ),
+    osc_receive_address_options_provider: Callable[[], tuple[SettingsOption, ...]] = (
+        list_osc_receive_address_options
+    ),
     include_hidden: bool = False,
 ) -> SettingsPage:
     """Render app preferences into one reusable neutral settings page."""
@@ -143,6 +147,7 @@ def build_app_settings_page(
                 ),
                 _osc_receive_section(
                     preferences.ma3_osc.receive,
+                    address_options_provider=osc_receive_address_options_provider,
                     include_hidden=include_hidden,
                 ),
                 _osc_send_section(
@@ -281,8 +286,12 @@ def _audio_section(
 def _osc_receive_section(
     receive: OscReceivePreferences,
     *,
+    address_options_provider: Callable[[], tuple[SettingsOption, ...]],
     include_hidden: bool,
 ) -> SettingsSection:
+    address_options = list(address_options_provider())
+    if all(str(option.value) != receive.host for option in address_options):
+        address_options.append(SettingsOption(value=receive.host, label=f"Saved ({receive.host})"))
     return _section(
         key="osc_receive",
         title="OSC Receive",
@@ -301,7 +310,9 @@ def _osc_receive_section(
                 label="Bind Address",
                 value=receive.host,
                 default_value="127.0.0.1",
+                widget=SettingsFieldWidget.DROPDOWN,
                 description="IP address or hostname EchoZero should bind for incoming OSC.",
+                options=tuple(address_options),
             ),
             SettingsField(
                 key="osc_receive.port",

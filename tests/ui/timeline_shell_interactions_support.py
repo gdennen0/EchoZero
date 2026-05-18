@@ -501,7 +501,7 @@ def test_section_layer_header_control_opens_layer_scoped_section_manager(monkeyp
         ):
             del parent
             del selected_cue_id
-            assert worksheet_title == "Sections Cue Stack"
+            assert worksheet_title == "Sections"
             assert cues is not None
             assert len(cues) == 0
 
@@ -513,9 +513,7 @@ def test_section_layer_header_control_opens_layer_scoped_section_manager(monkeyp
                 SectionCueDraft(
                     cue_id=None,
                     start=1.0,
-                    cue_ref="Cue 1",
                     name="Intro",
-                    cue_number=1,
                 )
             ]
 
@@ -791,13 +789,22 @@ def test_layer_header_pipeline_control_opens_workspace_pipeline_menu(monkeypatch
         )
 
         def _choose_settings(menu, *_args, **_kwargs):
-            menu_labels.extend(
-                action.text() for action in menu.actions() if not action.isSeparator()
-            )
+            candidates = []
+            for action in menu.actions():
+                if action.isSeparator():
+                    continue
+                submenu = action.menu()
+                if submenu is not None:
+                    menu_labels.append(action.text())
+                    for child_action in submenu.actions():
+                        if not child_action.isSeparator():
+                            candidates.append(child_action)
+                            menu_labels.append(child_action.text())
+                    continue
+                candidates.append(action)
+                menu_labels.append(action.text())
             return next(
-                action
-                for action in menu.actions()
-                if action.text() == "Open Extract Stems Settings"
+                action for action in candidates if action.text() == "Open Extract Stems Settings"
             )
 
         monkeypatch.setattr(
@@ -836,9 +843,17 @@ def test_layer_header_pipeline_menu_ignores_non_pipeline_timeline_actions(monkey
         _render_for_hit_testing(widget)
 
         def _capture_only(menu, *_args, **_kwargs):
-            menu_labels.extend(
-                action.text() for action in menu.actions() if not action.isSeparator()
-            )
+            for action in menu.actions():
+                if action.isSeparator():
+                    continue
+                menu_labels.append(action.text())
+                submenu = action.menu()
+                if submenu is not None:
+                    menu_labels.extend(
+                        child_action.text()
+                        for child_action in submenu.actions()
+                        if not child_action.isSeparator()
+                    )
             return None
 
         monkeypatch.setattr(

@@ -68,6 +68,7 @@ from echozero.application.timeline.intents import (
     DuplicateSelectedEvents,
     ExitPullFromMA3Workspace,
     ExitPushToMA3Mode,
+    EventCueMappingEdit,
     MoveSelectedEventsToAdjacentLayer,
     MoveSelectedEvents,
     NudgeSelectedEvents,
@@ -100,11 +101,13 @@ from echozero.application.timeline.intents import (
     SetLayerLiveSyncPauseReason,
     SetLayerLiveSyncState,
     SetLayerSolo,
+    SnapEventsToBeatGrid,
     SetPullImportMode,
     SetPushTransferMode,
     SetSelectedEvents,
     Stop,
     ToggleLayerExpanded,
+    UpdateEventCueMappings,
 )
 from echozero.application.timeline.ma3_push_intents import (
     AssignMA3TrackSequence,

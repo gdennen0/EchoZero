@@ -110,6 +110,10 @@ from echozero.ui.qt.app_shell_project_lifecycle import (
     set_song_version_ma3_timecode_pool as _set_song_version_ma3_timecode_pool,
 )
 from echozero.ui.qt.app_shell_project_lifecycle import switch_song_version as _switch_song_version
+from echozero.ui.qt.app_shell_project_runtime_state import (
+    TimelineViewportRuntimeState,
+    load_project_runtime_state,
+)
 from echozero.ui.qt.app_shell_project_review import (
     bind_phone_review_server_to_current_project,
     clear_project_review_runtime_bridge,
@@ -219,6 +223,10 @@ class StageZeroRuntimeController(
         self._video_playback_controller = None
         self._staged_project_runtime_presentation: TimelinePresentation | None = None
         self._staged_layer_header_width_px: int | None = None
+        runtime_state = load_project_runtime_state(project_storage)
+        self._song_version_viewports: dict[str, TimelineViewportRuntimeState] = dict(
+            runtime_state.song_version_viewports or {}
+        )
         self._app: TimelineApplication = build_runtime_timeline_application(
             project_storage=project_storage,
             sync_bridge=sync_bridge,
@@ -353,6 +361,19 @@ class StageZeroRuntimeController(
         """Stage one presentation snapshot to persist on the next project save."""
 
         self._staged_project_runtime_presentation = presentation
+        if presentation is not None:
+            song_version_id = str(presentation.active_song_version_id or "").strip()
+            if song_version_id:
+                viewport = TimelineViewportRuntimeState(
+                    pixels_per_second=max(1.0, float(presentation.pixels_per_second)),
+                    scroll_x=max(0.0, float(presentation.scroll_x)),
+                    scroll_y=max(0.0, float(presentation.scroll_y)),
+                )
+                self._song_version_viewports[song_version_id] = viewport
+                if str(self._app.timeline.song_version_id) == song_version_id:
+                    self._app.timeline.viewport.pixels_per_second = viewport.pixels_per_second
+                    self._app.timeline.viewport.scroll_x = viewport.scroll_x
+                    self._app.timeline.viewport.scroll_y = viewport.scroll_y
         self._staged_layer_header_width_px = (
             int(layer_header_width_px)
             if isinstance(layer_header_width_px, int) and layer_header_width_px > 0

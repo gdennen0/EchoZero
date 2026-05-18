@@ -40,6 +40,7 @@ from echozero.application.timeline.intents import (
     ReplaceSectionCues,
     SelectTake,
     SetGain,
+    SnapEventsToBeatGrid,
     TriggerTakeAction,
     TrimEvent,
     UpdateEventLabel,
@@ -145,6 +146,7 @@ def is_undoable_intent(intent: object) -> bool:
             NudgeSelectedEvents,
             ReplaceSectionCues,
             SetGain,
+            SnapEventsToBeatGrid,
             TrimEvent,
             UpdateEventLabel,
         ),
@@ -183,6 +185,7 @@ def is_storage_backed_undoable_intent(intent: object) -> bool:
             NudgeSelectedEvents,
             ReplaceSectionCues,
             TrimEvent,
+            SnapEventsToBeatGrid,
             UpdateEventLabel,
         ),
     )
@@ -229,6 +232,8 @@ def history_label_for_intent(intent: object) -> str | None:
         return "Reorder Layer"
     if isinstance(intent, NudgeSelectedEvents):
         return "Nudge Events"
+    if isinstance(intent, SnapEventsToBeatGrid):
+        return f"Snap Events to 1/{intent.grid_denominator} Beat Grid"
     if isinstance(intent, ReplaceSectionCues):
         return "Edit Sections"
     if isinstance(intent, SetGain):

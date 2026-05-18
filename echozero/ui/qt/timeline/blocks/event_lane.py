@@ -248,6 +248,35 @@ class EventLaneBlock:
                         corner_radius=float(self.style.corner_radius),
                         dimmed=presentation.dimmed,
                     )
+                sequence_metadata = getattr(event, "sequence_metadata", {}) or {}
+                if sequence_metadata:
+                    sequence_color = QColor(color)
+                    sequence_color = sequence_color.lighter(150)
+                    sequence_color.setAlpha(230 if not presentation.dimmed else 150)
+                    painter.fillRect(
+                        QRectF(
+                            rect.left() + 2.0,
+                            rect.top() + 2.0,
+                            max(2.0, rect.width() - 4.0),
+                            2.0,
+                        ),
+                        sequence_color,
+                    )
+                    if (
+                        int(sequence_metadata.get("order") or 0) == 1
+                        and width >= EVENT_LABEL_MIN_WIDTH_PX * 2
+                    ):
+                        painter.setPen(sequence_color.darker(145))
+                        painter.drawText(
+                            QRectF(
+                                x + 6,
+                                top_y + 2,
+                                max(0.0, width - 12),
+                                max(0.0, presentation.event_height - 4),
+                            ),
+                            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                            str(sequence_metadata.get("name") or "Sequence"),
+                        )
 
                 if width >= EVENT_LABEL_MIN_WIDTH_PX:
                     painter.setPen(QColor(self.style.text_hex))

@@ -938,8 +938,8 @@ def test_replace_section_cues_creates_section_layer_and_refreshes_timeline_secti
         timeline,
         ReplaceSectionCues(
             cues=[
-                SectionCueEdit(cue_id=None, start=12.0, cue_ref="Q7", name="Verse", cue_number=17),
-                SectionCueEdit(cue_id=None, start=41.0, cue_ref="Q3", name="Chorus", cue_number=3),
+                SectionCueEdit(cue_id=None, start=12.0, cue_ref="Q7", name="Verse"),
+                SectionCueEdit(cue_id=None, start=41.0, cue_ref="Q3", name="Chorus"),
             ]
         ),
     )
@@ -957,4 +957,4 @@ def test_replace_section_cues_creates_section_layer_and_refreshes_timeline_secti
         ("Q7", "Verse"),
         ("Q3", "Chorus"),
     ]
-    assert [event.cue_number for event in main_take.events] == [17, 3]
+    assert [event.cue_number for event in main_take.events] == [None, None]

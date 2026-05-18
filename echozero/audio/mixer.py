@@ -128,9 +128,9 @@ class Mixer:
 
     def apply_track_mix_updates(
         self,
-        updates: dict[str, tuple[bool, float, str | None]],
+        updates: dict[str, tuple[bool, float, str | None] | tuple[bool, float, str | None, bool]],
     ) -> tuple[bool, bool]:
-        """Apply muted/volume/output_bus updates in place.
+        """Apply muted/volume/output_bus/solo updates in place.
 
         Returns:
             (applied_changes, requires_declick)
@@ -144,9 +144,16 @@ class Mixer:
             desired = updates.get(str(layer.id))
             if desired is None:
                 continue
-            muted, volume, output_bus = desired
+            muted, volume, output_bus, soloed = _unpack_track_mix_update(
+                desired,
+                current_solo=bool(layer.solo),
+            )
             if bool(layer.muted) != bool(muted):
                 layer.muted = bool(muted)
+                applied_change = True
+                requires_declick = True
+            if bool(layer.solo) != bool(soloed):
+                layer.solo = bool(soloed)
                 applied_change = True
                 requires_declick = True
             if abs(float(layer.volume) - float(volume)) > 1e-6:
@@ -156,18 +163,36 @@ class Mixer:
                 layer.output_bus = output_bus
                 applied_change = True
                 requires_declick = True
+        self._solo_count = sum(1 for track in self._layers if track.solo)
         return (applied_change, requires_declick)
 
     def snap_track_mix_envelopes(
         self,
-        updates: dict[str, tuple[bool, float, str | None]],
+        updates: dict[str, tuple[bool, float, str | None] | tuple[bool, float, str | None, bool]],
     ) -> None:
         """Move updated track gain envelopes directly to their requested targets."""
 
         if not updates:
             return
-        for track_id, (muted, volume, _output_bus) in updates.items():
-            target_gain = 0.0 if bool(muted) else float(volume)
+        solo_active = False
+        solo_by_track: dict[str, bool] = {}
+        for layer in self._layers:
+            desired = updates.get(str(layer.id))
+            soloed = (
+                _unpack_track_mix_update(desired, current_solo=bool(layer.solo))[3]
+                if desired is not None
+                else bool(layer.solo)
+            )
+            solo_by_track[str(layer.id)] = soloed
+            solo_active = solo_active or soloed
+        for track_id, desired in updates.items():
+            muted, volume, _output_bus, soloed = _unpack_track_mix_update(
+                desired,
+                current_solo=solo_by_track.get(str(track_id), False),
+            )
+            target_gain = (
+                0.0 if bool(muted) or (solo_active and not bool(soloed)) else float(volume)
+            )
             envelope = self._gain_envelopes.get(str(track_id))
             if envelope is None:
                 self._gain_envelopes[str(track_id)] = _GainEnvelope(
@@ -496,3 +521,13 @@ class Mixer:
     @property
     def layer_count(self) -> int:
         return self.track_count
+
+
+def _unpack_track_mix_update(
+    desired: tuple[bool, float, str | None] | tuple[bool, float, str | None, bool],
+    *,
+    current_solo: bool,
+) -> tuple[bool, float, str | None, bool]:
+    muted, volume, output_bus, *rest = desired
+    soloed = bool(rest[0]) if rest else bool(current_solo)
+    return bool(muted), float(volume), output_bus, soloed

@@ -29,6 +29,10 @@ from echozero.application.sync.ma3_connection_check import (
     MA3OscConnectionCheckService,
     MA3OscConnectionState,
 )
+from echozero.application.sync.ma3_device_discovery import (
+    MA3DeviceDiscoveryRequest,
+    MA3DeviceDiscoveryService,
+)
 
 _MONITOR_REFRESH_MS = 500
 
@@ -40,17 +44,21 @@ class OscSettingsPanel(QWidget):
         self,
         *,
         values_provider: Callable[[], Mapping[str, object]],
+        values_applier: Callable[[dict[str, object]], None] | None = None,
         monitor_provider: Callable[[], list[Mapping[str, object]]] | None = None,
         clear_monitor: Callable[[], None] | None = None,
         connection_checker: MA3OscConnectionCheckService | None = None,
+        device_discovery: MA3DeviceDiscoveryService | None = None,
         live_bridge_provider: Callable[[], MA3OscLiveBridge | None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._values_provider = values_provider
+        self._values_applier = values_applier
         self._monitor_provider = monitor_provider
         self._clear_monitor = clear_monitor
         self._connection_checker = connection_checker or MA3OscConnectionCheckService()
+        self._device_discovery = device_discovery or MA3DeviceDiscoveryService()
         self._live_bridge_provider = live_bridge_provider
         self._has_dirty_settings = False
         self._last_check_request = None
@@ -107,6 +115,11 @@ class OscSettingsPanel(QWidget):
         self._copy_report_button.setEnabled(False)
         self._copy_report_button.clicked.connect(self._copy_diagnostic_report)
         actions.addWidget(self._copy_report_button)
+        self._scan_ma3_button = QPushButton("Scan MA3", group)
+        self._scan_ma3_button.setProperty("appearance", "subtle")
+        self._scan_ma3_button.setToolTip("Scan likely local-network destinations for MA3 EZ OSC.")
+        self._scan_ma3_button.clicked.connect(self._on_scan_ma3_devices)
+        actions.addWidget(self._scan_ma3_button)
         group_layout.addLayout(actions)
 
         layout.addWidget(group, 1)
@@ -283,13 +296,78 @@ class OscSettingsPanel(QWidget):
         return " ".join(parts)
 
     def _on_run_connection_check(self) -> None:
+        self._begin_connection_check()
         request = self._connection_checker.request_from_values(dict(self._values_provider()))
         live_bridge = self._live_bridge_for_current_values()
-        result = self._connection_checker.ping(request, live_bridge=live_bridge)
+        try:
+            result = self._connection_checker.ping(request, live_bridge=live_bridge)
+        finally:
+            self._check_status_button.setEnabled(True)
         self._last_check_request = request
         self._last_check_result = result
         self._copy_report_button.setEnabled(True)
         self._apply_connection_result(result)
+
+    def _begin_connection_check(self) -> None:
+        self._ping_value.setText("Not measured")
+        self._last_check_request = None
+        self._last_check_result = None
+        self._copy_report_button.setEnabled(False)
+        self._check_status_button.setEnabled(False)
+        self._set_status(
+            "unknown",
+            "Checking",
+            "Running MA3 OSC round-trip check with the current endpoint values...",
+        )
+        QApplication.processEvents()
+
+    def _on_scan_ma3_devices(self) -> None:
+        values = dict(self._values_provider())
+        request = MA3DeviceDiscoveryRequest(
+            receive_host=str(values.get("osc_receive.host") or "127.0.0.1"),
+            receive_port=int(values.get("osc_receive.port") or 0),
+            send_host=str(values.get("osc_send.host") or ""),
+            send_port=(
+                int(values.get("osc_send.port"))
+                if values.get("osc_send.port") not in {None, ""}
+                else None
+            ),
+        )
+        self._scan_ma3_button.setEnabled(False)
+        self._set_status("unknown", "Scanning", "Scanning likely MA3 OSC destinations...")
+        QApplication.processEvents()
+        try:
+            results = self._device_discovery.discover(request)
+        except Exception as exc:
+            self._set_status("error", "Scan Failed", f"MA3 scan failed: {exc}")
+            return
+        finally:
+            self._scan_ma3_button.setEnabled(True)
+
+        if not results:
+            self._set_status(
+                "warn",
+                "No MA3 Found",
+                "No MA3 EZ plugin ping responses were found on the scanned destinations.",
+            )
+            return
+
+        result = results[0]
+        if self._values_applier is not None:
+            self._values_applier(
+                {
+                    "osc_send.enabled": True,
+                    "osc_send.host": result.host,
+                    "osc_send.port": result.port,
+                }
+            )
+            self.mark_settings_dirty()
+        plural = "" if len(results) == 1 else f" ({len(results)} found)"
+        self._set_status(
+            "ok",
+            "MA3 Found",
+            f"Selected MA3 destination {result.label}{plural}. Save settings to keep it.",
+        )
 
     def _live_bridge_for_current_values(self) -> MA3OscLiveBridge | None:
         if self._has_dirty_settings or self._live_bridge_provider is None:
@@ -315,7 +393,9 @@ class OscSettingsPanel(QWidget):
 
     @staticmethod
     def _set_tone(label: QLabel, tone: str) -> None:
-        label.setProperty("tone", tone if tone in {"ok", "warn", "error", "unknown"} else "unknown")
+        label.setProperty(
+            "tone", tone if tone in {"ok", "warn", "error", "unknown"} else "unknown"
+        )
         style = label.style()
         if style is not None:
             style.unpolish(label)
@@ -343,6 +423,8 @@ class OscSettingsPanel(QWidget):
             return "warn", "Disabled"
         if state is MA3OscConnectionState.LOCAL_READY:
             return "warn", "Local Ready"
+        if state is MA3OscConnectionState.HARDWARE_UNREACHABLE:
+            return "error", "Device Unreachable"
         if state is MA3OscConnectionState.ROUND_TRIP_FAILED:
             return "error", "Reply Failed"
         return "error", "Issue Detected"

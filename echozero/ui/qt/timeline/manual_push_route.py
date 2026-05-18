@@ -35,6 +35,7 @@ class ManualPushRouteDialog(QDialog):
     _CREATE_TRACK_SENTINEL = "__manual_push_route__:create_track"
 
     SEQUENCE_MODE_NONE = "none"
+    SEQUENCE_MODE_KEEP_ASSIGNED = "keep_assigned"
     SEQUENCE_MODE_ASSIGN_EXISTING = "assign_existing"
     SEQUENCE_MODE_CREATE_NEXT_AVAILABLE = "create_next_available"
     SEQUENCE_MODE_CREATE_CURRENT_SONG = "create_current_song"
@@ -465,16 +466,47 @@ class ManualPushRouteDialog(QDialog):
             sequence_no = getattr(selected_track, "sequence_no", None)
             if sequence_no is not None:
                 self._sequence_mode_combo.addItem(
-                    f"Assigned sequence: {int(sequence_no)}",
-                    self.SEQUENCE_MODE_NONE,
+                    f"Keep assigned sequence: {int(sequence_no)}",
+                    self.SEQUENCE_MODE_KEEP_ASSIGNED,
                 )
-                self._sequence_mode_combo.setEnabled(False)
-                self._sequence_combo.setEnabled(False)
-                self._sequence_combo_label.setVisible(False)
-                self._sequence_combo.setVisible(False)
-                self._sequence_hint.setText(
-                    "This track already has an MA3 sequence. No prep needed."
+                self._sequence_mode_combo.addItem(
+                    "Assign existing sequence",
+                    self.SEQUENCE_MODE_ASSIGN_EXISTING,
                 )
+                self._sequence_mode_combo.setEnabled(True)
+                if previous_mode == self.SEQUENCE_MODE_ASSIGN_EXISTING:
+                    self._set_combo_value(
+                        self._sequence_mode_combo,
+                        self.SEQUENCE_MODE_ASSIGN_EXISTING,
+                        default_index=0,
+                    )
+                else:
+                    self._set_combo_value(
+                        self._sequence_mode_combo,
+                        self.SEQUENCE_MODE_KEEP_ASSIGNED,
+                        default_index=0,
+                    )
+
+                selected_mode = str(self._sequence_mode_combo.currentData() or "")
+                if selected_mode == self.SEQUENCE_MODE_ASSIGN_EXISTING:
+                    for available_sequence_no, label in self._available_sequence_items:
+                        self._sequence_combo.addItem(label, int(available_sequence_no))
+                    has_sequences = self._sequence_combo.count() > 0
+                    self._sequence_combo.setEnabled(has_sequences)
+                    self._sequence_combo_label.setVisible(True)
+                    self._sequence_combo.setVisible(True)
+                    self._sequence_hint.setText(
+                        "No MA3 sequences available right now."
+                        if not has_sequences
+                        else self._sequence_range_summary
+                    )
+                else:
+                    self._sequence_combo.setEnabled(False)
+                    self._sequence_combo_label.setVisible(False)
+                    self._sequence_combo.setVisible(False)
+                    self._sequence_hint.setText(
+                        "Keep the current MA3 sequence assignment or choose another sequence."
+                    )
                 return
 
             self._sequence_mode_combo.setEnabled(True)

@@ -404,6 +404,7 @@ class EventPresentation:
     payload_ref: str | None = None
     classifications: dict[str, object] = field(default_factory=dict)
     detection_metadata: dict[str, object] = field(default_factory=dict)
+    sequence_metadata: dict[str, object] = field(default_factory=dict)
 
     @property
     def duration(self) -> float:
@@ -414,8 +415,8 @@ class EventPresentation:
 class SectionCuePresentation:
     cue_id: SectionCueId
     start: float
-    cue_ref: str
     name: str
+    cue_ref: str | None = None
     color: str | None = None
     notes: str | None = None
     payload_ref: str | None = None
@@ -426,8 +427,8 @@ class SectionRegionPresentation:
     cue_id: SectionCueId
     start: float
     end: float
-    cue_ref: str
     name: str
+    cue_ref: str | None = None
     color: str | None = None
     notes: str | None = None
     payload_ref: str | None = None

@@ -306,16 +306,22 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
             "Send to master mix", routing_outputs_card
         )
         self._route_to_master_checkbox.setObjectName("inspectorRouteToMasterCheckbox")
+        self._route_to_master_checkbox.setProperty("inspectorCheckbox", True)
         routing_outputs_header.addWidget(self._route_to_master_checkbox)
         routing_outputs_layout.addLayout(routing_outputs_header)
 
-        self._routing_table = QTableWidget(0, 1, routing_outputs_card)
+        self._routing_table = QTableWidget(0, 2, routing_outputs_card)
         self._routing_table.setObjectName("inspectorRoutingTable")
-        self._routing_table.setHorizontalHeaderLabels(["Additional outputs"])
+        self._routing_table.setHorizontalHeaderLabels(["Enabled", "Additional outputs"])
         self._routing_table.horizontalHeader().setVisible(False)
         self._routing_table.verticalHeader().setVisible(False)
-        self._routing_table.horizontalHeader().setStretchLastSection(True)
-        self._routing_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self._routing_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Fixed
+        )
+        self._routing_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch
+        )
+        self._routing_table.setColumnWidth(0, 24)
         self._routing_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._routing_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self._routing_table.setShowGrid(False)
@@ -504,7 +510,7 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
             route_to_master, route_tokens = self._routing_state_from_layer(selected_layer)
             self._route_to_master_checkbox.setChecked(route_to_master)
             for route_token in route_tokens:
-                self._add_routing_row(route_token)
+                self._add_routing_row(route_token, is_enabled=True)
         finally:
             self._syncing_routing_controls = False
         self._sync_routing_apply_state()
@@ -536,9 +542,19 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
             seen.add(route.token)
         return route_to_master, route_tokens
 
-    def _add_routing_row(self, output_bus: str | None = None) -> None:
+    def _add_routing_row(
+        self, output_bus: str | None = None, *, is_enabled: bool = False
+    ) -> None:
         row = self._routing_table.rowCount()
         self._routing_table.insertRow(row)
+        checkbox = QCheckBox(self._routing_table)
+        checkbox.setObjectName("inspectorRoutingLayerCheckbox")
+        checkbox.setProperty("inspectorCheckbox", True)
+        checkbox.setToolTip("Enable this output route")
+        checkbox.setChecked(is_enabled)
+        checkbox.toggled.connect(lambda _checked=False: self._on_routing_controls_changed())
+        self._routing_table.setCellWidget(row, 0, checkbox)
+
         combo = QComboBox(self._routing_table)
         combo.setObjectName("inspectorRoutingOutputCombo")
         route_options = list(output_bus_options(self._routing_output_channels))
@@ -556,8 +572,10 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
             index = combo.findData(selected_token)
             if index >= 0:
                 combo.setCurrentIndex(index)
-        combo.currentIndexChanged.connect(lambda _index=0: self._on_routing_controls_changed())
-        self._routing_table.setCellWidget(row, 0, combo)
+        combo.currentIndexChanged.connect(
+            lambda _index=0, routing_row=row: self._on_routing_output_changed(routing_row)
+        )
+        self._routing_table.setCellWidget(row, 1, combo)
         self._routing_table.selectRow(row)
         self._sync_routing_apply_state()
 
@@ -577,7 +595,10 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
         tokens: list[str] = []
         seen: set[str] = set()
         for row in range(self._routing_table.rowCount()):
-            combo = self._routing_table.cellWidget(row, 0)
+            checkbox = self._routing_table.cellWidget(row, 0)
+            if not isinstance(checkbox, QCheckBox) or not checkbox.isChecked():
+                continue
+            combo = self._routing_table.cellWidget(row, 1)
             if not isinstance(combo, QComboBox):
                 continue
             token = str(combo.currentData() or "").strip()
@@ -601,6 +622,12 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
     def _on_routing_controls_changed(self) -> None:
         self._sync_routing_apply_state()
         self._emit_apply_routing_if_user_edit()
+
+    def _on_routing_output_changed(self, row: int) -> None:
+        checkbox = self._routing_table.cellWidget(row, 0)
+        self._sync_routing_apply_state()
+        if isinstance(checkbox, QCheckBox) and checkbox.isChecked():
+            self._emit_apply_routing_if_user_edit()
 
     def _emit_apply_routing_if_user_edit(self) -> None:
         if self._syncing_routing_controls:

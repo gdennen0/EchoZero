@@ -79,6 +79,7 @@ from echozero.application.timeline.intents import (
     ClearSelection,
     ConfirmPullFromMA3,
     ConfirmPushToMA3,
+    CreateEventSequenceFromSelection,
     CreateEvent,
     CreateEventsBatch,
     DeleteEvents,
@@ -109,6 +110,7 @@ from echozero.application.timeline.intents import (
     SelectAdjacentLayer,
     SelectEveryOtherEvents,
     SelectSimilarEvents,
+    SelectSimilarEventSequences,
     SelectSimilarSoundingEvents,
     SelectEvent,
     SelectLayer,
@@ -133,6 +135,7 @@ from echozero.application.timeline.intents import (
     SetPushTrackOptions,
     SetPushTransferMode,
     SetSelectedEvents,
+    SnapEventsToBeatGrid,
     Stop,
     TimelineIntent,
     ToggleLayerExpanded,
@@ -288,12 +291,41 @@ class TimelineOrchestratorOwner(
                 comparison_options=dict(intent.comparison_options),
             )
 
+        elif isinstance(intent, SelectSimilarEventSequences):
+            self._handle_select_similar_event_sequences(
+                timeline,
+                scope_mode=intent.scope_mode,
+                strictness=intent.strictness,
+                min_events=intent.min_events,
+                allow_missing_events=intent.allow_missing_events,
+                timing_weight=intent.timing_weight,
+                label_weight=intent.label_weight,
+                length_weight=intent.length_weight,
+                minimum_score=intent.minimum_score,
+                use_label_similarity=intent.use_label_similarity,
+            )
+
+        elif isinstance(intent, CreateEventSequenceFromSelection):
+            self._handle_create_event_sequence_from_selection(
+                timeline,
+                name=intent.name,
+            )
+
         elif isinstance(intent, RenumberEventCueNumbers):
             self._handle_renumber_event_cue_numbers(
                 timeline,
                 scope=intent.scope,
                 start_at=intent.start_at,
                 step=intent.step,
+            )
+
+        elif isinstance(intent, SnapEventsToBeatGrid):
+            self._handle_snap_events_to_beat_grid(
+                timeline,
+                scope=intent.scope,
+                grid_denominator=intent.grid_denominator,
+                bpm=intent.bpm,
+                beat_anchor_seconds=intent.beat_anchor_seconds,
             )
 
         elif isinstance(intent, CreateEvent):

@@ -13,153 +13,87 @@ def _empty_presentation() -> TimelinePresentation:
     )
 
 
-def test_section_manager_add_section_uses_cue_prefix() -> None:
+def test_section_manager_add_section_creates_clean_ez_marker() -> None:
     app = QApplication.instance() or QApplication([])
     dialog = SectionManagerDialog(_empty_presentation())
     try:
         dialog._on_add_section()
         drafts = dialog.section_cue_drafts()
         assert len(drafts) == 1
-        assert drafts[0].cue_ref == "Cue 1"
-        assert drafts[0].cue_number == 1
+        assert drafts[0].name == "Section"
+        assert drafts[0].cue_ref is None
     finally:
         dialog.close()
         app.processEvents()
 
 
-def test_section_manager_renumber_cues_assigns_sequential_cue_labels() -> None:
+def test_section_manager_orders_sections_by_start_without_renumbering() -> None:
     app = QApplication.instance() or QApplication([])
     dialog = SectionManagerDialog(
         _empty_presentation(),
         cues=[
-            SectionCueDraft(cue_id="cue_b", start=30.0, cue_ref="Q44", name="Bridge"),
-            SectionCueDraft(cue_id="cue_a", start=12.0, cue_ref="Q7", name="Verse"),
-            SectionCueDraft(cue_id="cue_c", start=42.0, cue_ref="Q9A", name="Chorus"),
-        ],
-    )
-    try:
-        dialog._on_renumber_cues()
-        assert [row.cue_ref for row in dialog._rows] == ["Cue 1", "Cue 2", "Cue 3"]
-        assert [row.cue_number for row in dialog._rows] == [1, 2, 3]
-        assert [row.name for row in dialog._rows] == ["Verse", "Bridge", "Chorus"]
-    finally:
-        dialog.close()
-        app.processEvents()
-
-
-def test_section_manager_renumber_cues_from_specific_start_number() -> None:
-    app = QApplication.instance() or QApplication([])
-    dialog = SectionManagerDialog(
-        _empty_presentation(),
-        cues=[
-            SectionCueDraft(cue_id="cue_b", start=30.0, cue_ref="Q44", name="Bridge"),
-            SectionCueDraft(cue_id="cue_a", start=12.0, cue_ref="Q7", name="Verse"),
-            SectionCueDraft(cue_id="cue_c", start=42.0, cue_ref="Q9A", name="Chorus"),
-        ],
-    )
-    try:
-        dialog._renumber_cues_from_start(10)
-        assert [row.cue_ref for row in dialog._rows] == ["Cue 10", "Cue 11", "Cue 12"]
-        assert [row.cue_number for row in dialog._rows] == [10, 11, 12]
-        assert [row.name for row in dialog._rows] == ["Verse", "Bridge", "Chorus"]
-    finally:
-        dialog.close()
-        app.processEvents()
-
-
-def test_section_manager_renumber_cues_from_prompt_accepts_float_start(monkeypatch) -> None:
-    app = QApplication.instance() or QApplication([])
-    dialog = SectionManagerDialog(
-        _empty_presentation(),
-        cues=[
-            SectionCueDraft(cue_id="cue_b", start=30.0, cue_ref="Q44", name="Bridge"),
-            SectionCueDraft(cue_id="cue_a", start=12.0, cue_ref="Q7", name="Verse"),
-        ],
-    )
-    try:
-        monkeypatch.setattr(
-            "echozero.ui.qt.timeline.section_manager.QInputDialog.getText",
-            lambda *args, **kwargs: ("7.5", True),
-        )
-        dialog._on_renumber_cues_from_prompt()
-        assert [row.cue_ref for row in dialog._rows] == ["Cue 7.5", "Cue 8.5"]
-        assert [row.cue_number for row in dialog._rows] == [7.5, 8.5]
-    finally:
-        dialog.close()
-        app.processEvents()
-
-
-def test_section_manager_section_cue_drafts_preserve_explicit_cue_numbers() -> None:
-    app = QApplication.instance() or QApplication([])
-    dialog = SectionManagerDialog(
-        _empty_presentation(),
-        cues=[
-            SectionCueDraft(
-                cue_id="cue_a", start=10.0, cue_ref="Cue 99", name="Verse", cue_number=7.5
-            ),
+            SectionCueDraft(cue_id="section_b", start=30.0, cue_ref="Q44", name="Bridge"),
+            SectionCueDraft(cue_id="section_a", start=12.0, cue_ref="Q7", name="Verse"),
+            SectionCueDraft(cue_id="section_c", start=42.0, cue_ref="Q9A", name="Chorus"),
         ],
     )
     try:
         drafts = dialog.section_cue_drafts()
-        assert len(drafts) == 1
-        assert drafts[0].cue_number == 7.5
+        assert [(row.name, row.start) for row in drafts] == [
+            ("Verse", 12.0),
+            ("Bridge", 30.0),
+            ("Chorus", 42.0),
+        ]
+        assert [row.cue_ref for row in drafts] == ["Q7", "Q44", "Q9A"]
     finally:
         dialog.close()
         app.processEvents()
 
 
-def test_section_manager_add_after_selected_inserts_and_renumbers_following_cues() -> None:
+def test_section_manager_add_after_selected_inserts_without_cue_number_churn() -> None:
     app = QApplication.instance() or QApplication([])
     dialog = SectionManagerDialog(
         _empty_presentation(),
         cues=[
-            SectionCueDraft(
-                cue_id="cue_a", start=10.0, cue_ref="Cue 1", name="Verse", cue_number=1
-            ),
-            SectionCueDraft(
-                cue_id="cue_b", start=20.0, cue_ref="Cue 2", name="Chorus", cue_number=2
-            ),
-            SectionCueDraft(
-                cue_id="cue_c", start=30.0, cue_ref="Cue 3", name="Bridge", cue_number=3
-            ),
+            SectionCueDraft(cue_id="section_a", start=10.0, name="Verse"),
+            SectionCueDraft(cue_id="section_b", start=20.0, name="Chorus"),
+            SectionCueDraft(cue_id="section_c", start=30.0, name="Bridge"),
         ],
     )
     try:
         dialog._refresh_table(select_row=0)
         dialog._insert_section_relative(before=False)
         inserted = dialog._rows[1]
-        assert inserted.cue_number == 2
-        assert inserted.cue_ref == "Cue 2"
+        assert inserted.name == "Section"
+        assert inserted.cue_ref is None
         assert inserted.start == 15.0
-        assert [row.cue_number for row in dialog._rows] == [1, 2, 3, 4]
-        assert [row.cue_ref for row in dialog._rows] == ["Cue 1", "Cue 2", "Cue 3", "Cue 4"]
+        assert [row.name for row in dialog._rows] == [
+            "Verse",
+            "Section",
+            "Chorus",
+            "Bridge",
+        ]
     finally:
         dialog.close()
         app.processEvents()
 
 
-def test_section_manager_add_before_selected_inserts_at_one_and_renumbers_following_cues() -> None:
+def test_section_manager_acceptance_preserves_section_names_by_start_time() -> None:
     app = QApplication.instance() or QApplication([])
     dialog = SectionManagerDialog(
         _empty_presentation(),
         cues=[
-            SectionCueDraft(
-                cue_id="cue_a", start=10.0, cue_ref="Cue 1", name="Verse", cue_number=1
-            ),
-            SectionCueDraft(
-                cue_id="cue_b", start=20.0, cue_ref="Cue 2", name="Chorus", cue_number=2
-            ),
+            SectionCueDraft(cue_id="section_1", start=10.0, name="Intro"),
+            SectionCueDraft(cue_id="section_2", start=20.0, name="Verse"),
+            SectionCueDraft(cue_id="section_3", start=30.0, name="Chorus"),
+            SectionCueDraft(cue_id=None, start=25.0, name="Section"),
         ],
     )
     try:
-        dialog._refresh_table(select_row=0)
-        dialog._insert_section_relative(before=True)
-        inserted = dialog._rows[0]
-        assert inserted.cue_number == 1
-        assert inserted.cue_ref == "Cue 1"
-        assert inserted.start == 2.0
-        assert [row.cue_number for row in dialog._rows] == [1, 2, 3]
-        assert [row.cue_ref for row in dialog._rows] == ["Cue 1", "Cue 2", "Cue 3"]
+        drafts = dialog.section_cue_drafts()
+        assert [draft.start for draft in drafts] == [10.0, 20.0, 25.0, 30.0]
+        assert [draft.name for draft in drafts] == ["Intro", "Verse", "Section", "Chorus"]
+        assert all(draft.cue_ref is None for draft in drafts)
     finally:
         dialog.close()
         app.processEvents()
@@ -169,21 +103,16 @@ def test_section_manager_table_edit_updates_selected_row_values() -> None:
     app = QApplication.instance() or QApplication([])
     dialog = SectionManagerDialog(
         _empty_presentation(),
-        cues=[
-            SectionCueDraft(
-                cue_id="cue_a", start=10.0, cue_ref="Cue 1", name="Verse", cue_number=1
-            ),
-        ],
+        cues=[SectionCueDraft(cue_id="section_a", start=10.0, name="Verse")],
     )
     try:
         dialog._refresh_table(select_row=0)
-        dialog._table.item(0, 0).setText("7.5")
-        dialog._table.item(0, 2).setText("Bridge")
-        dialog._table.item(0, 3).setText("12.25")
+        dialog._table.item(0, 0).setText("Bridge")
+        dialog._table.item(0, 1).setText("12.25")
         row = dialog._rows[0]
-        assert row.cue_number == 7.5
         assert row.name == "Bridge"
         assert row.start == 12.25
+        assert row.cue_ref is None
     finally:
         dialog.close()
         app.processEvents()
@@ -194,23 +123,15 @@ def test_section_manager_quick_label_applies_to_multiple_selected_rows() -> None
     dialog = SectionManagerDialog(
         _empty_presentation(),
         cues=[
-            SectionCueDraft(
-                cue_id="cue_a", start=10.0, cue_ref="Cue 1", name="Verse", cue_number=1
-            ),
-            SectionCueDraft(
-                cue_id="cue_b", start=20.0, cue_ref="Cue 2", name="Bridge", cue_number=2
-            ),
-            SectionCueDraft(
-                cue_id="cue_c", start=30.0, cue_ref="Cue 3", name="Outro", cue_number=3
-            ),
+            SectionCueDraft(cue_id="section_a", start=10.0, name="Verse"),
+            SectionCueDraft(cue_id="section_b", start=20.0, name="Bridge"),
+            SectionCueDraft(cue_id="section_c", start=30.0, name="Outro"),
         ],
     )
     try:
         dialog._refresh_table(select_rows=[0, 2])
         dialog._apply_quick_label("Chorus")
-        assert dialog._rows[0].name == "Chorus"
-        assert dialog._rows[1].name == "Bridge"
-        assert dialog._rows[2].name == "Chorus"
+        assert [row.name for row in dialog._rows] == ["Chorus", "Bridge", "Chorus"]
     finally:
         dialog.close()
         app.processEvents()
@@ -221,12 +142,8 @@ def test_section_manager_multi_edit_name_updates_all_selected_rows() -> None:
     dialog = SectionManagerDialog(
         _empty_presentation(),
         cues=[
-            SectionCueDraft(
-                cue_id="cue_a", start=10.0, cue_ref="Cue 1", name="Verse", cue_number=1
-            ),
-            SectionCueDraft(
-                cue_id="cue_b", start=20.0, cue_ref="Cue 2", name="Bridge", cue_number=2
-            ),
+            SectionCueDraft(cue_id="section_a", start=10.0, name="Verse"),
+            SectionCueDraft(cue_id="section_b", start=20.0, name="Bridge"),
         ],
     )
     try:
@@ -244,22 +161,16 @@ def test_section_manager_delete_removes_multiple_selected_rows() -> None:
     dialog = SectionManagerDialog(
         _empty_presentation(),
         cues=[
-            SectionCueDraft(
-                cue_id="cue_a", start=10.0, cue_ref="Cue 1", name="Verse", cue_number=1
-            ),
-            SectionCueDraft(
-                cue_id="cue_b", start=20.0, cue_ref="Cue 2", name="Bridge", cue_number=2
-            ),
-            SectionCueDraft(
-                cue_id="cue_c", start=30.0, cue_ref="Cue 3", name="Outro", cue_number=3
-            ),
+            SectionCueDraft(cue_id="section_a", start=10.0, name="Verse"),
+            SectionCueDraft(cue_id="section_b", start=20.0, name="Bridge"),
+            SectionCueDraft(cue_id="section_c", start=30.0, name="Outro"),
         ],
     )
     try:
         dialog._refresh_table(select_rows=[0, 2])
         dialog._on_delete_section()
         assert len(dialog._rows) == 1
-        assert dialog._rows[0].cue_id == "cue_b"
+        assert dialog._rows[0].cue_id == "section_b"
     finally:
         dialog.close()
         app.processEvents()

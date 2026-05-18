@@ -5,7 +5,15 @@ Connects canonical timeline intents to shared selected-events, take, and layer-m
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 from echozero.application.shared.ids import EventId, LayerId, TakeId
+from echozero.application.shared.layer_kinds import is_event_like_layer_kind
+from echozero.application.timeline.event_sequence_similarity import (
+    EventSequenceMatchRequest,
+    EventSequenceRecord,
+    EventSequenceSimilarityService,
+)
 from echozero.application.timeline.event_comparison_service import (
     EventComparisonCandidateRecord,
     EventComparisonRequest,
@@ -160,6 +168,100 @@ class TimelineOrchestratorEventBatchMixin(TimelineOrchestratorEventEditMixin):
             comparison_options={},
         )
 
+    def _handle_select_similar_event_sequences(
+        self,
+        timeline: Timeline,
+        *,
+        scope_mode: str,
+        strictness: str,
+        min_events: int,
+        allow_missing_events: int,
+        timing_weight: float,
+        label_weight: float,
+        length_weight: float,
+        minimum_score: float | None,
+        use_label_similarity: bool,
+    ) -> None:
+        selected_refs = self._selected_event_refs(timeline)
+        selected_records = self._selected_event_records(timeline, selected_refs)
+        if len(selected_records) < max(2, int(min_events)):
+            return
+
+        anchor_records = [
+            EventSequenceRecord(
+                event_ref=self._event_ref(record.layer.id, record.take.id, record.event.id),
+                event=record.event,
+            )
+            for record in selected_records
+        ]
+        candidate_groups = self._sequence_candidate_groups(
+            timeline,
+            anchor_records=anchor_records,
+            scope_mode=scope_mode,
+        )
+        matched_refs = EventSequenceSimilarityService().select_matching_event_refs(
+            anchor_records=anchor_records,
+            candidate_groups=candidate_groups,
+            request=EventSequenceMatchRequest(
+                min_events=min_events,
+                strictness=strictness,
+                allow_missing_events=allow_missing_events,
+                timing_weight=timing_weight,
+                label_weight=label_weight,
+                length_weight=length_weight,
+                minimum_score=minimum_score,
+                use_label_similarity=use_label_similarity,
+            ),
+        )
+        if not matched_refs:
+            return
+
+        timeline.selection.selected_layer_id = selected_records[-1].layer.id
+        timeline.selection.selected_layer_ids = list(
+            dict.fromkeys(event_ref.layer_id for event_ref in matched_refs)
+        )
+        timeline.selection.selected_take_id = selected_records[-1].take.id
+        self._set_selected_event_refs(timeline, list(matched_refs))
+
+    def _handle_create_event_sequence_from_selection(
+        self,
+        timeline: Timeline,
+        *,
+        name: str | None,
+    ) -> None:
+        selected_refs = self._selected_event_refs(timeline)
+        records = self._selected_event_records(timeline, selected_refs)
+        if len(records) < 2:
+            return
+        ordered_records = sorted(
+            records,
+            key=lambda record: (
+                float(record.event.start),
+                float(record.event.end),
+                str(record.event.id),
+            ),
+        )
+        sequence_id = f"seq_{uuid4().hex[:10]}"
+        sequence_name = name or f"Sequence {len(ordered_records)} events"
+        sequence_size = len(ordered_records)
+        for index, record in enumerate(ordered_records, start=1):
+            metadata = dict(record.event.metadata or {})
+            metadata["sequence"] = {
+                "id": sequence_id,
+                "name": sequence_name,
+                "order": index,
+                "size": sequence_size,
+                "created_from": "user",
+            }
+            record.event.metadata = metadata
+        self._set_selected_event_refs(
+            timeline,
+            [
+                self._event_ref(record.layer.id, record.take.id, record.event.id)
+                for record in ordered_records
+            ],
+        )
+
     def _handle_renumber_event_cue_numbers(
         self,
         timeline: Timeline,
@@ -180,6 +282,44 @@ class TimelineOrchestratorEventBatchMixin(TimelineOrchestratorEventEditMixin):
             for record in self._selected_event_records(timeline, list(event_ref_group)):
                 record.event.cue_number = next_cue_number
                 next_cue_number += step
+
+        self._apply_event_batch_scope_selection(timeline, resolved, list(resolved.event_refs))
+
+    def _handle_snap_events_to_beat_grid(
+        self,
+        timeline: Timeline,
+        *,
+        scope: EventBatchScope,
+        grid_denominator: int,
+        bpm: float,
+        beat_anchor_seconds: float | None,
+    ) -> None:
+        if bpm <= 0.0 or grid_denominator not in {4, 8, 16, 32, 64}:
+            return
+
+        resolved = self._resolve_event_batch_scope(timeline, scope)
+        if resolved.is_empty:
+            return
+
+        step_seconds = (60.0 / float(bpm)) * (4.0 / float(grid_denominator))
+        if step_seconds <= 0.0:
+            return
+
+        anchor_seconds = max(0.0, float(beat_anchor_seconds or 0.0))
+        for event_ref_group in resolved.event_ref_groups:
+            affected_takes: dict[TakeId, Take] = {}
+            for record in self._selected_event_records(timeline, list(event_ref_group)):
+                duration = max(0.0, float(record.event.end) - float(record.event.start))
+                snapped_start = _snap_time_to_grid(
+                    float(record.event.start),
+                    step_seconds=step_seconds,
+                    anchor_seconds=anchor_seconds,
+                )
+                record.event.start = snapped_start
+                record.event.end = snapped_start + duration
+                affected_takes[record.take.id] = record.take
+            for take in affected_takes.values():
+                take.events = self._sorted_events(take.events)
 
         self._apply_event_batch_scope_selection(timeline, resolved, list(resolved.event_refs))
 
@@ -333,6 +473,54 @@ class TimelineOrchestratorEventBatchMixin(TimelineOrchestratorEventEditMixin):
             for event_ref in event_ref_group
         )
 
+    def _sequence_candidate_groups(
+        self,
+        timeline: Timeline,
+        *,
+        anchor_records: list[EventSequenceRecord],
+        scope_mode: str,
+    ) -> list[list[EventSequenceRecord]]:
+        anchor_layer_ids = tuple(
+            dict.fromkeys(record.event_ref.layer_id for record in anchor_records)
+        )
+        if scope_mode == "current_layer":
+            layer_ids = anchor_layer_ids
+        elif scope_mode == "selected_layers_main":
+            layer_ids = tuple(self._selected_layer_scope(timeline)) or anchor_layer_ids
+        else:
+            layer_ids = tuple(
+                layer.id for layer in timeline.layers if is_event_like_layer_kind(layer.kind)
+            )
+
+        groups: list[list[EventSequenceRecord]] = []
+        for layer_id in layer_ids:
+            layer = self._find_layer(timeline, layer_id)
+            if not is_event_like_layer_kind(layer.kind):
+                continue
+            anchor_take_id = next(
+                (
+                    record.event_ref.take_id
+                    for record in anchor_records
+                    if record.event_ref.layer_id == layer_id
+                ),
+                None,
+            )
+            take = self._find_take(layer, anchor_take_id) if anchor_take_id is not None else None
+            if take is None:
+                take = self._main_take(layer)
+            if take is None:
+                continue
+            groups.append(
+                [
+                    EventSequenceRecord(
+                        event_ref=self._event_ref(layer.id, take.id, event.id),
+                        event=event,
+                    )
+                    for event in self._ordered_events(take)
+                ]
+            )
+        return groups
+
 
 def _similarity_threshold(
     match_strength: str,
@@ -347,3 +535,13 @@ def _similarity_threshold(
         "balanced": 0.78,
         "loose": 0.65,
     }.get(match_strength, 0.78)
+
+
+def _snap_time_to_grid(
+    time_seconds: float,
+    *,
+    step_seconds: float,
+    anchor_seconds: float,
+) -> float:
+    grid_index = round((float(time_seconds) - anchor_seconds) / step_seconds)
+    return max(0.0, anchor_seconds + (float(grid_index) * step_seconds))

@@ -1,7 +1,7 @@
 """MIR self-similarity song-part boundary fallback.
 
 Exists to provide coarse part-change anchors when richer MIR tooling is unavailable.
-Returns ordered segment starts for the song-sections processor to relabel as generic parts.
+Returns ordered segment starts for the song-sections processor to relabel as numbered cues.
 """
 
 from __future__ import annotations
@@ -40,11 +40,11 @@ def segment_song_structure_with_mir(
 
         audio, effective_sample_rate = librosa.load(file_path, sr=sample_rate, mono=True)
         if audio.size == 0:
-            return (SongStructureSegment(0.0, "part_01", "Part 1", 0.75),)
+            return (SongStructureSegment(0.0, "Cue 1", "Cue 1", 0.75),)
 
         duration = float(audio.shape[0]) / float(effective_sample_rate)
         if duration <= 0.0:
-            return (SongStructureSegment(0.0, "part_01", "Part 1", 0.75),)
+            return (SongStructureSegment(0.0, "Cue 1", "Cue 1", 0.75),)
 
         resolved_hop = max(128, int(hop_length))
         resolved_fft = max(1024, int(n_fft))
@@ -112,14 +112,14 @@ def segment_song_structure_with_mir(
             segments.append(
                 SongStructureSegment(
                     start_seconds=float(start_seconds),
-                    cue_ref=f"part_{index:02d}",
-                    label=f"Part {index}",
+                    cue_ref=f"Cue {index}",
+                    label=f"Cue {index}",
                     confidence=confidence,
                 )
             )
         return tuple(segments)
     except Exception:
-        return (SongStructureSegment(0.0, "part_01", "Part 1", 0.75),)
+        return (SongStructureSegment(0.0, "Cue 1", "Cue 1", 0.75),)
 
 
 def _target_section_count(

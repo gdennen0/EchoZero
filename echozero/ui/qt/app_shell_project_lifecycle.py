@@ -19,7 +19,7 @@ from echozero.application.shared.ids import SongId, SongVersionId
 from echozero.application.sync.adapters import MA3SyncBridge
 from echozero.application.sync.service import SyncService
 from echozero.application.timeline.app import TimelineApplication
-from echozero.application.timeline.models import Layer
+from echozero.application.timeline.models import Layer, Timeline
 from echozero.application.timeline.object_actions import descriptor_for_action
 from echozero.application.timeline.operation_progress_service import (
     OperationProgressService,
@@ -33,6 +33,8 @@ from echozero.ui.qt.app_shell_project_timeline import (
     build_project_native_baseline_timeline,
 )
 from echozero.ui.qt.app_shell_project_runtime_state import (
+    TimelineViewportRuntimeState,
+    load_project_runtime_state,
     persist_project_runtime_state,
 )
 from echozero.ui.qt.app_shell_runtime_services import build_runtime_timeline_application
@@ -50,6 +52,7 @@ class ProjectLifecycleShell(Protocol):
     _last_pipeline_run_revision: int
     _pipeline_runs: OperationProgressService
     _review_server_controller: ReviewServerController
+    _song_version_viewports: dict[str, TimelineViewportRuntimeState]
     _sync_bridge: MA3SyncBridge | None
     _sync_service_override: SyncService | None
     _app_settings_service: AppSettingsService | None
@@ -288,13 +291,20 @@ def select_song(
         if song_record.active_version_id is not None
         else None
     )
+    stopped_playback = _stop_runtime_audio_for_song_switch(shell)
     refresh_from_storage(
         shell,
         active_song_id=SongId(song_record.id),
         active_song_version_id=active_version_id,
     )
     shell._clear_history()
-    return shell.presentation()
+    presentation = shell.presentation()
+    _sync_runtime_audio_after_song_switch(
+        shell,
+        presentation,
+        stopped_playback=stopped_playback,
+    )
+    return presentation
 
 
 def rename_song(
@@ -352,13 +362,66 @@ def switch_song_version(
         shell.project_storage.dirty_tracker.mark_dirty(song_record.id)
         shell._is_dirty = True
 
+    stopped_playback = _stop_runtime_audio_for_song_switch(shell)
     refresh_from_storage(
         shell,
         active_song_id=SongId(song_record.id),
         active_song_version_id=SongVersionId(version_record.id),
     )
     shell._clear_history()
-    return shell.presentation()
+    presentation = shell.presentation()
+    _sync_runtime_audio_after_song_switch(
+        shell,
+        presentation,
+        stopped_playback=stopped_playback,
+    )
+    return presentation
+
+
+def _stop_runtime_audio_for_song_switch(shell: ProjectLifecycleShell) -> bool:
+    runtime_audio = shell.runtime_audio
+    if runtime_audio is None:
+        return False
+    is_playing = getattr(runtime_audio, "is_playing", None)
+    if not callable(is_playing):
+        return False
+    try:
+        was_playing = bool(is_playing())
+    except Exception:
+        return False
+    if not was_playing:
+        return False
+    stop = getattr(runtime_audio, "stop", None)
+    if callable(stop):
+        stop()
+    return True
+
+
+def _sync_runtime_audio_after_song_switch(
+    shell: ProjectLifecycleShell,
+    presentation: TimelinePresentation,
+    *,
+    stopped_playback: bool,
+) -> None:
+    if not stopped_playback:
+        return
+    runtime_audio = shell.runtime_audio
+    if runtime_audio is None:
+        return
+    sync_structure_state = getattr(runtime_audio, "sync_structure_state", None)
+    if callable(sync_structure_state):
+        sync_structure_state(presentation)
+    else:
+        sync_presentation = getattr(runtime_audio, "sync_presentation", None)
+        if callable(sync_presentation):
+            sync_presentation(presentation)
+        else:
+            build_for_presentation = getattr(runtime_audio, "build_for_presentation", None)
+            if callable(build_for_presentation):
+                build_for_presentation(presentation)
+    snapshot_state = getattr(runtime_audio, "snapshot_state", None)
+    if callable(snapshot_state):
+        shell.session.playback_state = snapshot_state(presentation)
 
 
 def add_song_version(
@@ -646,6 +709,7 @@ def refresh_from_storage(
     active_song_version_id: SongVersionId | None = None,
 ) -> None:
     current_presentation = shell.presentation()
+    _record_song_version_viewport(shell, current_presentation)
     with shell.project_storage.locked():
         timeline, overlay, resolved_song_id, resolved_song_version_id = (
             build_project_native_baseline_timeline(
@@ -654,6 +718,11 @@ def refresh_from_storage(
                 active_song_version_id=active_song_version_id,
             )
         )
+    _apply_song_version_viewport(
+        shell,
+        timeline=timeline,
+        song_version_id=resolved_song_version_id,
+    )
     shell._app.presentation_enricher = lambda presentation: apply_timeline_presentation_overlay(
         presentation,
         overlay=overlay,
@@ -691,8 +760,10 @@ def _replace_project_runtime(
     project_path: Path | None,
     runtime_audio: object | None,
 ) -> None:
+    runtime_state = load_project_runtime_state(project_storage)
     shell.project_storage = project_storage
     shell.project_path = project_path
+    shell._song_version_viewports = dict(runtime_state.song_version_viewports or {})
     shell._app = build_runtime_timeline_application(
         project_storage=project_storage,
         sync_bridge=shell._sync_bridge,
@@ -743,6 +814,24 @@ def _optional_positive_int(value: object) -> int | None:
     return resolved if resolved > 0 else None
 
 
+def _non_negative_float(value: object) -> float:
+    try:
+        resolved = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, resolved)
+
+
+def _positive_float(value: object, *, fallback: float) -> float:
+    try:
+        resolved = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    if resolved <= 0.0:
+        return fallback
+    return resolved
+
+
 def _coerce_project_ma3_push_offset_seconds(value: object) -> float:
     try:
         return float(value)
@@ -769,8 +858,45 @@ def _consume_staged_project_runtime_presentation(
     staged = getattr(shell, "_staged_project_runtime_presentation", None)
     if isinstance(staged, TimelinePresentation):
         setattr(shell, "_staged_project_runtime_presentation", None)
+        _record_song_version_viewport(shell, staged)
         return staged
     return None
+
+
+def _record_song_version_viewport(
+    shell: ProjectLifecycleShell,
+    presentation: TimelinePresentation | None,
+) -> None:
+    if presentation is None:
+        return
+    song_version_id = str(presentation.active_song_version_id or "").strip()
+    if not song_version_id:
+        return
+    viewports = getattr(shell, "_song_version_viewports", None)
+    if not isinstance(viewports, dict):
+        viewports = {}
+        shell._song_version_viewports = viewports
+    viewports[song_version_id] = TimelineViewportRuntimeState(
+        pixels_per_second=_positive_float(presentation.pixels_per_second, fallback=100.0),
+        scroll_x=_non_negative_float(presentation.scroll_x),
+        scroll_y=_non_negative_float(presentation.scroll_y),
+    )
+
+
+def _apply_song_version_viewport(
+    shell: ProjectLifecycleShell,
+    *,
+    timeline: Timeline,
+    song_version_id: SongVersionId | None,
+) -> None:
+    if song_version_id is None:
+        return
+    viewport = getattr(shell, "_song_version_viewports", {}).get(str(song_version_id))
+    if viewport is None:
+        return
+    timeline.viewport.pixels_per_second = viewport.pixels_per_second
+    timeline.viewport.scroll_x = viewport.scroll_x
+    timeline.viewport.scroll_y = viewport.scroll_y
 
 
 def _consume_staged_layer_header_width_px(shell: ProjectLifecycleShell) -> int | None:
@@ -802,6 +928,7 @@ def _resolve_persist_playhead_seconds(
 
 def _persist_project_runtime_state(shell: ProjectLifecycleShell) -> None:
     presentation = _consume_staged_project_runtime_presentation(shell) or shell.presentation()
+    _record_song_version_viewport(shell, presentation)
     persist_project_runtime_state(
         shell.project_storage,
         presentation=presentation,
@@ -810,6 +937,7 @@ def _persist_project_runtime_state(shell: ProjectLifecycleShell) -> None:
             fallback_presentation=presentation,
         ),
         layer_header_width_px=_consume_staged_layer_header_width_px(shell),
+        song_version_viewports=dict(getattr(shell, "_song_version_viewports", {})),
     )
 
 

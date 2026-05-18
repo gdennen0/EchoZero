@@ -65,6 +65,7 @@ class PlaybackProcessService:
     _GLITCH_STEP_UP_WINDOW_SECONDS = 2.0
     _GLITCH_STEP_DOWN_STABLE_SECONDS = 30.0
     _ADAPTIVE_PROFILE_SUSPEND_AFTER_RUNNING_SEEK_SECONDS = 2.5
+    _EXPLICIT_HIGH_LATENCY_BLOCKSIZE = 1024
 
     def __init__(
         self,
@@ -81,9 +82,7 @@ class PlaybackProcessService:
         self._base_audio_config = base_audio_config
         self._profile_index = 1
         self._pending_profile_index: int | None = None
-        self._telemetry = _PlaybackServiceTelemetry(
-            latency_profile=self._LATENCY_PROFILE_SPECS[self._profile_index].name
-        )
+        self._telemetry = _PlaybackServiceTelemetry(latency_profile=self._latency_profile_name())
         self._service_started_monotonic = time.perf_counter()
         self._latest_projection: RuntimeSyncProjection | None = None
         self._shutdown_requested = False
@@ -470,6 +469,9 @@ class PlaybackProcessService:
         )
 
     def _sample_glitch_and_adapt_profile(self) -> None:
+        if self._has_explicit_latency_config():
+            self._last_glitch_count = int(self._controller.engine.glitch_count)
+            return
         glitch_count = int(self._controller.engine.glitch_count)
         now = time.perf_counter()
         if now < self._adaptive_profile_suspend_until_monotonic:
@@ -522,7 +524,8 @@ class PlaybackProcessService:
             )
             return
         self._profile_index = max(0, min(next_index, len(self._LATENCY_PROFILE_SPECS) - 1))
-        self._telemetry.latency_profile = self._LATENCY_PROFILE_SPECS[self._profile_index].name
+        if hasattr(self, "_telemetry"):
+            self._telemetry.latency_profile = self._latency_profile_name()
         self._telemetry.latency_profile_switch_count += 1
         self._telemetry.last_latency_profile_reason = reason
         projection = self._latest_projection
@@ -636,8 +639,8 @@ class PlaybackProcessService:
             return build_runtime_audio_engine(
                 sample_rate=(base.sample_rate if base is not None else None),
                 channels=(base.channels if base is not None else None),
-                stream_latency=profile.stream_latency,
-                stream_blocksize=profile.stream_blocksize,
+                stream_latency=self._stream_latency_for_profile(profile),
+                stream_blocksize=self._stream_blocksize_for_profile(profile),
                 prime_output_buffers_using_stream_callback=(
                     bool(base.prime_output_buffers_using_stream_callback)
                     if base is not None
@@ -650,6 +653,39 @@ class PlaybackProcessService:
         return PlaybackController(
             engine_factory=_engine_factory,
         )
+
+    def _has_explicit_latency_config(self) -> bool:
+        base = self._base_audio_config
+        return bool(
+            base is not None
+            and (base.stream_latency is not None or base.stream_blocksize is not None)
+        )
+
+    def _latency_profile_name(self) -> str:
+        base = self._base_audio_config
+        if base is not None and base.stream_latency is not None:
+            return str(base.stream_latency)
+        if base is not None and base.stream_blocksize is not None:
+            return "custom"
+        return self._LATENCY_PROFILE_SPECS[self._profile_index].name
+
+    def _stream_latency_for_profile(self, profile: _LatencyProfileSpec) -> str | float:
+        base = self._base_audio_config
+        if base is not None and base.stream_latency is not None:
+            return base.stream_latency
+        return profile.stream_latency
+
+    def _stream_blocksize_for_profile(self, profile: _LatencyProfileSpec) -> int:
+        base = self._base_audio_config
+        if base is not None and base.stream_blocksize is not None:
+            return int(base.stream_blocksize)
+        if (
+            base is not None
+            and isinstance(base.stream_latency, str)
+            and base.stream_latency.strip().lower() == "high"
+        ):
+            return self._EXPLICIT_HIGH_LATENCY_BLOCKSIZE
+        return int(profile.stream_blocksize)
 
     def _publish_event(self, event_type: str, payload: dict[str, object]) -> None:
         self._events_hub.publish(
@@ -707,6 +743,8 @@ class PlaybackProcessService:
                 )
             ),
         )
+        if hasattr(self, "_telemetry"):
+            self._telemetry.latency_profile = self._latency_profile_name()
         projection = self._latest_projection
         current_time = float(self._controller.current_time_seconds())
         was_playing = bool(self._controller.is_playing())

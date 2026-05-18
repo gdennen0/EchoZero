@@ -217,6 +217,7 @@ def _assemble_events(
             payload_ref=event.payload_ref,
             classifications=dict(event.classifications),
             detection_metadata=event.detection_metadata,
+            sequence_metadata=_event_sequence_metadata(event),
             is_selected=(
                 (
                     str(layer_id),
@@ -238,6 +239,8 @@ def _take_actions(*, has_selection: bool) -> list[TakeActionPresentation]:
 
 def _event_badges(event: Event) -> list[str]:
     badges: list[str] = []
+    if _event_sequence_metadata(event):
+        badges.append("sequence")
     if event.muted:
         badges.append("muted")
     if event.promotion_state == "demoted":
@@ -249,6 +252,13 @@ def _event_badges(event: Event) -> list[str]:
     if event.origin_kind == "manual_added":
         badges.append("manual")
     return badges
+
+
+def _event_sequence_metadata(event: Event) -> dict[str, object]:
+    raw_sequence = event.metadata.get("sequence")
+    if not isinstance(raw_sequence, dict):
+        return {}
+    return dict(raw_sequence)
 
 
 def _take_has_selected_events(

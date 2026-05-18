@@ -609,6 +609,7 @@ def test_ma3_osc_bridge_uses_event_label_for_cue_name_when_cue_ref_exists():
 
 def test_ma3_osc_bridge_relabels_assigned_sequence_cue_before_section_event_write():
     bridge = SimulatedMA3Bridge()
+    bridge.set_sequences([MA3SequenceSnapshot(number=12, name="Song A", cue_count=1)])
 
     bridge.apply_push_transfer(
         target_track_coord="tc1_tg2_tr3",
@@ -626,12 +627,15 @@ def test_ma3_osc_bridge_relabels_assigned_sequence_cue_before_section_event_writ
         transfer_mode="merge",
     )
 
+    store_command = "Store Sequence 12 Cue 2 /nc"
     label_command = 'label sequence 12 cue 2 "Big Chorus"'
     add_event_command = "EZ.AddEvent(1, 2, 3, 4, 'Go+ Cue 2', '2 Big Chorus', 2, 'Big Chorus', 1)"
     cues = bridge.list_sequence_cues(sequence_no=12)
 
+    assert store_command in bridge.commands
     assert label_command in bridge.commands
     assert add_event_command in bridge.commands
+    assert bridge.commands.index(store_command) < bridge.commands.index(label_command)
     assert bridge.commands.index(label_command) < bridge.commands.index(add_event_command)
     assert next(cue for cue in cues if cue["cue_number"] == 2)["name"] == "Big Chorus"
 

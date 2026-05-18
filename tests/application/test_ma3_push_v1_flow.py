@@ -551,6 +551,30 @@ class _AsyncPushSyncService(_PushSyncService):
         return True
 
 
+class _CapturePushEventsSyncService(_PushSyncService):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.captured_events: list[Event] = []
+
+    def apply_push_transfer(
+        self,
+        *,
+        target_track_coord,
+        ma3_channel_no: int | None = None,
+        selected_events,
+        transfer_mode: str = "merge",
+        start_offset_seconds: float | None = None,
+    ) -> None:
+        self.captured_events = list(selected_events)
+        super().apply_push_transfer(
+            target_track_coord=target_track_coord,
+            ma3_channel_no=ma3_channel_no,
+            selected_events=selected_events,
+            transfer_mode=transfer_mode,
+            start_offset_seconds=start_offset_seconds,
+        )
+
+
 class _Assembler:
     def assemble(self, timeline, session):
         return timeline
@@ -1157,7 +1181,11 @@ def test_push_layer_to_ma3_accepts_marker_layers():
 
 
 def test_push_layer_to_ma3_accepts_section_layers():
-    orchestrator, timeline, session, sync_service = _build_orchestrator(saved_route="tc1_tg2_tr3")
+    sync_service = _CapturePushEventsSyncService()
+    orchestrator, timeline, session, sync_service = _build_orchestrator(
+        saved_route="tc1_tg2_tr3",
+        sync_service_override=sync_service,
+    )
     timeline.layers[0].kind = LayerKind.SECTION
     timeline.layers[0].takes[0].events[0].cue_number = 11
     timeline.layers[0].takes[0].events[0].cue_ref = "Q11A"
@@ -1182,6 +1210,10 @@ def test_push_layer_to_ma3_accepts_section_layers():
     ]
     assert session.manual_push_flow.target_track_coord == "tc1_tg2_tr3"
     assert session.manual_push_flow.selected_event_ids == [EventId("evt_1"), EventId("evt_2")]
+    assert [event.cue_number for event in sync_service.captured_events] == [11, 2]
+    assert [event.cue_ref for event in sync_service.captured_events] == ["Q11A", "2"]
+    assert timeline.layers[0].takes[0].events[0].cue_number == 11
+    assert timeline.layers[0].takes[0].events[0].cue_ref == "Q11A"
 
 
 def test_push_layer_to_ma3_one_shot_selected_events_does_not_mutate_saved_route():

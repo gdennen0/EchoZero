@@ -1,18 +1,29 @@
-"""MA3 OSC connection check helpers."""
+"""MA3 OSC connection check helpers.
+Exists because MA3 endpoint diagnostics need one reusable application boundary.
+Connects settings surfaces to hardware reachability and OSC round-trip probes.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
 import socket
+import subprocess
+import sys
 import time
 from typing import Protocol
+
+from echozero.infrastructure.sync.ma3_protocol import (
+    format_ma3_lua_command,
+    format_ma3_set_target_call,
+)
 
 
 class MA3OscConnectionState(Enum):
     CONNECTED = "connected"
     DISABLED = "disabled"
     LOCAL_READY = "local_ready"
+    HARDWARE_UNREACHABLE = "hardware_unreachable"
     ROUND_TRIP_FAILED = "round_trip_failed"
     ERROR = "error"
 
@@ -69,7 +80,14 @@ class MA3OscLiveBridge(Protocol):
     def ping(self, *args: object, **kwargs: object) -> object: ...
 
 
+class MA3TerminalPingRunner(Protocol):
+    def __call__(self, host: str, timeout_seconds: float) -> MA3OscEndpointCheck: ...
+
+
 class MA3OscConnectionCheckService:
+    def __init__(self, terminal_ping: MA3TerminalPingRunner | None = None) -> None:
+        self._terminal_ping = terminal_ping or _run_terminal_ping
+
     def request_from_values(self, values: dict[str, object]) -> MA3OscConnectionCheckRequest:
         return MA3OscConnectionCheckRequest(
             receive_enabled=bool(values.get("osc_receive.enabled")),
@@ -119,6 +137,15 @@ class MA3OscConnectionCheckService:
                 detail=f"Command Send OK ({request.send_host}:{request.send_port}).",
             )
         )
+        hardware_check = self._terminal_ping(request.send_host, request.timeout_seconds)
+        checks.append(hardware_check)
+        if not hardware_check.ok:
+            return MA3OscConnectionCheckResult(
+                state=MA3OscConnectionState.HARDWARE_UNREACHABLE,
+                detail=f"Hardware ping failed: {hardware_check.detail}",
+                checks=tuple(checks),
+                recommended_action="Verify the MA3 host is powered on and reachable on the network.",
+            )
         target_host = _routable_receive_host(request.receive_host)
         target_port = int(request.receive_port or 0)
         start = time.perf_counter()
@@ -129,9 +156,13 @@ class MA3OscConnectionCheckService:
                 _send_udp_command(
                     request.send_host,
                     int(request.send_port),
-                    f"EZ.SetTarget({target_host},{target_port})",
+                    format_ma3_lua_command(format_ma3_set_target_call(target_host, target_port)),
                 )
-                _send_udp_command(request.send_host, int(request.send_port), "EZ.Ping()")
+                _send_udp_command(
+                    request.send_host,
+                    int(request.send_port),
+                    format_ma3_lua_command("EZ.Ping()"),
+                )
                 time.sleep(0.02)
             latency = (time.perf_counter() - start) * 1000.0
         except OSError as exc:
@@ -172,6 +203,58 @@ def _send_udp_command(host: str, port: int, command: str) -> None:
         sock.sendto(payload, (host, port))
 
 
+def _run_terminal_ping(host: str, timeout_seconds: float) -> MA3OscEndpointCheck:
+    target = str(host or "").strip()
+    if not target:
+        return MA3OscEndpointCheck(
+            stage="Hardware Ping",
+            ok=False,
+            detail="No MA3 send host is configured.",
+        )
+    timeout = max(0.2, float(timeout_seconds or 1.0))
+    command = _terminal_ping_command(target, timeout)
+    try:
+        completed = subprocess.run(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout + 0.5,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return MA3OscEndpointCheck(
+            stage="Hardware Ping",
+            ok=False,
+            detail=f"No ping response from {target} before timeout.",
+        )
+    except OSError as exc:
+        return MA3OscEndpointCheck(
+            stage="Hardware Ping",
+            ok=False,
+            detail=f"Unable to run terminal ping: {exc}",
+        )
+    if completed.returncode != 0:
+        return MA3OscEndpointCheck(
+            stage="Hardware Ping",
+            ok=False,
+            detail=f"No ping response from {target}.",
+        )
+    return MA3OscEndpointCheck(
+        stage="Hardware Ping",
+        ok=True,
+        detail=f"Ping response received from {target}.",
+    )
+
+
+def _terminal_ping_command(host: str, timeout_seconds: float) -> list[str]:
+    timeout_ms = str(max(200, int(timeout_seconds * 1000)))
+    if sys.platform == "win32":
+        return ["ping", "-n", "1", "-w", timeout_ms, host]
+    if sys.platform == "darwin":
+        return ["ping", "-c", "1", "-W", timeout_ms, host]
+    return ["ping", "-c", "1", "-W", str(max(1, int(timeout_seconds))), host]
+
+
 def _routable_receive_host(host: str) -> str:
     text = str(host or "").strip()
     if text in {"", "0.0.0.0", "::"}:
@@ -186,4 +269,5 @@ __all__ = [
     "MA3OscConnectionState",
     "MA3OscEndpointCheck",
     "MA3OscLiveBridge",
+    "MA3TerminalPingRunner",
 ]

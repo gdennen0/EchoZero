@@ -437,7 +437,7 @@ class SettingsPageForm(QWidget):
         grid.setProperty("preferred_columns", preferred_columns)
         grid.setProperty("section_key", section_key)
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(4)
+        grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(2)
         for column_index in range(preferred_columns):
             label_column = column_index * 2
@@ -596,6 +596,7 @@ class SettingsPageForm(QWidget):
         if isinstance(widget, QCheckBox):
             widget.setText(field.label)
             widget.setProperty("settingsRole", "fieldToggle")
+            widget.setMinimumWidth(widget.sizeHint().width() + 2)
             label.setText("")
         if tooltip:
             widget.setToolTip(tooltip)
@@ -617,7 +618,9 @@ class SettingsPageForm(QWidget):
         if isinstance(widget, QCheckBox):
             widget.setText(field.label)
             widget.setProperty("settingsRole", "fieldToggle")
+            widget.setMinimumWidth(widget.sizeHint().width() + 2)
             label.setText("")
+            label.setMinimumWidth(0)
         if tooltip:
             widget.setToolTip(tooltip)
             widget.setStatusTip(tooltip)

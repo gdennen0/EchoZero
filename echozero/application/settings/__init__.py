@@ -36,6 +36,7 @@ from echozero.application.settings.service import (
     build_default_app_settings_service,
     list_audio_output_device_options,
 )
+from echozero.application.settings.network_options import list_osc_receive_address_options
 
 __all__ = [
     "AppPreferences",
@@ -63,4 +64,5 @@ __all__ = [
     "SettingsSection",
     "build_default_app_settings_service",
     "list_audio_output_device_options",
+    "list_osc_receive_address_options",
 ]

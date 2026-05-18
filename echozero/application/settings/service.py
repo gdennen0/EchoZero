@@ -32,6 +32,7 @@ from echozero.application.settings.page_builder import (
     build_app_settings_page,
     list_audio_output_device_options,
 )
+from echozero.application.settings.network_options import list_osc_receive_address_options
 from echozero.output_routing import (
     DEFAULT_MASTER_OUTPUT_BUS,
     canonical_master_output_buses,
@@ -63,9 +64,13 @@ class AppSettingsService:
         audio_device_options_provider: Callable[[], tuple[SettingsOption, ...]] = (
             list_audio_output_device_options
         ),
+        osc_receive_address_options_provider: Callable[[], tuple[SettingsOption, ...]] = (
+            list_osc_receive_address_options
+        ),
     ) -> None:
         self._store = store
         self._audio_device_options_provider = audio_device_options_provider
+        self._osc_receive_address_options_provider = osc_receive_address_options_provider
         self._preferences = store.load()
 
     @property
@@ -91,6 +96,7 @@ class AppSettingsService:
         return build_app_settings_page(
             self._preferences,
             audio_device_options_provider=self._audio_device_options_provider,
+            osc_receive_address_options_provider=self._osc_receive_address_options_provider,
             include_hidden=include_hidden,
         )
 
@@ -114,6 +120,7 @@ class AppSettingsService:
         return build_app_settings_page(
             draft_preferences,
             audio_device_options_provider=self._audio_device_options_provider,
+            osc_receive_address_options_provider=self._osc_receive_address_options_provider,
             include_hidden=include_hidden,
         )
 

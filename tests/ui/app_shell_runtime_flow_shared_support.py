@@ -63,6 +63,7 @@ class _CountedRuntimeAudio:
     def __init__(self):
         self.build_calls = 0
         self.play_calls = 0
+        self.stop_calls = 0
         self.preview_calls: list[tuple[str, float, float, float]] = []
         self.is_playing_state = False
         self.snapshot_calls = 0
@@ -81,6 +82,7 @@ class _CountedRuntimeAudio:
         self.is_playing_state = False
 
     def stop(self) -> None:
+        self.stop_calls += 1
         self.is_playing_state = False
 
     def seek(self, _position_seconds: float) -> None:

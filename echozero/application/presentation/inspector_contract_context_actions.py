@@ -122,7 +122,51 @@ def batch_context_actions(
             params=event_batch_scope_params(scope),
         ),
     ]
+    if presentation.bpm is not None and float(presentation.bpm) > 0.0:
+        scope_params = event_batch_scope_params(scope)
+        for denominator in (8, 4, 16, 32, 64):
+            actions.append(
+                InspectorAction(
+                    action_id=f"selection.snap_to_beat_grid_{denominator}",
+                    label=f"Snap to 1/{denominator} Beat Grid{suffix}",
+                    group="batch",
+                    params={
+                        **scope_params,
+                        "grid_denominator": denominator,
+                        "bpm": float(presentation.bpm),
+                        "beat_anchor_seconds": presentation.beat_anchor_seconds,
+                    },
+                )
+            )
     if scope.mode == "selected_events":
+        selected_event_count = len(presentation.resolved_selected_event_refs())
+        if selected_event_count >= 2:
+            actions.append(
+                InspectorAction(
+                    action_id="selection.create_event_sequence",
+                    label="Group as Event Sequence",
+                    group="batch",
+                    params={},
+                )
+            )
+        if selected_event_count >= 3:
+            actions.append(
+                InspectorAction(
+                    action_id="selection.find_similar_event_sequences",
+                    label="Find Similar Event Sequences",
+                    group="batch",
+                    params={
+                        "scope_mode": "current_layer",
+                        "strictness": "balanced",
+                        "min_events": 3,
+                        "allow_missing_events": 1,
+                        "timing_weight": 0.62,
+                        "label_weight": 0.30,
+                        "length_weight": 0.08,
+                        "use_label_similarity": True,
+                    },
+                )
+            )
         actions.append(
             InspectorAction(
                 action_id="selection.improve_model_from_selection",

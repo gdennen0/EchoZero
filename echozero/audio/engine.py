@@ -583,7 +583,7 @@ class AudioEngine:
 
     def apply_track_mix_updates(
         self,
-        updates: dict[str, tuple[bool, float, str | None]],
+        updates: dict[str, tuple[bool, float, str | None] | tuple[bool, float, str | None, bool]],
     ) -> bool:
         """Apply mix-only updates without replacing engine track objects."""
 
@@ -766,7 +766,7 @@ class AudioEngine:
 
     def _track_mix_update_change_flags(
         self,
-        updates: dict[str, tuple[bool, float, str | None]],
+        updates: dict[str, tuple[bool, float, str | None] | tuple[bool, float, str | None, bool]],
     ) -> tuple[bool, bool]:
         applied_change = False
         requires_declick = False
@@ -776,8 +776,14 @@ class AudioEngine:
             desired = updates.get(str(track.id))
             if desired is None:
                 continue
-            muted, volume, output_bus = desired
+            muted, volume, output_bus, soloed = _unpack_track_mix_update(
+                desired,
+                current_solo=bool(track.solo),
+            )
             if bool(track.muted) != bool(muted):
+                applied_change = True
+                requires_declick = True
+            if bool(track.solo) != bool(soloed):
                 applied_change = True
                 requires_declick = True
             if abs(float(track.volume) - float(volume)) > 1e-6:
@@ -1462,6 +1468,16 @@ class AudioEngine:
             return float(value)
         except (TypeError, ValueError):
             return None
+
+
+def _unpack_track_mix_update(
+    desired: tuple[bool, float, str | None] | tuple[bool, float, str | None, bool],
+    *,
+    current_solo: bool,
+) -> tuple[bool, float, str | None, bool]:
+    muted, volume, output_bus, *rest = desired
+    soloed = bool(rest[0]) if rest else bool(current_solo)
+    return bool(muted), float(volume), output_bus, soloed
 
 
 __all__ = [

@@ -20,7 +20,10 @@ from echozero.application.audio_engine_v2.rt_commands import (
     apply_rt_command_batch,
 )
 from echozero.application.audio_engine_v2.rt_graph import RtGraph, RtRouteTarget
-from echozero.application.audio_engine_v2.transport import TransportPlayState
+from echozero.application.audio_engine_v2.transport import (
+    TransportCommandKind,
+    TransportPlayState,
+)
 
 FloatBlock: TypeAlias = NDArray[np.float32]
 
@@ -109,6 +112,7 @@ class OfflineRenderState:
 
     runtime: RtRuntimeState
     frame_position: int = 0
+    sample_rate: int = 44100
     previous_gains: dict[str, float] = field(default_factory=dict)
 
 
@@ -138,9 +142,47 @@ def render_offline_block(
     if commands is not None:
         command_result = apply_rt_command_batch(runtime, commands)
         runtime = command_result.state
+    applied_sequences = () if command_result is None else command_result.applied_sequences
+    seek_frame_position = _fresh_seek_frame_position(
+        commands,
+        applied_sequences=applied_sequences,
+        sample_rate=state.sample_rate,
+    )
 
     _clear_memory(memory)
-    if _should_crossfade_graph_commit(previous_runtime, runtime, policy):
+    if _should_crossfade_running_seek(previous_runtime, runtime, seek_frame_position, policy):
+        _render_playing_block(
+            previous_runtime.graph,
+            state,
+            sources=sources,
+            memory=memory,
+            policy=policy,
+            force_zero_targets=False,
+        )
+        memory.transition_hardware_buffer[:] = memory.hardware_buffer
+        _clear_primary_buffers(memory)
+        seek_state = replace(state, frame_position=int(seek_frame_position or 0))
+        next_gains = _render_playing_block(
+            runtime.graph,
+            seek_state,
+            sources=sources,
+            memory=memory,
+            policy=policy,
+            force_zero_targets=False,
+        )
+        memory.hardware_buffer[:] = _crossfade_blocks(
+            memory.transition_hardware_buffer,
+            memory.hardware_buffer,
+            policy=policy,
+        )
+        next_position = int(seek_frame_position or 0) + memory.hardware_buffer.shape[0]
+    elif (
+        seek_frame_position is not None
+        and runtime.transport.play_state is not TransportPlayState.PLAYING
+    ):
+        next_gains = {}
+        next_position = int(seek_frame_position)
+    elif _should_crossfade_graph_commit(previous_runtime, runtime, policy):
         _render_playing_block(
             previous_runtime.graph,
             state,
@@ -166,15 +208,20 @@ def render_offline_block(
         )
         next_position = state.frame_position + memory.hardware_buffer.shape[0]
     elif runtime.transport.play_state is TransportPlayState.PLAYING:
+        render_state = (
+            replace(state, frame_position=int(seek_frame_position))
+            if seek_frame_position is not None
+            else state
+        )
         next_gains = _render_playing_block(
             runtime.graph,
-            state,
+            render_state,
             sources=sources,
             memory=memory,
             policy=policy,
             force_zero_targets=False,
         )
-        next_position = state.frame_position + memory.hardware_buffer.shape[0]
+        next_position = render_state.frame_position + memory.hardware_buffer.shape[0]
     elif previous_runtime.transport.play_state is TransportPlayState.PLAYING:
         next_gains = _render_playing_block(
             previous_runtime.graph,
@@ -202,9 +249,29 @@ def render_offline_block(
     return OfflineRenderResult(
         block=memory.hardware_buffer.copy(),
         state=next_state,
-        applied_sequences=() if command_result is None else command_result.applied_sequences,
+        applied_sequences=applied_sequences,
         stale_sequences=() if command_result is None else command_result.stale_sequences,
     )
+
+
+def _fresh_seek_frame_position(
+    commands: RtCommandBatch | None,
+    *,
+    applied_sequences: tuple[int, ...],
+    sample_rate: int,
+) -> int | None:
+    if commands is None or not applied_sequences:
+        return None
+    applied = set(applied_sequences)
+    for command in sorted(commands.commands, key=lambda item: item.sequence, reverse=True):
+        transport_command = command.transport_command
+        if command.sequence not in applied or transport_command is None:
+            continue
+        if transport_command.kind is not TransportCommandKind.SEEK:
+            continue
+        seconds = max(0.0, float(transport_command.position_seconds or 0.0))
+        return int(round(seconds * max(1, int(sample_rate))))
+    return None
 
 
 def _render_playing_block(
@@ -293,6 +360,20 @@ def _should_crossfade_graph_commit(
         previous_runtime.transport.play_state is TransportPlayState.PLAYING
         and runtime.transport.play_state is TransportPlayState.PLAYING
         and previous_runtime.graph.identity_full_hash != runtime.graph.identity_full_hash
+    )
+
+
+def _should_crossfade_running_seek(
+    previous_runtime: RtRuntimeState,
+    runtime: RtRuntimeState,
+    seek_frame_position: int | None,
+    policy: TransitionPolicy,
+) -> bool:
+    if seek_frame_position is None or policy.ramp_frames <= 0:
+        return False
+    return (
+        previous_runtime.transport.play_state is TransportPlayState.PLAYING
+        and runtime.transport.play_state is TransportPlayState.PLAYING
     )
 
 

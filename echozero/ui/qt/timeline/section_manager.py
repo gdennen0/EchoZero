@@ -1,6 +1,6 @@
 """Timeline sections manager dialog.
-Exists to provide one operator-facing surface for cue-owned section editing.
-Connects timeline presentation section cues to canonical section-edit intents.
+Exists to provide one operator-facing surface for section marker editing.
+Connects timeline presentation sections to canonical section-edit intents.
 """
 
 from __future__ import annotations
@@ -15,10 +15,8 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QGridLayout,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -27,12 +25,6 @@ from PyQt6.QtWidgets import (
 )
 
 from echozero.application.presentation.models import TimelinePresentation
-from echozero.application.shared.cue_numbers import (
-    CueNumber,
-    cue_number_from_ref_text,
-    cue_number_text,
-    parse_positive_cue_number,
-)
 from echozero.application.shared.ids import SectionCueId
 
 
@@ -40,9 +32,8 @@ from echozero.application.shared.ids import SectionCueId
 class SectionCueDraft:
     cue_id: SectionCueId | None
     start: float
-    cue_ref: str
     name: str
-    cue_number: CueNumber | None = None
+    cue_ref: str | None = None
     color: str | None = None
     notes: str | None = None
     payload_ref: str | None = None
@@ -74,7 +65,7 @@ class SectionManagerDialog(QDialog):
         selected_cue_id: SectionCueId | None = None,
     ) -> None:
         super().__init__(parent)
-        resolved_title = str(worksheet_title or "").strip() or "Section Cue Stack"
+        resolved_title = str(worksheet_title or "").strip() or "Sections"
         self.setWindowTitle(resolved_title)
         self.resize(820, 440)
 
@@ -85,9 +76,8 @@ class SectionManagerDialog(QDialog):
                 SectionCueDraft(
                     cue_id=cue.cue_id,
                     start=float(cue.start),
-                    cue_ref=cue.cue_ref,
                     name=cue.name,
-                    cue_number=cue_number_from_ref_text(cue.cue_ref),
+                    cue_ref=cue.cue_ref,
                     color=cue.color,
                     notes=cue.notes,
                     payload_ref=cue.payload_ref,
@@ -111,10 +101,8 @@ class SectionManagerDialog(QDialog):
         root.addLayout(row, 1)
 
         self._table = QTableWidget(self)
-        self._table.setColumnCount(6)
-        self._table.setHorizontalHeaderLabels(
-            ["Cue No", "Cue Ref", "Name", "Start", "Color", "Notes"]
-        )
+        self._table.setColumnCount(4)
+        self._table.setHorizontalHeaderLabels(["Name", "Start", "Color", "Notes"])
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
@@ -150,14 +138,6 @@ class SectionManagerDialog(QDialog):
         self._delete_button.clicked.connect(self._on_delete_section)
         side.addWidget(self._delete_button)
 
-        self._renumber_button = QPushButton("Renumber Cues", self)
-        self._renumber_button.clicked.connect(self._on_renumber_cues)
-        side.addWidget(self._renumber_button)
-
-        self._renumber_from_button = QPushButton("Renumber From…", self)
-        self._renumber_from_button.clicked.connect(self._on_renumber_cues_from_prompt)
-        side.addWidget(self._renumber_from_button)
-
         side.addSpacing(10)
 
         quick_label_title = QLabel("Quick Labels", self)
@@ -183,17 +163,6 @@ class SectionManagerDialog(QDialog):
         form.setContentsMargins(0, 0, 0, 0)
         form.setSpacing(6)
         side.addLayout(form)
-
-        self._cue_ref_input = QLineEdit(self)
-        self._cue_ref_input.editingFinished.connect(lambda: self._apply_editor_field("cue_ref"))
-        form.addRow("Cue Ref", self._cue_ref_input)
-
-        self._cue_number_input = QLineEdit(self)
-        self._cue_number_input.setPlaceholderText("e.g. 7 or 7.5")
-        self._cue_number_input.editingFinished.connect(
-            lambda: self._apply_editor_field("cue_number")
-        )
-        form.addRow("Cue No", self._cue_number_input)
 
         self._name_input = QLineEdit(self)
         self._name_input.editingFinished.connect(lambda: self._apply_editor_field("name"))
@@ -234,28 +203,18 @@ class SectionManagerDialog(QDialog):
         self._refresh_table(select_row=initial_row)
 
     def section_cue_drafts(self) -> list[SectionCueDraft]:
-        normalized = [self._normalized_row(row) for row in self._rows]
-        return sorted(
-            normalized,
-            key=lambda row: (
-                float(row.start),
-                row.cue_ref.casefold(),
-                str(row.cue_id or ""),
-            ),
-        )
+        return self._ordered_rows_by_time(self._rows)
 
     def _on_add_section(self) -> None:
         start = self._next_section_start()
-        cue_number = len(self._rows) + 1
         self._rows.append(
             SectionCueDraft(
                 cue_id=None,
                 start=start,
-                cue_ref=self._cue_ref_from_number(cue_number),
-                name=f"Section {cue_number}",
-                cue_number=cue_number,
+                name="Section",
             )
         )
+        self._rows = self._ordered_rows_by_time(self._rows)
         self._refresh_table(select_row=len(self._rows) - 1)
 
     def _insert_section_relative(self, *, before: bool) -> None:
@@ -270,12 +229,10 @@ class SectionManagerDialog(QDialog):
             SectionCueDraft(
                 cue_id=None,
                 start=start,
-                cue_ref="",
-                name=f"Section {insert_at + 1}",
-                cue_number=None,
+                name="Section",
             ),
         )
-        self._renumber_rows_from_index(insert_at)
+        self._rows = self._ordered_rows_by_time(self._rows)
         self._refresh_table(select_row=insert_at)
 
     def _apply_quick_label(self, label: str) -> None:
@@ -290,120 +247,13 @@ class SectionManagerDialog(QDialog):
             self._rows[row_index] = SectionCueDraft(
                 cue_id=current.cue_id,
                 start=float(current.start),
-                cue_ref=current.cue_ref,
                 name=resolved,
-                cue_number=current.cue_number,
+                cue_ref=current.cue_ref,
                 color=current.color,
                 notes=current.notes,
                 payload_ref=current.payload_ref,
             )
         self._refresh_table(select_rows=selected_rows)
-
-    def _on_renumber_cues(self) -> None:
-        self._renumber_cues_from_start(1)
-
-    def _on_renumber_cues_from_prompt(self) -> None:
-        default_start = "1"
-        selected_row = self._selected_row_index()
-        if selected_row is not None and 0 <= selected_row < len(self._rows):
-            default_start = cue_number_text(self._rows[selected_row].cue_number) or "1"
-        raw_start, accepted = QInputDialog.getText(
-            self,
-            "Renumber Cues",
-            "Start cue number",
-            text=default_start,
-        )
-        if not accepted:
-            return
-        start_at = parse_positive_cue_number(raw_start)
-        if start_at is None:
-            QMessageBox.warning(
-                self,
-                "Invalid Cue Number",
-                "Start cue number must be positive numeric data (for example: 7 or 7.5).",
-            )
-            return
-        self._renumber_cues_from_start(start_at)
-
-    def _renumber_cues_from_start(self, start_at: CueNumber) -> None:
-        if not self._rows:
-            return
-        selected_row = self._selected_row_index()
-        selected_cue_id = (
-            self._rows[selected_row].cue_id
-            if selected_row is not None and 0 <= selected_row < len(self._rows)
-            else None
-        )
-        ordered_rows = sorted(
-            self._rows,
-            key=lambda row: (
-                float(row.start),
-                str(row.cue_id or ""),
-                row.cue_ref.casefold(),
-            ),
-        )
-        renumbered: list[SectionCueDraft] = []
-        start_value = float(start_at)
-        for index, row in enumerate(ordered_rows):
-            cue_number_value = parse_positive_cue_number(start_value + float(index))
-            if cue_number_value is None:
-                cue_number_value = 1
-            renumbered.append(
-                SectionCueDraft(
-                    cue_id=row.cue_id,
-                    start=float(row.start),
-                    cue_ref=self._cue_ref_from_value(cue_number_value),
-                    name=row.name,
-                    cue_number=cue_number_value,
-                    color=row.color,
-                    notes=row.notes,
-                    payload_ref=row.payload_ref,
-                )
-            )
-        self._rows = renumbered
-        next_selected_index = 0 if self._rows else None
-        if selected_cue_id is not None:
-            next_selected_index = next(
-                (index for index, row in enumerate(self._rows) if row.cue_id == selected_cue_id),
-                next_selected_index,
-            )
-        self._refresh_table(select_row=next_selected_index)
-
-    def _renumber_rows_from_index(self, start_index: int) -> None:
-        if start_index < 0 or start_index >= len(self._rows):
-            return
-        previous_cue_number = (
-            parse_positive_cue_number(self._rows[start_index - 1].cue_number)
-            if start_index > 0
-            else None
-        )
-        start_cue_number = (
-            parse_positive_cue_number(float(previous_cue_number) + 1.0)
-            if previous_cue_number is not None
-            else 1
-        )
-        if start_cue_number is None:
-            start_cue_number = 1
-        start_value = float(start_cue_number)
-        for row_index in range(start_index, len(self._rows)):
-            cue_number = parse_positive_cue_number(start_value + float(row_index - start_index))
-            if cue_number is None:
-                cue_number = 1
-            current = self._rows[row_index]
-            fallback_name = f"Section {row_index + 1}"
-            name = current.name
-            if not str(name or "").strip() or name == fallback_name:
-                name = f"Section {cue_number_text(cue_number) or row_index + 1}"
-            self._rows[row_index] = SectionCueDraft(
-                cue_id=current.cue_id,
-                start=float(current.start),
-                cue_ref=self._cue_ref_from_value(cue_number),
-                name=name,
-                cue_number=cue_number,
-                color=current.color,
-                notes=current.notes,
-                payload_ref=current.payload_ref,
-            )
 
     def _on_delete_section(self) -> None:
         selected_rows = self._selected_row_indexes()
@@ -424,8 +274,6 @@ class SectionManagerDialog(QDialog):
             self._set_editors_enabled(False)
             self._loading_editors = True
             try:
-                self._cue_ref_input.clear()
-                self._cue_number_input.clear()
                 self._name_input.clear()
                 self._start_input.setValue(0.0)
                 self._color_input.clear()
@@ -434,7 +282,6 @@ class SectionManagerDialog(QDialog):
                 self._loading_editors = False
             return
         row_values = [self._rows[index] for index in selected_rows]
-        row = row_values[0]
 
         def _common_text(values: list[str]) -> str:
             if not values:
@@ -445,14 +292,6 @@ class SectionManagerDialog(QDialog):
         self._set_editors_enabled(True)
         self._loading_editors = True
         try:
-            self._cue_ref_input.setText(
-                _common_text([candidate.cue_ref for candidate in row_values])
-            )
-            self._cue_number_input.setText(
-                _common_text(
-                    [cue_number_text(candidate.cue_number) or "" for candidate in row_values]
-                )
-            )
             self._name_input.setText(_common_text([candidate.name for candidate in row_values]))
             start_values = [float(candidate.start) for candidate in row_values]
             self._start_input.setValue(start_values[0])
@@ -474,34 +313,17 @@ class SectionManagerDialog(QDialog):
         multi_select = len(selected_rows) > 1
         for row_index in selected_rows:
             current = self._rows[row_index]
-            cue_ref = current.cue_ref
-            cue_number = current.cue_number
             name = current.name
             start = float(current.start)
             color = current.color
             notes = current.notes
 
-            if field == "cue_ref":
-                raw = self._cue_ref_input.text().strip()
-                if raw:
-                    cue_ref = raw
-                elif not multi_select:
-                    cue_ref = current.cue_ref or self._cue_ref_from_number(row_index + 1)
-            elif field == "cue_number":
-                raw = self._cue_number_input.text().strip()
-                parsed = parse_positive_cue_number(raw)
-                if raw and parsed is not None:
-                    cue_number = parsed
-                elif raw and parsed is None:
-                    cue_number = current.cue_number
-                elif not multi_select:
-                    cue_number = None
-            elif field == "name":
+            if field == "name":
                 raw = self._name_input.text().strip()
                 if raw:
                     name = raw
                 elif not multi_select:
-                    name = cue_ref
+                    name = "Section"
             elif field == "start":
                 start = max(0.0, float(self._start_input.value()))
             elif field == "color":
@@ -522,13 +344,14 @@ class SectionManagerDialog(QDialog):
             self._rows[row_index] = SectionCueDraft(
                 cue_id=current.cue_id,
                 start=start,
-                cue_ref=cue_ref,
                 name=name,
-                cue_number=cue_number,
+                cue_ref=current.cue_ref,
                 color=color,
                 notes=notes,
                 payload_ref=current.payload_ref,
             )
+        if field == "start":
+            self._rows = self._ordered_rows_by_time(self._rows)
         self._refresh_table(select_rows=selected_rows)
 
     def _on_table_item_changed(self, item: QTableWidgetItem | None) -> None:
@@ -541,28 +364,21 @@ class SectionManagerDialog(QDialog):
         current = self._rows[row_index]
         raw_value = str(item.text() or "").strip()
 
-        cue_number = current.cue_number
-        cue_ref = current.cue_ref
         name = current.name
         start = float(current.start)
         color = current.color
         notes = current.notes
 
         if column == 0:
-            parsed = parse_positive_cue_number(raw_value)
-            cue_number = parsed if parsed is not None else cue_number
+            name = raw_value or "Section"
         elif column == 1:
-            cue_ref = raw_value or cue_ref
-        elif column == 2:
-            name = raw_value or cue_ref
-        elif column == 3:
             try:
                 start = max(0.0, float(raw_value))
             except ValueError:
                 start = float(current.start)
-        elif column == 4:
+        elif column == 2:
             color = raw_value or None
-        elif column == 5:
+        elif column == 3:
             notes = raw_value or None
         else:
             return
@@ -570,13 +386,14 @@ class SectionManagerDialog(QDialog):
         self._rows[row_index] = SectionCueDraft(
             cue_id=current.cue_id,
             start=start,
-            cue_ref=cue_ref,
             name=name,
-            cue_number=cue_number,
+            cue_ref=current.cue_ref,
             color=color,
             notes=notes,
             payload_ref=current.payload_ref,
         )
+        if column == 1:
+            self._rows = self._ordered_rows_by_time(self._rows)
         self._refresh_table(select_row=row_index)
 
     def _refresh_table(
@@ -590,8 +407,6 @@ class SectionManagerDialog(QDialog):
             self._table.setRowCount(len(self._rows))
             for row_index, row in enumerate(self._rows):
                 values = (
-                    cue_number_text(row.cue_number) or "",
-                    row.cue_ref,
                     row.name,
                     f"{float(row.start):.3f}",
                     row.color or "",
@@ -599,7 +414,7 @@ class SectionManagerDialog(QDialog):
                 )
                 for column, value in enumerate(values):
                     item = QTableWidgetItem(value)
-                    if column in {0, 3}:
+                    if column == 1:
                         item.setTextAlignment(
                             int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                         )
@@ -627,8 +442,6 @@ class SectionManagerDialog(QDialog):
         self._on_row_selection_changed()
 
     def _set_editors_enabled(self, enabled: bool) -> None:
-        self._cue_ref_input.setEnabled(enabled)
-        self._cue_number_input.setEnabled(enabled)
         self._name_input.setEnabled(enabled)
         self._start_input.setEnabled(enabled)
         self._color_input.setEnabled(enabled)
@@ -636,8 +449,6 @@ class SectionManagerDialog(QDialog):
         self._delete_button.setEnabled(enabled)
         self._add_before_button.setEnabled(enabled)
         self._add_after_button.setEnabled(enabled)
-        self._renumber_button.setEnabled(bool(self._rows))
-        self._renumber_from_button.setEnabled(bool(self._rows))
 
     def _selected_row_index(self) -> int | None:
         selected_rows = self._selected_row_indexes()
@@ -683,40 +494,52 @@ class SectionManagerDialog(QDialog):
 
     @staticmethod
     def _normalized_row(row: SectionCueDraft) -> SectionCueDraft:
-        parsed_cue_number = parse_positive_cue_number(row.cue_number)
-        if parsed_cue_number is None:
-            parsed_cue_number = cue_number_from_ref_text(row.cue_ref)
-        cue_ref = str(row.cue_ref or "").strip()
-        if not cue_ref:
-            cue_ref = SectionManagerDialog._cue_ref_from_number(
-                int(parsed_cue_number) if parsed_cue_number is not None else 1
-            )
-        name = str(row.name or "").strip() or cue_ref
+        cue_ref = None if row.cue_ref is None else str(row.cue_ref or "").strip() or None
+        name = str(row.name or "").strip() or "Section"
         color = str(row.color or "").strip() or None
         notes = str(row.notes or "").strip() or None
         payload_ref = str(row.payload_ref or "").strip() or None
         return SectionCueDraft(
             cue_id=row.cue_id,
             start=max(0.0, float(row.start)),
-            cue_ref=cue_ref,
             name=name,
-            cue_number=parsed_cue_number,
+            cue_ref=cue_ref,
             color=color,
             notes=notes,
             payload_ref=payload_ref,
         )
 
     @staticmethod
-    def _cue_ref_from_number(number: int) -> str:
-        return f"Cue {max(1, int(number))}"
+    def _is_generic_section_name(name: str | None) -> bool:
+        normalized = str(name or "").strip().casefold()
+        if not normalized:
+            return True
+        if normalized in {"cue", "section"}:
+            return True
+        return normalized.startswith("cue ") or normalized.startswith("section ")
 
     @staticmethod
-    def _cue_ref_from_value(number: CueNumber | None) -> str:
-        text = cue_number_text(number)
-        if text is None:
-            return SectionManagerDialog._cue_ref_from_number(1)
-        return f"Cue {text}"
-
-    @staticmethod
-    def cue_number_from_ref_text(cue_ref: str | None) -> CueNumber | None:
-        return cue_number_from_ref_text(cue_ref)
+    def _ordered_rows_by_time(rows: list[SectionCueDraft]) -> list[SectionCueDraft]:
+        ordered_rows = sorted(
+            (SectionManagerDialog._normalized_row(row) for row in rows),
+            key=lambda row: (
+                float(row.start),
+                str(row.cue_id or ""),
+                row.name.casefold(),
+            ),
+        )
+        ordered: list[SectionCueDraft] = []
+        for row in ordered_rows:
+            name = "Section" if SectionManagerDialog._is_generic_section_name(row.name) else row.name
+            ordered.append(
+                SectionCueDraft(
+                    cue_id=row.cue_id,
+                    start=float(row.start),
+                    name=name,
+                    cue_ref=row.cue_ref,
+                    color=row.color,
+                    notes=row.notes,
+                    payload_ref=row.payload_ref,
+                )
+            )
+        return ordered

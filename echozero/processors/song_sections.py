@@ -33,34 +33,34 @@ class _SectionLabel:
     confidence: float
 
 
-def _build_generic_part_label(index: int) -> str:
-    """Return the operator-facing generic label for a detected song part."""
+def _build_generic_cue_label(index: int) -> str:
+    """Return the operator-facing generic label for a detected song cue."""
 
-    return f"Part {index}"
-
-
-def _build_generic_part_ref(index: int) -> str:
-    """Return the stable cue ref for a detected generic song part."""
-
-    return f"part_{index:02d}"
+    return f"Cue {index}"
 
 
-def _normalize_generic_part_labels(
+def _build_generic_cue_ref(index: int) -> str:
+    """Return the stable cue ref for a detected generic song cue."""
+
+    return f"Cue {index}"
+
+
+def _normalize_generic_cue_labels(
     section_labels: tuple[_SectionLabel, ...],
 ) -> tuple[_SectionLabel, ...]:
-    """Relabel detections as generic parts instead of semantic section types."""
+    """Relabel detections as numbered cues instead of semantic section types."""
 
-    generic_parts: list[_SectionLabel] = []
+    generic_cues: list[_SectionLabel] = []
     for index, section in enumerate(section_labels, start=1):
-        generic_parts.append(
+        generic_cues.append(
             _SectionLabel(
                 start_seconds=float(section.start_seconds),
-                cue_ref=_build_generic_part_ref(index),
-                label=_build_generic_part_label(index),
+                cue_ref=_build_generic_cue_ref(index),
+                label=_build_generic_cue_label(index),
                 confidence=float(section.confidence),
             )
         )
-    return tuple(generic_parts)
+    return tuple(generic_cues)
 
 
 SegmentSongSectionsFn = Callable[
@@ -477,7 +477,7 @@ class SongSectionsProcessor:
                 )
             )
 
-        section_labels = _normalize_generic_part_labels(section_labels)
+        section_labels = _normalize_generic_cue_labels(section_labels)
 
         context.progress_bus.publish(
             ProgressReport(

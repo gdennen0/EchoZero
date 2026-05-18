@@ -174,6 +174,8 @@ _CANONICAL_NON_OBJECT_ACTION_IDS: set[str] = {
     "selection.event",
     "selection.first_event",
     "selection.compare_events",
+    "selection.create_event_sequence",
+    "selection.find_similar_event_sequences",
     "selection.layer",
     "selection.renumber_cues_from_one",
     "selection.select_every_other",

@@ -14,6 +14,7 @@ from echozero.application.timeline.object_content_persistence import object_id_f
 from echozero.persistence.audio import AudioMetadata, PreparedAudioSource, compute_audio_hash
 from echozero.ui.qt.timeline.widget import TimelineWidget
 
+from tests.ui.app_shell_runtime_flow_shared_support import _CountedRuntimeAudio
 from tests.ui.app_shell_runtime_flow_shared_support import *  # noqa: F401,F403
 
 
@@ -1151,6 +1152,79 @@ def test_app_shell_runtime_select_song_switches_loaded_timeline():
         assert str(runtime.session.active_song_version_id) == version_1_id
         assert presentation.layers[0].title == "Song One"
         assert presentation.end_time_label == "00:00:00.10"
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_select_song_restores_song_version_viewport():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(working_dir_root=temp_root / "working")
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        runtime.add_song_from_path(
+            "Song One",
+            write_test_wav(temp_root / "fixtures" / "viewport-song-1.wav", frames=4410),
+        )
+        song_1_id = str(runtime.session.active_song_id)
+        runtime.stage_project_runtime_presentation(
+            replace(
+                runtime.presentation(),
+                pixels_per_second=180.0,
+                scroll_x=320.0,
+            )
+        )
+
+        runtime.add_song_from_path(
+            "Song Two",
+            write_test_wav(temp_root / "fixtures" / "viewport-song-2.wav", frames=8820),
+        )
+        runtime.stage_project_runtime_presentation(
+            replace(
+                runtime.presentation(),
+                pixels_per_second=240.0,
+                scroll_x=720.0,
+            )
+        )
+
+        presentation = runtime.select_song(song_1_id)
+
+        assert str(runtime.session.active_song_id) == song_1_id
+        assert presentation.pixels_per_second == 180.0
+        assert presentation.scroll_x == 320.0
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_select_song_stops_active_playback_before_rebuild():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(working_dir_root=temp_root / "working")
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        runtime.add_song_from_path(
+            "Song One",
+            write_test_wav(temp_root / "fixtures" / "playing-song-1.wav", frames=4410),
+        )
+        song_1_id = str(runtime.session.active_song_id)
+        runtime.add_song_from_path(
+            "Song Two",
+            write_test_wav(temp_root / "fixtures" / "playing-song-2.wav", frames=8820),
+        )
+        runtime_audio = _CountedRuntimeAudio()
+        runtime_audio.is_playing_state = True
+        runtime.runtime_audio = runtime_audio
+
+        runtime.select_song(song_1_id)
+
+        assert runtime_audio.stop_calls == 1
+        assert runtime_audio.build_calls == 1
+        assert runtime_audio.is_playing() is False
+        assert str(runtime.session.active_song_id) == song_1_id
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)

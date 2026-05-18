@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 import numpy as np
+import pytest
 from numpy.typing import NDArray
 
 from echozero.application.audio_engine_v2.graph import (
@@ -289,6 +290,36 @@ def test_stale_transport_payload_advances_runtime_sequence_consistently() -> Non
     assert result.state.runtime.command_sequence == 9
     assert result.state.runtime.transport.command_sequence == 10
     assert result.state.runtime.transport.play_state is TransportPlayState.PLAYING
+
+
+def test_running_seek_crossfades_old_and_new_positions() -> None:
+    graph = _graph()
+    source = np.concatenate(
+        (
+            np.ones((8, 2), dtype=np.float32),
+            np.full((8, 2), -1.0, dtype=np.float32),
+        )
+    )
+    state = OfflineRenderState(
+        runtime=RtRuntimeState(
+            graph=prepare_rt_graph(graph),
+            transport=TransportState(play_state=TransportPlayState.PLAYING),
+        ),
+        sample_rate=4,
+    )
+    command = RtCommand.transport(TransportCommand.seek(1, position_seconds=2.0))
+
+    result = render_offline_block(
+        state,
+        sources=_sources(source),
+        memory=_memory(graph),
+        policy=TransitionPolicy(ramp_frames=4),
+        commands=RtCommandBatch((command,)),
+    )
+
+    assert -1.0 < float(result.block[0, 0]) < 1.0
+    assert result.block[-1, 0] == pytest.approx(-1.0)
+    assert result.state.frame_position == 12
 
 
 def _render_graph_commit(

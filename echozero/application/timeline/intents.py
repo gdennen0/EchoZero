@@ -141,6 +141,55 @@ class SelectSimilarEvents(TimelineIntent):
         self.similarity_threshold_override = threshold
 
 
+@dataclass(slots=True)
+class SelectSimilarEventSequences(TimelineIntent):
+    """Select event groups whose inter-hit timing resembles the current event selection."""
+
+    scope_mode: str = "current_layer"
+    strictness: str = "balanced"
+    min_events: int = 3
+    allow_missing_events: int = 1
+    timing_weight: float = 0.62
+    label_weight: float = 0.30
+    length_weight: float = 0.08
+    minimum_score: float | None = None
+    use_label_similarity: bool = True
+
+    def __post_init__(self) -> None:
+        scope_mode = (self.scope_mode or "").strip().lower()
+        if scope_mode not in {"song_event_layers_main", "selected_layers_main", "current_layer"}:
+            raise ValueError(
+                "SelectSimilarEventSequences requires scope_mode "
+                "'song_event_layers_main', 'selected_layers_main', or 'current_layer'"
+            )
+        self.scope_mode = scope_mode
+        strictness = (self.strictness or "").strip().lower()
+        if strictness not in {"loose", "balanced", "strict"}:
+            raise ValueError(
+                "SelectSimilarEventSequences requires strictness 'loose', 'balanced', or 'strict'"
+            )
+        self.strictness = strictness
+        self.min_events = max(2, int(self.min_events))
+        self.allow_missing_events = max(0, int(self.allow_missing_events))
+        self.timing_weight = max(0.0, float(self.timing_weight))
+        self.label_weight = max(0.0, float(self.label_weight))
+        self.length_weight = max(0.0, float(self.length_weight))
+        if self.minimum_score is not None:
+            self.minimum_score = max(0.0, min(1.0, float(self.minimum_score)))
+
+
+@dataclass(slots=True)
+class CreateEventSequenceFromSelection(TimelineIntent):
+    """Mark the selected events as one durable user-defined event sequence."""
+
+    name: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.name is not None:
+            name = str(self.name or "").strip()
+            self.name = name or None
+
+
 class SelectSimilarSoundingEvents(SelectSimilarEvents):
     """Legacy shape-envelope selection intent kept for compatibility."""
 
@@ -187,6 +236,36 @@ class RenumberEventCueNumbers(TimelineIntent):
             raise ValueError(f"RenumberEventCueNumbers step must be >= 1, got {step}")
         self.start_at = start_at
         self.step = step
+
+
+@dataclass(slots=True)
+class SnapEventsToBeatGrid(TimelineIntent):
+    """Snap event starts across one resolved batch scope to a musical beat grid."""
+
+    scope: EventBatchScope
+    grid_denominator: int
+    bpm: float
+    beat_anchor_seconds: float | None = None
+
+    def __post_init__(self) -> None:
+        try:
+            grid_denominator = int(self.grid_denominator)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("SnapEventsToBeatGrid requires an integer grid_denominator") from exc
+        if grid_denominator not in {4, 8, 16, 32, 64}:
+            raise ValueError(
+                "SnapEventsToBeatGrid grid_denominator must be one of 4, 8, 16, 32, or 64"
+            )
+        try:
+            bpm = float(self.bpm)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("SnapEventsToBeatGrid requires a numeric bpm") from exc
+        if bpm <= 0.0:
+            raise ValueError(f"SnapEventsToBeatGrid bpm must be > 0, got {bpm}")
+        self.grid_denominator = grid_denominator
+        self.bpm = bpm
+        if self.beat_anchor_seconds is not None:
+            self.beat_anchor_seconds = max(0.0, float(self.beat_anchor_seconds))
 
 
 @dataclass(slots=True)
@@ -662,9 +741,8 @@ class UpdateEventCueMappings(TimelineIntent):
 class SectionCueEdit:
     cue_id: SectionCueId | None
     start: float
-    cue_ref: str
     name: str
-    cue_number: CueNumber | None = None
+    cue_ref: str | None = None
     color: str | None = None
     notes: str | None = None
     payload_ref: str | None = None
@@ -673,14 +751,10 @@ class SectionCueEdit:
         if self.cue_id is not None and not str(self.cue_id).strip():
             self.cue_id = None
         self.start = max(0.0, float(self.start))
-        cue_ref = str(self.cue_ref or "").strip()
-        if not cue_ref:
-            raise ValueError("SectionCueEdit requires a non-empty cue_ref")
-        self.cue_ref = cue_ref
-        if self.cue_number is not None:
-            self.cue_number = coerce_positive_cue_number(self.cue_number)
+        cue_ref = None if self.cue_ref is None else str(self.cue_ref or "").strip()
+        self.cue_ref = cue_ref or None
         name = str(self.name or "").strip()
-        self.name = name or cue_ref
+        self.name = name or "Section"
         if self.color is not None:
             color = str(self.color).strip()
             self.color = color or None

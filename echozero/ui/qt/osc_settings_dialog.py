@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFrame,
+    QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
@@ -52,33 +53,40 @@ class OscSettingsDialog(QDialog):
         ensure_qt_theme_installed()
         self._settings_service = settings_service
         self._on_saved = on_saved
-        self.resize(820, 620)
-        self.setMinimumSize(700, 520)
+        self.resize(900, 640)
+        self.setMinimumSize(760, 560)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(10)
 
         self._header = QFrame(self)
         self._header.setObjectName("oscSettingsDialogHeader")
         self._header.setProperty("section", True)
-        header_layout = QVBoxLayout(self._header)
-        header_layout.setContentsMargins(10, 8, 10, 8)
-        header_layout.setSpacing(2)
-        self._eyebrow = QLabel("OSC SETTINGS", self._header)
+        header_layout = QHBoxLayout(self._header)
+        header_layout.setContentsMargins(12, 10, 12, 10)
+        header_layout.setSpacing(12)
+        header_copy = QVBoxLayout()
+        header_copy.setContentsMargins(0, 0, 0, 0)
+        header_copy.setSpacing(2)
+        self._eyebrow = QLabel("NETWORK CONTROL", self._header)
         self._eyebrow.setObjectName("oscSettingsDialogEyebrow")
-        header_layout.addWidget(self._eyebrow)
+        header_copy.addWidget(self._eyebrow)
         self._title = QLabel(self._header)
         self._title.setObjectName("oscSettingsDialogTitle")
         self._title.setWordWrap(True)
-        header_layout.addWidget(self._title)
+        header_copy.addWidget(self._title)
         self._summary = QLabel(self._header)
         self._summary.setObjectName("oscSettingsDialogSummary")
         self._summary.setWordWrap(True)
-        header_layout.addWidget(self._summary)
+        header_copy.addWidget(self._summary)
+        header_layout.addLayout(header_copy, 1)
         self._store_path = QLabel(self._header)
         self._store_path.setObjectName("oscSettingsDialogStorePath")
         self._store_path.setWordWrap(True)
+        self._store_path.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
         header_layout.addWidget(self._store_path)
         self._warnings = QLabel(self._header)
         self._warnings.setObjectName("oscSettingsDialogWarnings")
@@ -88,8 +96,8 @@ class OscSettingsDialog(QDialog):
 
         self._form = SettingsPageForm(self)
         self._form.field_value_changed.connect(self._on_field_value_changed)
-        self._form.setMinimumHeight(136)
-        self._form.setMaximumHeight(210)
+        self._form.setMinimumHeight(128)
+        self._form.setMaximumHeight(160)
         self._form.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Preferred,
@@ -97,12 +105,13 @@ class OscSettingsDialog(QDialog):
 
         self._panel = OscSettingsPanel(
             values_provider=self._form.values,
+            values_applier=self._form.set_values,
             monitor_provider=monitor_provider,
             clear_monitor=clear_monitor,
             live_bridge_provider=live_bridge_provider,
             parent=self,
         )
-        self._panel.setMinimumHeight(245)
+        self._panel.setMinimumHeight(275)
 
         self._splitter = QSplitter(Qt.Orientation.Vertical, self)
         self._splitter.setObjectName("oscSettingsDialogSplitter")
@@ -111,7 +120,8 @@ class OscSettingsDialog(QDialog):
         self._splitter.addWidget(self._panel)
         self._splitter.setStretchFactor(0, 0)
         self._splitter.setStretchFactor(1, 1)
-        self._splitter.setSizes([175, 345])
+        self._splitter.setHandleWidth(5)
+        self._splitter.setSizes([150, 425])
         layout.addWidget(self._splitter, 1)
 
         self._buttons = QDialogButtonBox(
@@ -137,8 +147,10 @@ class OscSettingsDialog(QDialog):
         page = self._osc_settings_page()
         self.setWindowTitle(page.title)
         self._title.setText(page.title)
-        self._summary.setText("Configure OSC receive/send endpoints, then run one round-trip check.")
-        self._store_path.setText("Saved locally to app-settings.json")
+        self._summary.setText(
+            "Set the local listener and MA3 destination, then verify the round trip before saving."
+        )
+        self._store_path.setText("Local machine settings\napp-settings.json")
         self._store_path.setToolTip(str(self._settings_service.store_path))
         self._warnings.setVisible(bool(page.warnings))
         self._warnings.setText("\n".join(page.warnings))

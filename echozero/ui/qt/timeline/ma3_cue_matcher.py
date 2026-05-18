@@ -79,6 +79,7 @@ class MA3CueMatcherDialog(QDialog):
             list(cue_options),
             key=lambda item: float(item.cue_number),
         )
+        self._new_cue_name_by_number_text: dict[str, str] = {}
         self._table = QTableWidget(self)
         self._table.setColumnCount(5)
         self._table.setHorizontalHeaderLabels(
@@ -100,11 +101,17 @@ class MA3CueMatcherDialog(QDialog):
         actions_row = QHBoxLayout()
         auto_button = QPushButton("Auto Match", self)
         auto_button.clicked.connect(self._auto_match_rows)
+        create_missing_button = QPushButton("Create Missing Cues", self)
+        create_missing_button.setToolTip(
+            "Fill empty MA3 cue cells from the EZ cue numbers so push can create them."
+        )
+        create_missing_button.clicked.connect(self._create_missing_cues_from_ez_rows)
         fill_down_button = QPushButton("Fill Down", self)
         fill_down_button.clicked.connect(self._fill_down_selection)
         clear_button = QPushButton("Clear Selected", self)
         clear_button.clicked.connect(self._clear_selected)
         actions_row.addWidget(auto_button)
+        actions_row.addWidget(create_missing_button)
         actions_row.addWidget(fill_down_button)
         actions_row.addWidget(clear_button)
         actions_row.addStretch(1)
@@ -234,6 +241,24 @@ class MA3CueMatcherDialog(QDialog):
                 continue
             self._set_row_target_cue(row_idx, self._cue_options[option_index].cue_number)
 
+    def _create_missing_cues_from_ez_rows(self) -> None:
+        for row_idx, row in enumerate(self._rows):
+            combo = self._target_combo(row_idx)
+            if self._cue_number_from_combo(combo) is not None:
+                continue
+            cue_number = row.current_cue_number
+            if cue_number is None:
+                cue_number = cue_number_from_ref_text(row.current_cue_ref)
+            if cue_number is None:
+                cue_number = row_idx + 1
+            cue_no_text = cue_number_text(cue_number)
+            if cue_no_text is None:
+                continue
+            cue_name = str(row.label or "").strip() or f"Cue {cue_no_text}"
+            self._new_cue_name_by_number_text[cue_no_text] = cue_name
+            combo.setCurrentText(cue_no_text)
+            self._sync_target_name_cell(row_idx)
+
     def _clear_selected(self) -> None:
         selection = {index.row() for index in self._table.selectedIndexes()}
         for row_idx in selection:
@@ -278,6 +303,9 @@ class MA3CueMatcherDialog(QDialog):
             if option_text == cue_text:
                 name = str(cue.name or "").strip()
                 return name or None
+        cue_name = self._new_cue_name_by_number_text.get(cue_text)
+        if cue_name:
+            return f"Create: {cue_name}"
         return None
 
     def _cue_number_from_combo(self, combo: QComboBox) -> CueNumber | None:

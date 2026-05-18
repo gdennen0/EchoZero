@@ -339,15 +339,14 @@ class _ObjectInfoPanelActionsMixin:
     @staticmethod
     def _is_primary_inspector_action(action: InspectorAction) -> bool:
         group = str(action.group or "").strip().lower()
-        direction = str(action.params.get("direction", "")).strip().lower()
         if action.action_id == "preview_event_clip":
             return False
-        if action.action_id == "song.version.set_ma3_timecode_pool":
-            return False
+        if action.action_id == "transfer.route_layer_track":
+            return True
         if group in {"mix", "gain", "routing", "pipeline", "live_sync"}:
             return False
         if group == "transfer":
-            return action.action_id == "transfer.workspace_open" and direction == "push"
+            return False
         return True
 
     @staticmethod

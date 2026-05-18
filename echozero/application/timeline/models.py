@@ -175,7 +175,7 @@ class Event:
     origin: str = "user"
     classifications: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
-    cue_number: CueNumber = 1
+    cue_number: CueNumber | None = 1
     source_event_id: str | None = None
     parent_event_id: str | None = None
     payload_ref: str | None = None
@@ -194,13 +194,14 @@ class Event:
         self.origin = origin or "user"
         self.classifications = dict(self.classifications or {})
         self.metadata = dict(self.metadata or {})
-        try:
-            cue_number = coerce_positive_cue_number(self.cue_number)
-        except ValueError as exc:
-            raise ValueError(
-                f"Event.cue_number must be positive numeric data, got {self.cue_number!r}"
-            ) from exc
-        self.cue_number = cue_number
+        if self.cue_number is not None:
+            try:
+                cue_number = coerce_positive_cue_number(self.cue_number)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Event.cue_number must be positive numeric data, got {self.cue_number!r}"
+                ) from exc
+            self.cue_number = cue_number
         self.label = str(self.label or "").strip() or "Event"
         if self.cue_ref is not None:
             cue_ref = str(self.cue_ref).strip()
@@ -277,8 +278,8 @@ class Event:
 class SectionCue:
     id: SectionCueId
     start: float
-    cue_ref: str
     name: str
+    cue_ref: str | None = None
     color: str | None = None
     notes: str | None = None
     payload_ref: str | None = None
@@ -286,12 +287,10 @@ class SectionCue:
     def __post_init__(self) -> None:
         if self.start < 0:
             raise ValueError(f"SectionCue.start must be >= 0, got {self.start}")
-        cue_ref = str(self.cue_ref or "").strip()
-        if not cue_ref:
-            raise ValueError("SectionCue.cue_ref must be a non-empty string")
-        self.cue_ref = cue_ref
+        cue_ref = None if self.cue_ref is None else str(self.cue_ref or "").strip()
+        self.cue_ref = cue_ref or None
         name = str(self.name or "").strip()
-        self.name = name or cue_ref
+        self.name = name or "Section"
         if self.color is not None:
             color = str(self.color).strip()
             self.color = color or None
@@ -332,8 +331,8 @@ class SectionRegion:
     cue_id: SectionCueId
     start: float
     end: float
-    cue_ref: str
     name: str
+    cue_ref: str | None = None
     color: str | None = None
     notes: str | None = None
     payload_ref: str | None = None
@@ -345,12 +344,10 @@ class SectionRegion:
             raise ValueError(
                 f"SectionRegion.end must be >= start, got start={self.start}, end={self.end}"
             )
-        cue_ref = str(self.cue_ref or "").strip()
-        if not cue_ref:
-            raise ValueError("SectionRegion.cue_ref must be a non-empty string")
-        self.cue_ref = cue_ref
+        cue_ref = None if self.cue_ref is None else str(self.cue_ref or "").strip()
+        self.cue_ref = cue_ref or None
         name = str(self.name or "").strip()
-        self.name = name or cue_ref
+        self.name = name or "Section"
         if self.color is not None:
             color = str(self.color).strip()
             self.color = color or None
@@ -451,14 +448,13 @@ def derive_section_cues_from_events(events: list[Event]) -> list[SectionCue]:
         SectionCue(
             id=SectionCueId(str(event.id)),
             start=float(event.start),
-            cue_ref=str(event.cue_ref).strip(),
             name=event.label,
+            cue_ref=None if event.cue_ref is None else str(event.cue_ref).strip() or None,
             color=event.color,
             notes=event.notes,
             payload_ref=event.payload_ref,
         )
         for event in events
-        if event.cue_ref is not None and str(event.cue_ref).strip()
     ]
     return sorted(
         projected,

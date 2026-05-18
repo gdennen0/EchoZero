@@ -11,7 +11,12 @@ import inspect
 from pathlib import Path
 from typing import Protocol, cast
 
-from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMessageBox, QWidget
+from PyQt6.QtWidgets import (
+    QFileDialog,
+    QInputDialog,
+    QMessageBox,
+    QWidget,
+)
 
 from echozero.application.song.title_extraction import resolve_import_song_titles
 from echozero.application.presentation.inspector_contract import InspectorAction
@@ -33,12 +38,14 @@ from echozero.application.timeline.intents import (
     CommitRejectedEventsReview,
     CommitVerifiedEventsReview,
     CreateEvent,
+    CreateEventSequenceFromSelection,
     DuplicateSelectedEvents,
     MoveSelectedEvents,
     NudgeSelectedEvents,
     RenumberEventCueNumbers,
     Seek,
     SelectEveryOtherEvents,
+    SelectSimilarEventSequences,
     SetSelectedEvents,
     SetGain,
     SetLayerMute,
@@ -46,6 +53,7 @@ from echozero.application.timeline.intents import (
     SetLayerLiveSyncPauseReason,
     SetLayerLiveSyncState,
     SetLayerSolo,
+    SnapEventsToBeatGrid,
     ToggleLayerExpanded,
     TriggerTakeAction,
 )
@@ -54,6 +62,10 @@ from echozero.foundry.services.selection_model_improvement_service import (
     ImproveModelTrainingRequest,
 )
 from echozero.persistence.audio import detect_ltc_channel, scan_audio_metadata
+from echozero.ui.qt.progress_overlay import (
+    begin_operation_progress_overlay,
+    finish_operation_progress_overlay,
+)
 from echozero.ui.qt.timeline.find_similar_dialog import EventComparisonDialog
 from echozero.ui.qt.timeline.layer_routing_dialog import LayerRoutingSettingsDialog
 from echozero.output_routing import canonical_layer_output_bus
@@ -127,6 +139,24 @@ class _MoveSongRuntimeShell(_TimelineRuntimeShell, Protocol):
 
 class _ReorderSongsRuntimeShell(_TimelineRuntimeShell, Protocol):
     def reorder_songs(self, song_ids: list[str]) -> TimelinePresentation | None: ...
+
+
+def _stage_runtime_viewport_for_switch(runtime: object, widget: object) -> None:
+    stage = getattr(runtime, "stage_project_runtime_presentation", None)
+    if not callable(stage):
+        return
+    presentation = getattr(widget, "presentation", None)
+    layer_header_width = None
+    layer_header_width_px = getattr(widget, "layer_header_width_px", None)
+    if callable(layer_header_width_px):
+        try:
+            layer_header_width = int(layer_header_width_px())
+        except (TypeError, ValueError):
+            layer_header_width = None
+    try:
+        stage(presentation, layer_header_width_px=layer_header_width)
+    except TypeError:
+        stage(presentation)
 
 
 class _SongVersionTransferLookupRuntimeShell(_TimelineRuntimeShell, Protocol):
@@ -250,6 +280,15 @@ def _coerce_step_count(value: object, *, default: int = 1) -> int:
             except ValueError:
                 return default
     return default
+
+
+def _coerce_optional_float(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 class _ContractActionHost(Protocol):
@@ -426,6 +465,32 @@ class TimelineWidgetContractActionMixin:
             if scope is not None:
                 host._dispatch(SelectEveryOtherEvents(scope=scope))
             return
+        if action_id == "selection.create_event_sequence":
+            host._dispatch(
+                CreateEventSequenceFromSelection(
+                    name=str(params.get("name") or "").strip() or None
+                )
+            )
+            return
+        if action_id == "selection.find_similar_event_sequences":
+            host._dispatch(
+                SelectSimilarEventSequences(
+                    scope_mode=str(params.get("scope_mode", "current_layer")),
+                    strictness=str(params.get("strictness", "balanced")),
+                    min_events=int(params.get("min_events", 3)),
+                    allow_missing_events=int(params.get("allow_missing_events", 1)),
+                    timing_weight=float(params.get("timing_weight", 0.62)),
+                    label_weight=float(params.get("label_weight", 0.30)),
+                    length_weight=float(params.get("length_weight", 0.08)),
+                    minimum_score=(
+                        float(params["minimum_score"])
+                        if params.get("minimum_score") is not None
+                        else None
+                    ),
+                    use_label_similarity=bool(params.get("use_label_similarity", True)),
+                )
+            )
+            return
         if action_id == "selection.improve_model_from_selection":
             runtime = cast(_ImproveModelRuntimeShell | None, host._resolve_runtime_shell())
             if runtime is None:
@@ -458,7 +523,9 @@ class TimelineWidgetContractActionMixin:
             if dialog.exec() != dialog.DialogCode.Accepted:
                 return
             try:
-                result = runtime.train_improved_model_from_selection(dialog.result_payload().request)
+                result = runtime.train_improved_model_from_selection(
+                    dialog.result_payload().request
+                )
             except Exception as exc:
                 host._message_box.warning(
                     host._widget,
@@ -494,7 +561,7 @@ class TimelineWidgetContractActionMixin:
                 layer_id=layer_id,
                 take_id=take_id,
                 event_id=event_id,
-                default_scope_mode="take",
+                default_scope_mode="layer",
             )
             if payload is None:
                 return
@@ -533,6 +600,24 @@ class TimelineWidgetContractActionMixin:
             scope = event_batch_scope_from_params(params)
             if scope is not None:
                 host._dispatch(RenumberEventCueNumbers(scope=scope, start_at=1, step=1))
+            return
+        if action_id.startswith("selection.snap_to_beat_grid_"):
+            scope = event_batch_scope_from_params(params)
+            if scope is None:
+                return
+            try:
+                grid_denominator = int(params.get("grid_denominator"))
+                bpm = float(params.get("bpm"))
+            except (TypeError, ValueError):
+                return
+            host._dispatch(
+                SnapEventsToBeatGrid(
+                    scope=scope,
+                    grid_denominator=grid_denominator,
+                    bpm=bpm,
+                    beat_anchor_seconds=_coerce_optional_float(params.get("beat_anchor_seconds")),
+                )
+            )
             return
         if action_id == "layer.set_expanded":
             layer_id = _coerce_layer_id(params.get("layer_id"))
@@ -828,13 +913,10 @@ class TimelineWidgetContractActionMixin:
             return
 
         if selected_option.create_layer_kind is not None:
-            default_title = (
-                selected_option.default_layer_title
-                or (
-                    "New Section Layer"
-                    if selected_option.create_layer_kind is LayerKind.SECTION
-                    else "New Event Layer"
-                )
+            default_title = selected_option.default_layer_title or (
+                "New Section Layer"
+                if selected_option.create_layer_kind is LayerKind.SECTION
+                else "New Event Layer"
             )
             entered_title, accepted = host._input_dialog.getText(
                 host._widget,
@@ -1073,12 +1155,22 @@ class TimelineWidgetContractActionMixin:
             if selected_song is None:
                 return
             song_id = selected_song.song_id
+        _stage_runtime_viewport_for_switch(runtime, host._widget)
+        progress = begin_operation_progress_overlay(
+            host._widget,
+            title="Select Song",
+            message="Switching song...",
+        )
         try:
             updated = runtime.select_song(song_id.strip())
+            host._set_presentation(updated if updated is not None else runtime.presentation())
         except Exception as exc:
+            finish_operation_progress_overlay(progress)
+            progress = None
             host._message_box.warning(host._widget, "Select Song", str(exc))
             return
-        host._set_presentation(updated if updated is not None else runtime.presentation())
+        finally:
+            finish_operation_progress_overlay(progress)
 
     def select_song(self, song_id: str) -> None:
         self._run_select_song_action({"song_id": song_id})
@@ -1182,12 +1274,22 @@ class TimelineWidgetContractActionMixin:
             if selected_version is None:
                 return
             song_version_id = selected_version.song_version_id
+        _stage_runtime_viewport_for_switch(runtime, host._widget)
+        progress = begin_operation_progress_overlay(
+            host._widget,
+            title="Switch Version",
+            message="Switching song version...",
+        )
         try:
             updated = runtime.switch_song_version(song_version_id.strip())
+            host._set_presentation(updated if updated is not None else runtime.presentation())
         except Exception as exc:
+            finish_operation_progress_overlay(progress)
+            progress = None
             host._message_box.warning(host._widget, "Switch Version", str(exc))
             return
-        host._set_presentation(updated if updated is not None else runtime.presentation())
+        finally:
+            finish_operation_progress_overlay(progress)
 
     def switch_song_version(self, song_version_id: str) -> None:
         self._run_switch_song_version_action({"song_version_id": song_version_id})
@@ -2087,11 +2189,22 @@ class TimelineWidgetContractActionMixin:
             take_id=take_id,
             event_id=event_id,
             default_scope_mode=default_scope_mode,
+            preview_event_callback=self._preview_event_from_dialog,
             parent=host._widget,
         )
         if dialog.exec() != dialog.DialogCode.Accepted:
             return None
         return dialog.selected_payload()
+
+    def _preview_event_from_dialog(
+        self,
+        layer_id: LayerId,
+        take_id: TakeId,
+        event_id: EventId,
+    ) -> None:
+        self._handle_preview_event_clip(
+            {"layer_id": layer_id, "take_id": take_id, "event_id": event_id}
+        )
 
     def _run_find_similar_sounding_dialog(
         self,
@@ -2107,7 +2220,6 @@ class TimelineWidgetContractActionMixin:
             event_id=event_id,
             default_scope_mode=default_scope_mode,
         )
-
 
     def _create_layer_from_matched_events(
         self,

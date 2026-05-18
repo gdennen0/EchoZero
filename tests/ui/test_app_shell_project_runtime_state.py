@@ -3,6 +3,7 @@ from dataclasses import replace
 
 from echozero.persistence.session import ProjectStorage
 from echozero.ui.qt.app_shell_project_runtime_state import (
+    TimelineViewportRuntimeState,
     load_project_runtime_state,
     persist_project_runtime_state,
 )
@@ -32,6 +33,39 @@ def test_runtime_state_persists_layer_header_width_v2(tmp_path):
         payload = json.loads(runtime_state_path.read_text(encoding="utf-8"))
         assert payload["schema"] == "echozero.app_shell_runtime_state.v1"
         assert payload["state"]["layer_header_width_px"] == 444
+    finally:
+        storage.close()
+
+
+def test_runtime_state_persists_song_version_viewports(tmp_path):
+    storage = ProjectStorage.create_new(name="Runtime Viewports", working_dir_root=tmp_path)
+    try:
+        presentation = replace(
+            build_demo_app().presentation(),
+            active_song_id="song_1",
+            active_song_version_id="version_1",
+            pixels_per_second=180.0,
+            scroll_x=240.0,
+            scroll_y=16.0,
+        )
+        persist_project_runtime_state(
+            storage,
+            presentation=presentation,
+            song_version_viewports={
+                "version_2": TimelineViewportRuntimeState(
+                    pixels_per_second=220.0,
+                    scroll_x=960.0,
+                    scroll_y=0.0,
+                )
+            },
+        )
+
+        loaded = load_project_runtime_state(storage)
+
+        assert loaded.song_version_viewports is not None
+        assert loaded.song_version_viewports["version_1"].scroll_x == 240.0
+        assert loaded.song_version_viewports["version_2"].pixels_per_second == 220.0
+        assert loaded.song_version_viewports["version_2"].scroll_x == 960.0
     finally:
         storage.close()
 

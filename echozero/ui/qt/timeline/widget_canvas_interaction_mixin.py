@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import QMenu, QToolTip
 from echozero.application.presentation.inspector_contract import (
     InspectorAction,
     InspectorContract,
+    InspectorContextSection,
     TimelineInspectorHitTarget,
     build_timeline_inspector_contract,
 )
@@ -36,6 +37,7 @@ from echozero.ui.qt.timeline.blocks.ruler import (
     seek_time_for_x,
     timeline_x_for_time,
 )
+from echozero.ui.qt.timeline.context_menu_builder import build_inspector_context_menu
 from echozero.ui.qt.timeline.time_grid import resolve_snap_time
 from echozero.ui.qt.timeline.widget_canvas_types import (
     DrawCandidate,
@@ -562,9 +564,8 @@ class _TimelineCanvasInteractionMixin:
         *,
         hit_kind: str | None = None,
     ) -> QMenu:
-        menu = QMenu(self)
-        first_section = True
         seen_action_keys: set[tuple[str, str | None]] = set()
+        visible_sections = []
         for section in contract.context_sections:
             visible_actions: list[InspectorAction] = []
             for action in section.actions:
@@ -581,16 +582,14 @@ class _TimelineCanvasInteractionMixin:
                     seen_action_keys.add(action_key)
             if not visible_actions:
                 continue
-            if not first_section:
-                menu.addSeparator()
-            first_section = False
-            for action in visible_actions:
-                qt_action = menu.addAction(action.label)
-                if qt_action is None:
-                    continue
-                qt_action.setEnabled(action.enabled)
-                qt_action.setData(action)
-        return menu
+            visible_sections.append(
+                InspectorContextSection(
+                    section_id=section.section_id,
+                    label=section.label,
+                    actions=tuple(visible_actions),
+                )
+            )
+        return build_inspector_context_menu(self, visible_sections)
 
     @staticmethod
     def _context_action_visible_for_hit_kind(action: InspectorAction, hit_kind: str) -> bool:

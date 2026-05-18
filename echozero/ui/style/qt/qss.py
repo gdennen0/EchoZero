@@ -180,6 +180,27 @@ def build_object_info_panel_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             border-color: {tokens.control_border_active};
             background: {tokens.control_bg_active};
         }}
+        {root} QCheckBox[inspectorCheckbox='true'] {{
+            color: {tokens.text_secondary};
+            spacing: 5px;
+            font-size: 10px;
+            font-weight: 700;
+        }}
+        {root} QCheckBox[inspectorCheckbox='true']::indicator {{
+            width: 11px;
+            height: 11px;
+            background: {tokens.control_bg};
+            border: {scales.border_width}px solid {tokens.control_border};
+            border-radius: 2px;
+        }}
+        {root} QCheckBox[inspectorCheckbox='true']::indicator:checked {{
+            background: {tokens.control_bg_active};
+            border-color: #CC8844;
+        }}
+        {root} QCheckBox[inspectorCheckbox='true']::indicator:disabled {{
+            background: {tokens.control_bg_disabled};
+            border-color: {tokens.panel_border};
+        }}
         {root} QPlainTextEdit#selectionSecondaryLabel {{
             background: transparent;
             border: none;
@@ -323,31 +344,13 @@ def build_timeline_editor_bar_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             border: {scales.border_width}px solid {tokens.control_border};
             border-radius: {scales.button_radius}px;
             color: {tokens.control_text};
-            padding: 1px 4px;
-            min-height: {TIMELINE_EDITOR_BUTTON_MIN_HEIGHT_PX}px;
+            padding: 0;
+            min-height: 22px;
+            max-height: 22px;
+            min-width: 28px;
+            max-width: 28px;
             font-weight: 700;
             font-size: 10px;
-        }}
-        {root} QPushButton[timelineModeButton='true'] {{
-            min-width: 38px;
-        }}
-        {root} QPushButton#timelineEditorGridButton {{
-            min-width: 50px;
-        }}
-        {root} QPushButton#timelineEditorSettingsButton,
-        {root} QPushButton#timelineEditorOscSettingsButton,
-        {root} QPushButton#timelineEditorPipelineSettingsButton,
-        {root} QPushButton#timelineEditorRegionsButton {{
-            min-width: 38px;
-        }}
-        {root} QPushButton#timelineEditorFixRemoveButton,
-        {root} QPushButton#timelineEditorFixPromoteButton {{
-            min-width: 24px;
-            padding-left: 3px;
-            padding-right: 3px;
-        }}
-        {root} QPushButton#timelineEditorFixSelectButton {{
-            min-width: 32px;
         }}
         {root} QPushButton[timelineModeButton='true']:checked,
         {root} QPushButton#timelineEditorSnapButton:checked,
@@ -481,7 +484,11 @@ def build_timeline_splitter_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
 def build_action_settings_dialog_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
     scales = tokens.scales
     root = "QDialog#actionSettingsDialog"
-    roots = "QDialog#actionSettingsDialog, QDialog#pipelineSettingsBrowserDialog"
+    roots = (
+        "QDialog#actionSettingsDialog, "
+        "QDialog#pipelineSettingsBrowserDialog, "
+        "QDialog#oscSettingsDialog"
+    )
     return f"""
         {roots} {{
             background: {tokens.window_bg};
@@ -713,6 +720,76 @@ def build_action_settings_dialog_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         {root} QDialogButtonBox#actionSettingsButtons {{
             border-top: {scales.border_width}px solid {tokens.panel_border};
             padding-top: 4px;
+        }}
+        QDialog#oscSettingsDialog QFrame#oscSettingsDialogHeader[section='true'] {{
+            background: {tokens.panel_bg};
+            border: {scales.border_width}px solid {tokens.panel_border};
+            border-radius: {scales.panel_radius}px;
+        }}
+        QDialog#oscSettingsDialog QLabel#oscSettingsDialogEyebrow {{
+            color: {tokens.text_secondary};
+            font-size: 9px;
+            font-weight: 800;
+            letter-spacing: 0px;
+        }}
+        QDialog#oscSettingsDialog QLabel#oscSettingsDialogTitle {{
+            color: {tokens.text_primary};
+            font-size: 15px;
+            font-weight: 800;
+        }}
+        QDialog#oscSettingsDialog QLabel#oscSettingsDialogSummary,
+        QDialog#oscSettingsDialog QLabel#oscSettingsDialogStorePath {{
+            color: {tokens.text_secondary};
+            font-size: 10px;
+        }}
+        QDialog#oscSettingsDialog QLabel#oscSettingsDialogWarnings {{
+            color: #ffb84d;
+            font-size: 10px;
+            font-weight: 700;
+        }}
+        QDialog#oscSettingsDialog QWidget#settingsPageForm QLabel[settingsRole='sectionTitle'] {{
+            font-size: 10px;
+            padding-top: 3px;
+        }}
+        QDialog#oscSettingsDialog QWidget#settingsPageForm QLabel[settingsRole='fieldLabel'] {{
+            min-width: 0px;
+        }}
+        QDialog#oscSettingsDialog QGroupBox[section='true'] {{
+            background: {tokens.panel_alt_bg};
+            border: {scales.border_width}px solid {tokens.section_border};
+            border-radius: {scales.button_radius}px;
+            margin-top: 7px;
+            padding: 7px;
+            color: {tokens.text_primary};
+            font-weight: 800;
+            font-size: 10px;
+        }}
+        QDialog#oscSettingsDialog QGroupBox[section='true'][compact='true'] {{
+            padding: 8px;
+        }}
+        QDialog#oscSettingsDialog QGroupBox[section='true']::title {{
+            subcontrol-origin: margin;
+            left: 8px;
+            padding: 0 2px;
+        }}
+        QDialog#oscSettingsDialog QPlainTextEdit {{
+            background: {tokens.control_bg_disabled};
+            border-color: {tokens.control_border};
+            font-size: 10px;
+        }}
+        QDialog#oscSettingsDialog QSplitter#oscSettingsDialogSplitter::handle {{
+            background: transparent;
+            margin: 0;
+        }}
+        QDialog#oscSettingsDialog QLabel[statusLabel='true'] {{
+            background: {tokens.window_bg};
+            border: {scales.border_width}px solid {tokens.panel_border};
+            border-radius: {scales.button_radius}px;
+            padding: 2px 6px;
+        }}
+        QDialog#oscSettingsDialog QDialogButtonBox#oscSettingsDialogButtons {{
+            border-top: {scales.border_width}px solid {tokens.panel_border};
+            padding-top: 6px;
         }}
     """
 
@@ -1152,6 +1229,10 @@ def build_echozero_shell_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         QMenuBar#timelineLauncherMenuBar::item:pressed {{
             background: {tokens.control_bg_active};
             color: {tokens.text_primary};
+        }}
+        QLabel#timelineLauncherMenuLogo {{
+            background: transparent;
+            padding: 0 5px;
         }}
         QMenu {{
             background: {tokens.panel_bg};

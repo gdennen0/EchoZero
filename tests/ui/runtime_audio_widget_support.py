@@ -513,6 +513,64 @@ def test_widget_runtime_tick_preserves_paused_playhead_when_backend_visually_reg
         app.processEvents()
 
 
+def test_widget_runtime_tick_freezes_visual_clock_while_already_paused():
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(
+        _audio_presentation(),
+        is_playing=False,
+        playhead=4.257,
+        current_time_label="00:00:04.26",
+    )
+    runtime_audio = FakeRuntimeAudio()
+    runtime_audio.playing = False
+    widget = TimelineWidget(
+        presentation,
+        on_intent=lambda intent: presentation,
+        runtime_audio=runtime_audio,
+    )
+    widget._runtime_timer.stop()
+    try:
+        runtime_audio.current_time = 4.250
+        widget._on_runtime_tick()
+        runtime_audio.current_time = 4.267
+        widget._on_runtime_tick()
+
+        assert widget.presentation.playhead == pytest.approx(4.257)
+        assert widget.presentation.is_playing is False
+        assert widget.presentation.current_time_label == "00:00:04.26"
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_widget_dispatch_freezes_visual_clock_during_paused_non_transport_refresh():
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(
+        _audio_presentation(),
+        is_playing=False,
+        playhead=4.257,
+        current_time_label="00:00:04.26",
+    )
+    runtime_audio = FakeRuntimeAudio()
+    runtime_audio.playing = False
+    runtime_audio.current_time = 4.250
+
+    def _on_intent(intent):
+        return replace(presentation, playhead=0.0, current_time_label="00:00:00.00")
+
+    widget = TimelineWidget(presentation, on_intent=_on_intent, runtime_audio=runtime_audio)
+    widget._runtime_timer.stop()
+    try:
+        widget._dispatch(SetLayerMute(layer_id=presentation.layers[0].layer_id, muted=True))
+
+        assert widget.presentation.playhead == pytest.approx(4.257)
+        assert widget.presentation.is_playing is False
+        assert widget.presentation.current_time_label == "00:00:04.26"
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_widget_set_presentation_avoids_rebuilding_runtime_layers_when_sources_unchanged():
     app = QApplication.instance() or QApplication([])
     presentation = _audio_presentation()
@@ -888,7 +946,7 @@ def test_audio_engine_keeps_injected_streams_on_low_latency_with_unspecified_cal
     engine.shutdown()
 
 
-def test_runtime_controller_uses_unified_sounddevice_backend_for_audio_layers():
+def test_runtime_controller_uses_default_v2_backend_for_audio_layers():
     app = QApplication.instance() or QApplication([])
     presentation = _audio_presentation()
     controller = TimelineRuntimeAudioController(
@@ -898,9 +956,9 @@ def test_runtime_controller_uses_unified_sounddevice_backend_for_audio_layers():
         controller.build_for_presentation(presentation)
         state = controller.snapshot_state(presentation)
 
-        assert state.backend_name == "sounddevice"
+        assert state.backend_name == "audio_engine_v2"
         assert (
-            controller.engine.mixer.get_layer(TimelineRuntimeAudioController._PRIMARY_TRACK_ID)
+            controller.engine.get_layer(TimelineRuntimeAudioController._PRIMARY_TRACK_ID)
             is not None
         )
     finally:
@@ -1306,6 +1364,38 @@ def test_widget_external_presentation_update_resets_viewport_for_new_timeline():
         widget.apply_external_presentation_update(updated)
 
         assert widget.presentation.timeline_id == updated.timeline_id
+        assert widget.presentation.scroll_x == 144.0
+        assert widget.presentation.pixels_per_second == 120.0
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_widget_external_presentation_update_resets_viewport_for_new_song_version():
+    app = QApplication.instance() or QApplication([])
+    initial = replace(
+        _audio_presentation(),
+        active_song_version_id="version_one",
+        scroll_x=972.0,
+        pixels_per_second=180.0,
+    )
+    widget = TimelineWidget(initial, runtime_audio=None)
+    widget._runtime_timer.stop()
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+
+        updated = replace(
+            initial,
+            active_song_version_id="version_two",
+            scroll_x=144.0,
+            pixels_per_second=120.0,
+        )
+        widget.apply_external_presentation_update(updated)
+
+        assert widget.presentation.timeline_id == updated.timeline_id
+        assert widget.presentation.active_song_version_id == "version_two"
         assert widget.presentation.scroll_x == 144.0
         assert widget.presentation.pixels_per_second == 120.0
     finally:

@@ -1,6 +1,6 @@
 """
 Runtime audio engine selection for local app playback.
-Exists so dev/test runs can opt into the v2 live backend while v1 remains default.
+Exists so legacy/dev runs can opt into v1 while v2 remains the default live backend.
 Connects playback controller construction to reversible backend selection.
 """
 
@@ -20,13 +20,15 @@ RuntimeAudioEngine: TypeAlias = AudioEngine | V2LiveAudioEngine
 def selected_audio_engine_backend(
     requested: str | None = None,
 ) -> AudioEngineBackendName:
-    """Return the requested runtime audio backend, defaulting safely to v1."""
+    """Return the requested runtime audio backend, defaulting to v2."""
 
-    value = str(requested if requested is not None else os.environ.get(ENGINE_BACKEND_ENV, ""))
+    value = str(requested if requested is not None else os.environ.get(ENGINE_BACKEND_ENV, "v2"))
     normalized = value.strip().lower()
+    if normalized in {"v1", "audio_engine_v1", "engine_v1"}:
+        return "v1"
     if normalized in {"v2", "audio_engine_v2", "engine_v2"}:
         return "v2"
-    return "v1"
+    return "v2"
 
 
 def build_runtime_audio_engine(

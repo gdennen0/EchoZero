@@ -11,6 +11,7 @@ from echozero.application.audio_engine_v2.live_engine import V2LiveAudioEngine
 from echozero.application.playback.engine_selection import (
     ENGINE_BACKEND_ENV,
     build_runtime_audio_engine,
+    selected_audio_engine_backend,
 )
 from echozero.application.playback.process_service import PlaybackProcessService
 from echozero.application.settings import AudioOutputRuntimeConfig
@@ -89,6 +90,19 @@ def test_runtime_audio_engine_selection_keeps_v1_fallback() -> None:
     try:
         assert isinstance(engine, AudioEngine)
         assert engine.backend_name == "sounddevice"
+    finally:
+        engine.shutdown()
+
+
+def test_runtime_audio_engine_selection_defaults_to_v2() -> None:
+    engine = build_runtime_audio_engine(
+        channels=2,
+        stream_factory=_fake_stream_factory,
+    )
+
+    try:
+        assert selected_audio_engine_backend() == "v2"
+        assert isinstance(engine, V2LiveAudioEngine)
     finally:
         engine.shutdown()
 
@@ -179,6 +193,45 @@ def test_v2_live_backend_applies_mix_edit_while_playing_as_rt_ramp() -> None:
         engine.shutdown()
 
 
+def test_v2_live_backend_applies_solo_edit_while_playing_as_rt_ramp() -> None:
+    backend = _FakeOutputBackend()
+    engine = V2LiveAudioEngine(sample_rate=44100, channels=2, backend=backend)
+    bed = engine.create_track(
+        "__ez_route__bed",
+        np.ones(2048, dtype=np.float32),
+        44100,
+        volume=0.25,
+    )
+    lead = engine.create_track(
+        "__ez_route__lead",
+        np.ones(2048, dtype=np.float32),
+        44100,
+        volume=0.25,
+    )
+
+    try:
+        engine.replace_tracks([bed, lead])
+        engine.play()
+        before = np.zeros((128, 2), dtype=np.float32)
+        engine._audio_callback(before, 128, None, None)
+
+        changed = engine.apply_track_mix_updates(
+            {
+                "__ez_route__bed": (False, 0.25, bed.output_bus, False),
+                "__ez_route__lead": (False, 0.25, lead.output_bus, True),
+            }
+        )
+        after = np.zeros((128, 2), dtype=np.float32)
+        engine._audio_callback(after, 128, None, None)
+
+        assert changed is True
+        assert 0.25 < float(after[0, 0]) < 0.5
+        assert float(after[-1, 0]) == pytest.approx(0.25)
+        assert engine.get_track("__ez_route__lead").solo is True
+    finally:
+        engine.shutdown()
+
+
 def test_v2_live_backend_route_edit_while_playing_commits_graph_crossfade() -> None:
     engine = V2LiveAudioEngine(sample_rate=44100, channels=4, stream_factory=_fake_stream_factory)
     track = engine.create_track(
@@ -194,9 +247,7 @@ def test_v2_live_backend_route_edit_while_playing_commits_graph_crossfade() -> N
         before = np.zeros((128, 4), dtype=np.float32)
         engine._audio_callback(before, 128, None, None)
 
-        changed = engine.apply_track_mix_updates(
-            {"__ez_route__bed": (False, 1.0, "outputs_3_3")}
-        )
+        changed = engine.apply_track_mix_updates({"__ez_route__bed": (False, 1.0, "outputs_3_3")})
         after = np.zeros((128, 4), dtype=np.float32)
         engine._audio_callback(after, 128, None, None)
 
@@ -330,6 +381,36 @@ def test_process_service_build_controller_selects_v2_from_env_with_fake_backend(
         assert controller.engine.output_config.hardware_resolution_reason == (
             "injected-test-backend"
         )
+    finally:
+        controller.shutdown()
+
+
+def test_process_service_honors_explicit_high_latency_config_with_fake_backend(
+    monkeypatch,
+) -> None:
+    backend = _FakeOutputBackend()
+
+    monkeypatch.setenv(ENGINE_BACKEND_ENV, "v2")
+    monkeypatch.setattr(
+        "echozero.application.audio_engine_v2.live_engine.SounddeviceBackend",
+        lambda **_kwargs: backend,
+    )
+    service = PlaybackProcessService.__new__(PlaybackProcessService)
+    service._profile_index = 1
+    service._base_audio_config = AudioOutputRuntimeConfig(
+        sample_rate=48000,
+        channels=2,
+        stream_latency="high",
+        stream_blocksize=None,
+        prime_output_buffers_using_stream_callback=True,
+    )
+
+    controller = service._build_controller()
+
+    try:
+        assert isinstance(controller.engine, V2LiveAudioEngine)
+        assert controller.engine.stream_latency == "high"
+        assert controller.engine.stream_blocksize == 1024
     finally:
         controller.shutdown()
 

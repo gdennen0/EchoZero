@@ -2,7 +2,7 @@ from dataclasses import replace
 
 from PyQt6.QtCore import QMimeData, QPointF, Qt, QUrl
 from PyQt6.QtGui import QDropEvent
-from PyQt6.QtWidgets import QApplication, QAbstractItemView
+from PyQt6.QtWidgets import QApplication, QAbstractItemView, QMenu
 
 from echozero.application.presentation.models import (
     SongOptionPresentation,
@@ -12,6 +12,25 @@ from echozero.application.presentation.models import (
 from echozero.ui.qt.song_browser_drop import SongBrowserAudioDrop
 from echozero.ui.qt.song_browser_panel import SongBrowserPanel
 from tests.ui.timeline_shell_shared_support import _song_switching_presentation
+
+
+def _capture_context_menu(monkeypatch):
+    captured: dict[str, QMenu] = {}
+
+    def capture_exec(menu: QMenu, *_args, **_kwargs):
+        captured["menu"] = menu
+        return None
+
+    monkeypatch.setattr("echozero.ui.qt.song_browser_panel.QMenu.exec", capture_exec)
+    return captured
+
+
+def _menu_labels(menu: QMenu) -> list[str]:
+    return [action.text() for action in menu.actions() if not action.isSeparator()]
+
+
+def _separator_indexes(menu: QMenu) -> list[int]:
+    return [index for index, action in enumerate(menu.actions()) if action.isSeparator()]
 
 
 def _many_songs_presentation(song_count: int) -> TimelinePresentation:
@@ -80,6 +99,110 @@ def test_song_browser_panel_renders_song_and_version_lists():
         assert panel._version_list.item(1).text() == "V2: Festival Edit [Active]"
         assert panel._active_song_title.text() == "Alpha Song"
         assert "Festival Edit" in panel._active_song_version.text()
+    finally:
+        panel.close()
+        app.processEvents()
+
+
+def test_song_browser_panel_versions_list_uses_half_song_list_height():
+    app = QApplication.instance() or QApplication([])
+    panel = SongBrowserPanel(_song_switching_presentation())
+    try:
+        browser_layout = panel._browser_page.layout()
+
+        assert browser_layout.stretch(2) == 2
+        assert browser_layout.stretch(4) == 1
+    finally:
+        panel.close()
+        app.processEvents()
+
+
+def test_song_browser_single_song_context_menu_is_grouped(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    captured = _capture_context_menu(monkeypatch)
+    panel = SongBrowserPanel(_song_switching_presentation())
+    try:
+        panel.show()
+        app.processEvents()
+        item = panel._songs_tree.topLevelItem(0)
+        panel._open_song_context_menu(panel._songs_tree.visualItemRect(item).center())
+
+        menu = captured["menu"]
+        assert _menu_labels(menu) == [
+            "Select Song",
+            "Rename Song...",
+            "Add Version...",
+            "Move Up",
+            "Move Down",
+            "Delete Song",
+        ]
+        assert _separator_indexes(menu) == [1, 4, 7]
+        assert menu.actions()[-1].property("destructive") is True
+    finally:
+        panel.close()
+        app.processEvents()
+
+
+def test_song_browser_multi_selection_context_menu_is_grouped(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    captured = _capture_context_menu(monkeypatch)
+    panel = SongBrowserPanel(_song_switching_presentation())
+    try:
+        panel.show()
+        first_item = panel._songs_tree.topLevelItem(0)
+        second_item = panel._songs_tree.topLevelItem(1)
+        first_item.setSelected(True)
+        second_item.setSelected(True)
+        panel._sync_selection_from_tree()
+        app.processEvents()
+
+        panel._open_song_context_menu(panel._songs_tree.visualItemRect(first_item).center())
+
+        menu = captured["menu"]
+        assert _menu_labels(menu) == [
+            "Move Selected Songs to Top",
+            "Move Selected Songs to Bottom",
+            "Delete Selected Songs",
+        ]
+        assert _separator_indexes(menu) == [2]
+        assert menu.actions()[-1].property("destructive") is True
+    finally:
+        panel.close()
+        app.processEvents()
+
+
+def test_song_browser_empty_area_context_menu_keeps_add_first(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    captured = _capture_context_menu(monkeypatch)
+    panel = SongBrowserPanel(_song_switching_presentation())
+    try:
+        panel.show()
+        app.processEvents()
+        panel._open_song_context_menu(panel._songs_tree.viewport().rect().bottomRight())
+
+        menu = captured["menu"]
+        assert _menu_labels(menu)[0] == "Add Song"
+        assert "Delete Selected Songs" in _menu_labels(menu)
+        assert menu.actions()[-1].property("destructive") is True
+    finally:
+        panel.close()
+        app.processEvents()
+
+
+def test_song_browser_version_context_menu_is_grouped(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    captured = _capture_context_menu(monkeypatch)
+    panel = SongBrowserPanel(_song_switching_presentation())
+    try:
+        panel.show()
+        app.processEvents()
+        item = panel._version_list.item(0)
+        panel._open_version_context_menu(panel._version_list.visualItemRect(item).center())
+
+        menu = captured["menu"]
+        assert _menu_labels(menu) == ["Switch to Version", "Delete Version"]
+        assert _separator_indexes(menu) == [1]
+        assert menu.actions()[-1].property("destructive") is True
     finally:
         panel.close()
         app.processEvents()

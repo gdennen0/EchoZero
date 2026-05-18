@@ -6,6 +6,7 @@ Connects app-facing presentation and intents to reusable timeline blocks and dia
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import cast
 
 from PyQt6.QtCore import QEvent, QObject, Qt, QTimer
@@ -15,6 +16,7 @@ from PyQt6.QtGui import (
     QDragMoveEvent,
     QDropEvent,
     QKeySequence,
+    QPixmap,
     QShortcut,
 )
 from PyQt6.QtWidgets import (
@@ -86,6 +88,10 @@ from echozero.ui.qt.timeline.widget_viewport import (
 )
 from echozero.ui.style.qt import ensure_qt_theme_installed
 
+_LAUNCHER_LOGO_PATH = Path(__file__).resolve().parent / "assets" / "ez_text_icon.png"
+_LAUNCHER_LOGO_HEIGHT_PX = 16
+_LAUNCHER_LOGO_CONTAINER_HEIGHT_PX = 22
+
 
 class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QWidget):
     def __init__(
@@ -137,6 +143,12 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._launcher_menu_bar = QMenuBar(self)
         self._launcher_menu_bar.setObjectName("timelineLauncherMenuBar")
         self._launcher_menu_bar.setNativeMenuBar(False)
+        self._launcher_menu_logo = self._build_launcher_menu_logo()
+        if self._launcher_menu_logo is not None:
+            self._launcher_menu_bar.setCornerWidget(
+                self._launcher_menu_logo,
+                Qt.Corner.TopRightCorner,
+            )
         self._launcher_menu_bar.hide()
         root_layout.addWidget(self._launcher_menu_bar)
 
@@ -376,6 +388,25 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
 
         self.set_presentation(self.presentation)
 
+    def _build_launcher_menu_logo(self) -> QLabel | None:
+        pixmap = QPixmap(_LAUNCHER_LOGO_PATH.as_posix())
+        if pixmap.isNull():
+            return None
+        scaled_pixmap = pixmap.scaledToHeight(
+            _LAUNCHER_LOGO_HEIGHT_PX,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        logo = QLabel(self)
+        logo.setObjectName("timelineLauncherMenuLogo")
+        logo.setPixmap(scaled_pixmap)
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        logo.setFixedSize(
+            scaled_pixmap.width() + 10,
+            _LAUNCHER_LOGO_CONTAINER_HEIGHT_PX,
+        )
+        logo.setToolTip("EchoZero")
+        return logo
+
     def layer_header_width_px(self) -> int:
         return int(self._canvas._header_width)
 
@@ -477,16 +508,12 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         )
         drafts: list[SectionCueDraft] = []
         for event in ordered_events:
-            cue_ref = str(event.cue_ref or "").strip()
-            if not cue_ref:
-                continue
             drafts.append(
                 SectionCueDraft(
                     cue_id=SectionCueId(str(event.event_id)),
                     start=float(event.start),
-                    cue_ref=cue_ref,
-                    name=str(event.label or "").strip() or cue_ref,
-                    cue_number=event.cue_number,
+                    name=str(event.label or "").strip() or "Section",
+                    cue_ref=str(event.cue_ref or "").strip() or None,
                     color=event.color,
                     notes=event.notes,
                     payload_ref=event.payload_ref,
@@ -507,7 +534,7 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
                 "Select Section Layer",
                 (
                     "Section manager is per section layer.\n\n"
-                    "Select a section layer first (or create one) to open its cue stack."
+                    "Select a section layer first (or create one) to open its marker stack."
                 ),
             )
             return
@@ -515,7 +542,7 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
             self.presentation,
             parent=self,
             cues=self._section_layer_drafts(target_layer),
-            worksheet_title=f"{target_layer.title} Cue Stack",
+            worksheet_title=self._section_manager_title(target_layer),
             selected_cue_id=selected_cue_id,
         )
         if dialog.exec() != SectionManagerDialog.DialogCode.Accepted:
@@ -534,9 +561,7 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         current_draft = next((cue for cue in layer_drafts if cue.cue_id == section_cue_id), None)
         if current_draft is None:
             return
-        current_name = (
-            str(current_draft.name or "").strip() or str(current_draft.cue_ref or "").strip()
-        )
+        current_name = str(current_draft.name or "").strip() or "Section"
         renamed_value, accepted = QInputDialog.getText(
             self,
             "Rename Section",
@@ -549,14 +574,13 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         if not next_name or next_name == current_name:
             return
         drafts: list[SectionCueDraft] = [
-            SectionCueDraft(
-                cue_id=cue.cue_id,
-                start=float(cue.start),
-                cue_ref=cue.cue_ref,
-                name=next_name if cue.cue_id == section_cue_id else cue.name,
-                cue_number=cue.cue_number,
-                color=cue.color,
-                notes=cue.notes,
+                SectionCueDraft(
+                    cue_id=cue.cue_id,
+                    start=float(cue.start),
+                    name=next_name if cue.cue_id == section_cue_id else cue.name,
+                    cue_ref=cue.cue_ref,
+                    color=cue.color,
+                    notes=cue.notes,
                 payload_ref=cue.payload_ref,
             )
             for cue in layer_drafts
@@ -595,9 +619,8 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
                     SectionCueDraft(
                         cue_id=cue.cue_id,
                         start=next_start,
-                        cue_ref=cue.cue_ref,
                         name=cue.name,
-                        cue_number=cue.cue_number,
+                        cue_ref=cue.cue_ref,
                         color=cue.color,
                         notes=cue.notes,
                         payload_ref=cue.payload_ref,
@@ -706,9 +729,8 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
             SectionCueEdit(
                 cue_id=draft.cue_id,
                 start=float(draft.start),
-                cue_ref=draft.cue_ref,
                 name=draft.name,
-                cue_number=draft.cue_number,
+                cue_ref=draft.cue_ref,
                 color=draft.color,
                 notes=draft.notes,
                 payload_ref=draft.payload_ref,
@@ -721,6 +743,15 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
                 target_layer_id=target_layer_id,
             )
         )
+
+    @staticmethod
+    def _section_manager_title(target_layer: LayerPresentation) -> str:
+        title = str(target_layer.title or "").strip()
+        if not title:
+            return "Sections"
+        if title.casefold() == "sections":
+            return title
+        return f"{title} Sections"
 
     def configure_launcher_actions(self, actions: Mapping[str, QAction]) -> None:
         """Attach the canonical launcher actions to the widget menu bar."""

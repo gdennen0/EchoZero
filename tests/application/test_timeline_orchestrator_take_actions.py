@@ -61,6 +61,7 @@ from echozero.application.timeline.intents import (
     ClearSelection,
     CopiedEventClip,
     CreateEvent,
+    CreateEventSequenceFromSelection,
     DeleteEvents,
     DuplicateSelectedEvents,
     EventCueMappingEdit,
@@ -75,6 +76,7 @@ from echozero.application.timeline.intents import (
     SelectAdjacentLayer,
     SelectEveryOtherEvents,
     SelectSimilarEvents,
+    SelectSimilarEventSequences,
     SelectSimilarSoundingEvents,
     SelectEvent,
     SelectTake,
@@ -84,6 +86,7 @@ from echozero.application.timeline.intents import (
     SetLayerOutputBus,
     SetLayerSolo,
     SetSelectedEvents,
+    SnapEventsToBeatGrid,
     Stop,
     ToggleLayerExpanded,
     TriggerTakeAction,
@@ -257,15 +260,47 @@ def _event(
     start: float,
     *,
     metadata: dict[str, object] | None = None,
+    label: str | None = None,
+    classifications: dict[str, object] | None = None,
 ) -> Event:
     return Event(
         id=EventId(event_id),
         take_id=TakeId(take_id),
         start=start,
         end=start + 0.2,
-        label=event_id,
+        label=label or event_id,
         metadata=dict(metadata or {}),
+        classifications=dict(classifications or {}),
     )
+
+
+def _sequence_events(
+    prefix: str,
+    take_id: TakeId,
+    start: float,
+    offsets: list[float],
+) -> list[Event]:
+    return [
+        _event(f"{prefix}_{index}", str(take_id), start + offset)
+        for index, offset in enumerate(offsets, start=1)
+    ]
+
+
+def _noise_events(
+    *,
+    take_id: TakeId,
+    count: int,
+    reserved_spans: list[tuple[float, float]],
+) -> list[Event]:
+    events: list[Event] = []
+    candidate_index = 0
+    while len(events) < count:
+        time_seconds = 0.37 * candidate_index + 0.013 * ((candidate_index * 17) % 9)
+        candidate_index += 1
+        if any(start <= time_seconds <= end for start, end in reserved_spans):
+            continue
+        events.append(_event(f"noise_{len(events):03d}", str(take_id), time_seconds))
+    return events
 
 
 def _build_orchestrator_and_timeline() -> tuple[TimelineOrchestrator, Timeline, Layer, Take, Take]:
@@ -1119,6 +1154,301 @@ def test_select_similar_sounding_events_with_missing_audio_keeps_anchor_only():
     assert timeline.selection.selected_event_ids == [EventId("main_1")]
 
 
+def test_select_similar_event_sequences_matches_timed_pattern_elsewhere():
+    orchestrator, timeline, layer, main_take, _alt_take = _build_orchestrator_and_timeline()
+    main_take.events = [
+        _event("anchor_1", "take_main", 1.0),
+        _event("anchor_2", "take_main", 1.5),
+        _event("anchor_3", "take_main", 2.25),
+        _event("match_1", "take_main", 6.0),
+        _event("match_2", "take_main", 6.52),
+        _event("match_3", "take_main", 7.26),
+        _event("miss_1", "take_main", 10.0),
+        _event("miss_2", "take_main", 10.3),
+        _event("miss_3", "take_main", 11.3),
+    ]
+    orchestrator.handle(
+        timeline,
+        SetSelectedEvents(
+            event_ids=[EventId("anchor_1"), EventId("anchor_2"), EventId("anchor_3")],
+            anchor_layer_id=layer.id,
+            anchor_take_id=main_take.id,
+            selected_layer_ids=[layer.id],
+        ),
+    )
+
+    orchestrator.handle(
+        timeline,
+        SelectSimilarEventSequences(scope_mode="song_event_layers_main"),
+    )
+
+    assert timeline.selection.selected_event_ids == [
+        EventId("anchor_1"),
+        EventId("anchor_2"),
+        EventId("anchor_3"),
+        EventId("match_1"),
+        EventId("match_2"),
+        EventId("match_3"),
+    ]
+
+
+def test_create_event_sequence_from_selection_writes_ordered_metadata():
+    orchestrator, timeline, layer, main_take, _alt_take = _build_orchestrator_and_timeline()
+    main_take.events = [
+        _event("third", "take_main", 3.0),
+        _event("first", "take_main", 1.0),
+        _event("second", "take_main", 2.0),
+    ]
+    orchestrator.handle(
+        timeline,
+        SetSelectedEvents(
+            event_ids=[EventId("third"), EventId("first"), EventId("second")],
+            anchor_layer_id=layer.id,
+            anchor_take_id=main_take.id,
+            selected_layer_ids=[layer.id],
+        ),
+    )
+
+    orchestrator.handle(timeline, CreateEventSequenceFromSelection(name="Verse hits"))
+
+    by_id = {event.id: event for event in main_take.events}
+    sequence_ids = {
+        str(by_id[event_id].metadata["sequence"]["id"])
+        for event_id in (EventId("first"), EventId("second"), EventId("third"))
+    }
+    assert len(sequence_ids) == 1
+    assert by_id[EventId("first")].metadata["sequence"] == {
+        "id": next(iter(sequence_ids)),
+        "name": "Verse hits",
+        "order": 1,
+        "size": 3,
+        "created_from": "user",
+    }
+    assert by_id[EventId("second")].metadata["sequence"]["order"] == 2
+    assert by_id[EventId("third")].metadata["sequence"]["order"] == 3
+    assert timeline.selection.selected_event_ids == [
+        EventId("first"),
+        EventId("second"),
+        EventId("third"),
+    ]
+
+
+def test_create_event_sequence_replaces_membership_for_selected_events_only():
+    orchestrator, timeline, layer, main_take, _alt_take = _build_orchestrator_and_timeline()
+    old_sequence = {
+        "id": "seq_old",
+        "name": "Old",
+        "order": 1,
+        "size": 3,
+        "created_from": "user",
+    }
+    main_take.events = [
+        _event("first", "take_main", 1.0, metadata={"sequence": dict(old_sequence)}),
+        _event("second", "take_main", 2.0, metadata={"sequence": dict(old_sequence)}),
+        _event("third", "take_main", 3.0, metadata={"sequence": dict(old_sequence)}),
+    ]
+    orchestrator.handle(
+        timeline,
+        SetSelectedEvents(
+            event_ids=[EventId("first"), EventId("second")],
+            anchor_layer_id=layer.id,
+            anchor_take_id=main_take.id,
+            selected_layer_ids=[layer.id],
+        ),
+    )
+
+    orchestrator.handle(timeline, CreateEventSequenceFromSelection())
+
+    by_id = {event.id: event for event in main_take.events}
+    assert by_id[EventId("first")].metadata["sequence"]["id"] != "seq_old"
+    assert by_id[EventId("second")].metadata["sequence"]["id"] == by_id[
+        EventId("first")
+    ].metadata["sequence"]["id"]
+    assert by_id[EventId("second")].metadata["sequence"]["size"] == 2
+    assert by_id[EventId("third")].metadata["sequence"] == old_sequence
+
+
+def test_select_similar_event_sequences_allows_one_missing_hit_in_longer_pattern():
+    orchestrator, timeline, layer, main_take, _alt_take = _build_orchestrator_and_timeline()
+    main_take.events = [
+        _event("anchor_1", "take_main", 1.0),
+        _event("anchor_2", "take_main", 1.5),
+        _event("anchor_3", "take_main", 2.25),
+        _event("anchor_4", "take_main", 3.0),
+        _event("anchor_5", "take_main", 4.0),
+    ]
+    other_take = Take(
+        id=TakeId("take_snare"),
+        layer_id=LayerId("layer_snare"),
+        name="Main",
+        events=[
+            _event("snare_match_1", "take_snare", 8.0),
+            _event("snare_match_2", "take_snare", 8.5),
+            _event("snare_match_3", "take_snare", 9.25),
+            _event("snare_match_5", "take_snare", 11.0),
+            _event("snare_miss_1", "take_snare", 14.0),
+            _event("snare_miss_2", "take_snare", 14.35),
+            _event("snare_miss_3", "take_snare", 15.2),
+            _event("snare_miss_4", "take_snare", 16.7),
+        ],
+    )
+    timeline.layers.append(
+        Layer(
+            id=LayerId("layer_snare"),
+            timeline_id=timeline.id,
+            name="Snare",
+            kind=LayerKind.EVENT,
+            order_index=1,
+            takes=[other_take],
+        )
+    )
+    orchestrator.handle(
+        timeline,
+        SetSelectedEvents(
+            event_ids=[
+                EventId("anchor_1"),
+                EventId("anchor_2"),
+                EventId("anchor_3"),
+                EventId("anchor_4"),
+                EventId("anchor_5"),
+            ],
+            anchor_layer_id=layer.id,
+            anchor_take_id=main_take.id,
+            selected_layer_ids=[layer.id],
+        ),
+    )
+
+    orchestrator.handle(
+        timeline,
+        SelectSimilarEventSequences(scope_mode="song_event_layers_main"),
+    )
+
+    assert EventId("snare_match_5") in timeline.selection.selected_event_ids
+    assert EventId("snare_miss_4") not in timeline.selection.selected_event_ids
+
+
+def test_select_similar_event_sequences_ignores_hundreds_of_noise_events_and_near_misses():
+    orchestrator, timeline, layer, main_take, _alt_take = _build_orchestrator_and_timeline()
+    anchor_offsets = [0.0, 0.22, 0.89, 1.2, 2.11]
+    reserved_spans = [
+        (4.5, 7.2),
+        (44.5, 47.2),
+        (114.5, 117.2),
+        (174.5, 177.2),
+        (239.5, 242.2),
+    ]
+    events = _noise_events(
+        take_id=main_take.id,
+        count=420,
+        reserved_spans=reserved_spans,
+    )
+    events.extend(_sequence_events("anchor", main_take.id, 5.0, anchor_offsets))
+    events.extend(_sequence_events("full_a", main_take.id, 45.0, anchor_offsets))
+    events.extend(_sequence_events("full_b", main_take.id, 115.0, anchor_offsets))
+    events.extend(
+        _sequence_events("missing", main_take.id, 175.0, [0.0, 0.22, 0.89, 2.11])
+    )
+    events.extend(_sequence_events("near_miss", main_take.id, 240.0, [0.0, 0.29, 0.79, 1.35, 1.9]))
+    main_take.events = events
+    orchestrator.handle(
+        timeline,
+        SetSelectedEvents(
+            event_ids=[EventId(f"anchor_{index}") for index in range(1, 6)],
+            anchor_layer_id=layer.id,
+            anchor_take_id=main_take.id,
+            selected_layer_ids=[layer.id],
+        ),
+    )
+
+    orchestrator.handle(timeline, SelectSimilarEventSequences())
+
+    selected_ids = set(timeline.selection.selected_event_ids)
+    assert len(main_take.events) >= 430
+    assert selected_ids == {
+        EventId("anchor_1"),
+        EventId("anchor_2"),
+        EventId("anchor_3"),
+        EventId("anchor_4"),
+        EventId("anchor_5"),
+        EventId("full_a_1"),
+        EventId("full_a_2"),
+        EventId("full_a_3"),
+        EventId("full_a_4"),
+        EventId("full_a_5"),
+        EventId("full_b_1"),
+        EventId("full_b_2"),
+        EventId("full_b_3"),
+        EventId("full_b_4"),
+        EventId("full_b_5"),
+        EventId("missing_1"),
+        EventId("missing_2"),
+        EventId("missing_3"),
+        EventId("missing_4"),
+    }
+
+
+def test_select_similar_event_sequences_uses_labels_to_reject_cross_instrument_matches():
+    orchestrator, timeline, layer, main_take, _alt_take = _build_orchestrator_and_timeline()
+    main_take.events = [
+        _event(
+            "anchor_1",
+            "take_main",
+            1.0,
+            label="Kick",
+            classifications={"class": "kick"},
+        ),
+        _event(
+            "anchor_2",
+            "take_main",
+            1.5,
+            label="Kick",
+            classifications={"class": "kick"},
+        ),
+        _event(
+            "anchor_3",
+            "take_main",
+            2.25,
+            label="Kick",
+            classifications={"class": "kick"},
+        ),
+        _event("snare_1", "take_main", 6.0, label="Snare", classifications={"class": "snare"}),
+        _event("snare_2", "take_main", 6.5, label="Snare", classifications={"class": "snare"}),
+        _event(
+            "snare_3",
+            "take_main",
+            7.25,
+            label="Snare",
+            classifications={"class": "snare"},
+        ),
+        _event("kick_1", "take_main", 10.0, label="Kick", classifications={"class": "kick"}),
+        _event("kick_2", "take_main", 10.5, label="Kick", classifications={"class": "kick"}),
+        _event(
+            "kick_3",
+            "take_main",
+            11.25,
+            label="Kick",
+            classifications={"class": "kick"},
+        ),
+    ]
+    orchestrator.handle(
+        timeline,
+        SetSelectedEvents(
+            event_ids=[EventId("anchor_1"), EventId("anchor_2"), EventId("anchor_3")],
+            anchor_layer_id=layer.id,
+            anchor_take_id=main_take.id,
+            selected_layer_ids=[layer.id],
+        ),
+    )
+
+    orchestrator.handle(timeline, SelectSimilarEventSequences())
+
+    selected_ids = set(timeline.selection.selected_event_ids)
+    assert {EventId("kick_1"), EventId("kick_2"), EventId("kick_3")} <= selected_ids
+    assert {EventId("snare_1"), EventId("snare_2"), EventId("snare_3")}.isdisjoint(
+        selected_ids
+    )
+
+
 def test_compare_shape_similarity_aligns_shifted_curves():
     anchor = (0.0, 0.08, 0.42, 0.9, 1.0, 0.46, 0.15, 0.02)
     shifted = (0.0, 0.0, 0.08, 0.42, 0.9, 1.0, 0.46, 0.15)
@@ -1761,6 +2091,47 @@ def test_renumber_event_cue_numbers_restarts_per_selected_layer_main_scope():
     ]
 
 
+def test_snap_events_to_beat_grid_preserves_duration_and_scope_selection():
+    orchestrator, timeline, layer, main_take, alt_take = _build_orchestrator_and_timeline()
+    main_take.events = [
+        Event(
+            id=EventId("main_1"),
+            take_id=main_take.id,
+            start=0.23,
+            end=0.31,
+            cue_number=1,
+        ),
+        Event(
+            id=EventId("main_2"),
+            take_id=main_take.id,
+            start=0.61,
+            end=0.76,
+            cue_number=2,
+        ),
+    ]
+    timeline.selection.selected_layer_id = layer.id
+    timeline.selection.selected_layer_ids = [layer.id]
+    timeline.selection.selected_take_id = main_take.id
+
+    orchestrator.handle(
+        timeline,
+        SnapEventsToBeatGrid(
+            scope=EventBatchScope(mode="layer_main", layer_id=layer.id),
+            grid_denominator=8,
+            bpm=120.0,
+            beat_anchor_seconds=0.1,
+        ),
+    )
+
+    assert [event.start for event in main_take.events] == pytest.approx([0.35, 0.6])
+    assert [event.end for event in main_take.events] == pytest.approx([0.43, 0.75])
+    assert [event.id for event in alt_take.events] == [EventId("alt_1"), EventId("alt_2")]
+    assert timeline.selection.selected_layer_id == layer.id
+    assert timeline.selection.selected_layer_ids == [layer.id]
+    assert timeline.selection.selected_take_id == main_take.id
+    assert timeline.selection.selected_event_ids == [EventId("main_1"), EventId("main_2")]
+
+
 def test_update_event_cue_mappings_updates_target_events_on_main_take():
     orchestrator, timeline, layer, main_take, _alt_take = _build_orchestrator_and_timeline()
     main_take.events[0].cue_number = 1
@@ -1882,14 +2253,137 @@ def test_create_event_on_section_layer_creates_section_start_on_main_take():
     )
     assert created.start == pytest.approx(1.6)
     assert created.end == pytest.approx(1.68)
-    assert created.cue_number == 8
-    assert created.cue_ref == "Cue 8"
-    assert created.label == "Section 8"
+    assert created.cue_number is None
+    assert created.cue_ref is None
+    assert created.label == "Section"
+    assert section_main_take.events[0].cue_number is None
+    assert section_main_take.events[0].cue_ref is None
+    assert section_main_take.events[0].label == "Verse"
     assert section_alt_take.events == []
     assert timeline.selection.selected_layer_id == section_layer.id
     assert timeline.selection.selected_layer_ids == [section_layer.id]
     assert timeline.selection.selected_take_id == section_main_take.id
     assert timeline.selection.selected_event_ids == [created.id]
+
+
+def test_create_event_on_section_layer_inserts_and_renumbers_following_cues():
+    orchestrator, timeline, _layer, _main_take, _alt_take = _build_orchestrator_and_timeline()
+    section_main_take = Take(
+        id=TakeId("take_sections_main"),
+        layer_id=LayerId("layer_sections"),
+        name="Main",
+        events=[
+            Event(
+                id=EventId("section_1"),
+                take_id=TakeId("take_sections_main"),
+                start=1.0,
+                end=1.08,
+                cue_number=1,
+                label="Cue 1",
+                cue_ref="Cue 1",
+            ),
+            Event(
+                id=EventId("section_2"),
+                take_id=TakeId("take_sections_main"),
+                start=2.0,
+                end=2.08,
+                cue_number=2,
+                label="Cue 2",
+                cue_ref="Cue 2",
+            ),
+            Event(
+                id=EventId("section_3"),
+                take_id=TakeId("take_sections_main"),
+                start=3.0,
+                end=3.08,
+                cue_number=3,
+                label="Cue 3",
+                cue_ref="Cue 3",
+            ),
+            Event(
+                id=EventId("section_4"),
+                take_id=TakeId("take_sections_main"),
+                start=4.0,
+                end=4.08,
+                cue_number=4,
+                label="Cue 4",
+                cue_ref="Cue 4",
+            ),
+            Event(
+                id=EventId("section_5"),
+                take_id=TakeId("take_sections_main"),
+                start=5.0,
+                end=5.08,
+                cue_number=5,
+                label="Cue 5",
+                cue_ref="Cue 5",
+            ),
+            Event(
+                id=EventId("section_6"),
+                take_id=TakeId("take_sections_main"),
+                start=6.0,
+                end=6.08,
+                cue_number=6,
+                label="Cue 6",
+                cue_ref="Cue 6",
+            ),
+        ],
+    )
+    section_layer = Layer(
+        id=LayerId("layer_sections"),
+        timeline_id=timeline.id,
+        name="Sections",
+        kind=LayerKind.SECTION,
+        order_index=1,
+        takes=[section_main_take],
+    )
+    timeline.layers.append(section_layer)
+
+    orchestrator.handle(
+        timeline,
+        CreateEvent(
+            layer_id=section_layer.id,
+            take_id=section_main_take.id,
+            time_range=TimeRange(start=4.5, end=4.58),
+        ),
+    )
+
+    assert [event.start for event in section_main_take.events] == [
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        4.5,
+        5.0,
+        6.0,
+    ]
+    assert [event.cue_number for event in section_main_take.events] == [
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    ]
+    assert [event.cue_ref for event in section_main_take.events] == [
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    ]
+    assert [event.label for event in section_main_take.events] == [
+        "Section",
+        "Section",
+        "Section",
+        "Section",
+        "Section",
+        "Section",
+        "Section",
+    ]
 
 
 def test_delete_events_removes_records_and_clears_selected_take_when_selection_is_empty():

@@ -5,6 +5,7 @@ Connects typed push intents to layer main-take data and the sync-service push bo
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, Protocol, cast
 
 from echozero.application.session.models import (
@@ -13,6 +14,8 @@ from echozero.application.session.models import (
     ManualPushTrackGroupOption,
     ManualPushTrackOption,
 )
+from echozero.application.shared.enums import LayerKind
+from echozero.application.shared.cue_numbers import cue_number_from_ref_text, cue_number_text
 from echozero.application.shared.layer_kinds import is_event_like_layer_kind
 from echozero.application.shared.ids import LayerId
 from echozero.application.timeline.ma3_push_intents import (
@@ -167,13 +170,14 @@ class TimelineOrchestratorMA3PushMixin:
         self._require_ma3_event_layer(layer, action_name="PushLayerToMA3")
 
         selected_events = self._resolve_push_events_for_layer(timeline, layer, intent)
+        transfer_events = self._prepare_events_for_ma3_push(layer, selected_events)
         target_track_coord = self._resolve_push_target_coord(layer, intent)
         ma3_channel_no = self._resolve_push_target_channel_no(layer, intent)
         self._prepare_target_track_for_push_if_needed(
             target_track_coord=target_track_coord,
             sequence_action=intent.sequence_action,
             action_name="PushLayerToMA3",
-            selected_events=selected_events,
+            selected_events=transfer_events,
             allow_hitmaker_auto=True,
             fallback_event_type="hit",
         )
@@ -191,7 +195,7 @@ class TimelineOrchestratorMA3PushMixin:
                     error_message="Sync service does not support MA3 async push operations",
                     target_track_coord=target_track_coord,
                     ma3_channel_no=ma3_channel_no,
-                    selected_events=selected_events,
+                    selected_events=transfer_events,
                     transfer_mode=intent.apply_mode.value,
                     start_offset_seconds=push_offset_seconds,
                 )
@@ -211,7 +215,7 @@ class TimelineOrchestratorMA3PushMixin:
             error_message="Sync service does not support canonical MA3 push apply",
             target_track_coord=target_track_coord,
             ma3_channel_no=ma3_channel_no,
-            selected_events=selected_events,
+            selected_events=transfer_events,
             transfer_mode=intent.apply_mode.value,
             start_offset_seconds=push_offset_seconds,
         )
@@ -790,6 +794,36 @@ class TimelineOrchestratorMA3PushMixin:
         if not promoted_selected_events:
             raise ValueError("PushLayerToMA3 requires selected promoted main events to push")
         return promoted_selected_events
+
+    @staticmethod
+    def _prepare_events_for_ma3_push(layer: Layer, selected_events: list[Event]) -> list[Event]:
+        """Translate clean EZ section markers into MA3 cue-addressed events at the boundary."""
+
+        if layer.kind is not LayerKind.SECTION:
+            return selected_events
+        ordered_events = sorted(
+            selected_events,
+            key=lambda event: (float(event.start), float(event.end), str(event.id)),
+        )
+        transfer_events: list[Event] = []
+        for index, event in enumerate(ordered_events, start=1):
+            cue_number = cue_number_from_ref_text(event.cue_ref)
+            if cue_number is None and not (
+                event.cue_ref is None and event.cue_number == 1 and index != 1
+            ):
+                cue_number = event.cue_number
+            if cue_number is None:
+                cue_number = index
+            cue_ref = event.cue_ref or cue_number_text(cue_number) or str(cue_number)
+            transfer_events.append(
+                replace(
+                    event,
+                    cue_number=cue_number,
+                    cue_ref=cue_ref,
+                    label=str(event.label or "").strip() or f"Section {index}",
+                )
+            )
+        return transfer_events
 
     @staticmethod
     def _resolve_project_ma3_push_offset_seconds(session: Any) -> float:

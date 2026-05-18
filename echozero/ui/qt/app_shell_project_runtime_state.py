@@ -21,6 +21,15 @@ _RUNTIME_STATE_JSON_SCHEMA = "echozero.app_shell_runtime_state.v1"
 
 
 @dataclass(frozen=True, slots=True)
+class TimelineViewportRuntimeState:
+    """Persisted timeline viewport for one song version."""
+
+    pixels_per_second: float = 100.0
+    scroll_x: float = 0.0
+    scroll_y: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
 class ProjectRuntimeState:
     """Persisted app-shell runtime context loaded from project metadata."""
 
@@ -31,6 +40,7 @@ class ProjectRuntimeState:
     scroll_x: float = 0.0
     scroll_y: float = 0.0
     layer_header_width_px: int = 320
+    song_version_viewports: dict[str, TimelineViewportRuntimeState] | None = None
 
 
 def load_project_runtime_state(project_storage: ProjectStorage) -> ProjectRuntimeState:
@@ -74,6 +84,7 @@ def persist_project_runtime_state(
     presentation: TimelinePresentation,
     playhead: float | None = None,
     layer_header_width_px: int | None = None,
+    song_version_viewports: dict[str, TimelineViewportRuntimeState] | None = None,
 ) -> None:
     """Persist app-shell runtime context as editable JSON plus metadata fallback."""
 
@@ -81,6 +92,7 @@ def persist_project_runtime_state(
         presentation,
         playhead=playhead,
         layer_header_width_px=layer_header_width_px,
+        song_version_viewports=song_version_viewports,
     )
     _persist_runtime_state_json(_runtime_state_json_path(project_storage), payload)
     encoded_payload = json.dumps(payload, separators=(",", ":"))
@@ -133,6 +145,7 @@ def _payload_from_presentation(
     *,
     playhead: float | None,
     layer_header_width_px: int | None,
+    song_version_viewports: dict[str, TimelineViewportRuntimeState] | None,
 ) -> dict[str, Any]:
     active_song_id = (presentation.active_song_id or "").strip()
     active_song_version_id = (presentation.active_song_version_id or "").strip()
@@ -141,6 +154,14 @@ def _payload_from_presentation(
         if playhead is not None
         else _non_negative_float(presentation.playhead)
     )
+    viewports = dict(song_version_viewports or {})
+    if active_song_version_id:
+        viewports[active_song_version_id] = TimelineViewportRuntimeState(
+            pixels_per_second=_positive_float(presentation.pixels_per_second, fallback=100.0),
+            scroll_x=_non_negative_float(presentation.scroll_x),
+            scroll_y=_non_negative_float(presentation.scroll_y),
+        )
+
     return {
         "active_song_id": active_song_id or None,
         "active_song_version_id": active_song_version_id or None,
@@ -152,6 +173,7 @@ def _payload_from_presentation(
             layer_header_width_px,
             fallback=320,
         ),
+        "song_version_viewports": _viewport_payloads(viewports),
     }
 
 
@@ -168,7 +190,41 @@ def _state_from_payload(payload: dict[str, Any]) -> ProjectRuntimeState:
         scroll_x=_non_negative_float(payload.get("scroll_x")),
         scroll_y=_non_negative_float(payload.get("scroll_y")),
         layer_header_width_px=_positive_int(payload.get("layer_header_width_px"), fallback=320),
+        song_version_viewports=_viewports_from_payload(payload.get("song_version_viewports")),
     )
+
+
+def _viewport_payloads(
+    viewports: dict[str, TimelineViewportRuntimeState],
+) -> dict[str, dict[str, float]]:
+    return {
+        str(song_version_id): {
+            "pixels_per_second": _positive_float(viewport.pixels_per_second, fallback=100.0),
+            "scroll_x": _non_negative_float(viewport.scroll_x),
+            "scroll_y": _non_negative_float(viewport.scroll_y),
+        }
+        for song_version_id, viewport in sorted(viewports.items())
+        if str(song_version_id).strip()
+    }
+
+
+def _viewports_from_payload(value: object) -> dict[str, TimelineViewportRuntimeState]:
+    if not isinstance(value, dict):
+        return {}
+    viewports: dict[str, TimelineViewportRuntimeState] = {}
+    for raw_song_version_id, raw_viewport in value.items():
+        song_version_id = str(raw_song_version_id).strip()
+        if not song_version_id or not isinstance(raw_viewport, dict):
+            continue
+        viewports[song_version_id] = TimelineViewportRuntimeState(
+            pixels_per_second=_positive_float(
+                raw_viewport.get("pixels_per_second"),
+                fallback=100.0,
+            ),
+            scroll_x=_non_negative_float(raw_viewport.get("scroll_x")),
+            scroll_y=_non_negative_float(raw_viewport.get("scroll_y")),
+        )
+    return viewports
 
 
 def _optional_text(value: object) -> str | None:
@@ -210,6 +266,7 @@ def _positive_int(value: object, *, fallback: int) -> int:
 
 __all__ = [
     "ProjectRuntimeState",
+    "TimelineViewportRuntimeState",
     "load_project_runtime_state",
     "persist_project_runtime_state",
 ]

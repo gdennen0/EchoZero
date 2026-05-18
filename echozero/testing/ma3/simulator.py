@@ -557,12 +557,32 @@ class _SimulatedMA3OSCServer:
         self._execute(normalized)
 
     def _execute(self, command: str) -> None:
+        if self._handle_raw_store_sequence_cue_command(command):
+            return
         if self._handle_raw_label_command(command):
             return
         name, args = _parse_command(command)
         handler = getattr(self, f"_handle_{name}", None)
         if callable(handler):
             handler(*args)
+
+    def _handle_raw_store_sequence_cue_command(self, command: str) -> bool:
+        match = re.fullmatch(
+            r"(?i)\s*store\s+sequence\s+(\d+)\s+cue\s+"
+            r"(\d+(?:\.\d+)?)\s+(?:/nc|/noconfirmation)\s*",
+            str(command or ""),
+        )
+        if match is None:
+            return False
+        sequence_no = int(match.group(1))
+        cue_number = parse_positive_cue_number(match.group(2))
+        if cue_number is None:
+            return True
+        cues = self._sequence_cues_by_sequence_no.setdefault(sequence_no, [])
+        if not any(parse_positive_cue_number(cue.get("no")) == cue_number for cue in cues):
+            cues.append({"no": cue_number, "name": f"Cue {cue_number_text(cue_number)}"})
+            cues.sort(key=lambda cue: float(parse_positive_cue_number(cue.get("no")) or 0))
+        return True
 
     def _handle_raw_label_command(self, command: str) -> bool:
         match = re.fullmatch(
@@ -582,9 +602,6 @@ class _SimulatedMA3OSCServer:
             if parse_positive_cue_number(cue.get("no")) == cue_number:
                 cue["name"] = cue_name
                 break
-        else:
-            cues.append({"no": cue_number, "name": cue_name})
-            cues.sort(key=lambda cue: float(parse_positive_cue_number(cue.get("no")) or 0))
         return True
 
     def _handle_SetTarget(self, host: str, port: int) -> None:
