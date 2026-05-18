@@ -42,7 +42,7 @@ def test_playback_track_builder_preserves_wide_output_bus_when_device_supports_i
     assert plan.tracks[0].output_bus == "outputs_1_4"
 
 
-def test_playback_track_builder_prunes_output_bus_that_exceeds_device_channels() -> None:
+def test_playback_track_builder_preserves_output_bus_that_exceeds_device_channels() -> None:
     builder = PlaybackTrackBuilder(
         lambda _path: (np.array([0.25, -0.25], dtype=np.float32), 44100)
     )
@@ -54,10 +54,10 @@ def test_playback_track_builder_prunes_output_bus_that_exceeds_device_channels()
     plan = builder.build_track_plan(presentation)
 
     assert len(plan.tracks) == 1
-    assert plan.tracks[0].output_bus == "outputs_1_1"
+    assert plan.tracks[0].output_bus == "outputs_1_1,outputs_7_8"
 
 
-def test_playback_track_builder_disables_route_when_all_outputs_exceed_device_channels() -> None:
+def test_playback_track_builder_preserves_route_when_all_outputs_exceed_device_channels() -> None:
     builder = PlaybackTrackBuilder(
         lambda _path: (np.array([0.25, -0.25], dtype=np.float32), 44100)
     )
@@ -66,7 +66,7 @@ def test_playback_track_builder_disables_route_when_all_outputs_exceed_device_ch
     plan = builder.build_track_plan(presentation)
 
     assert len(plan.tracks) == 1
-    assert plan.tracks[0].output_bus == "none"
+    assert plan.tracks[0].output_bus == "outputs_7_8"
 
 
 def test_playback_track_builder_ignores_event_layer_source_audio_when_event_playback_disabled() -> (

@@ -13,7 +13,7 @@ from typing import Iterable
 
 MAX_OUTPUT_CHANNELS = 16
 DEFAULT_STEREO_OUTPUT_BUS = "outputs_1_2"
-DEFAULT_MASTER_OUTPUT_BUS = "outputs_1_1"
+DEFAULT_MASTER_OUTPUT_BUS = DEFAULT_STEREO_OUTPUT_BUS
 MASTER_OUTPUT_BUS_TOKEN = "master"
 NO_OUTPUT_BUS = "none"
 
@@ -116,7 +116,9 @@ def canonical_master_output_buses(
 ) -> tuple[str, ...]:
     """Canonicalize a comma-separated set of master mirror output routes."""
 
-    routes = _parse_routes(value, reject_invalid=reject_invalid)
+    routes = _collapse_adjacent_single_master_routes(
+        _parse_routes(value, reject_invalid=reject_invalid)
+    )
     tokens: list[str] = []
     seen: set[str] = set()
     for route in routes:
@@ -136,11 +138,41 @@ def canonical_master_output_buses(
     return tuple(route.token for route in fallback) or (DEFAULT_MASTER_OUTPUT_BUS,)
 
 
-def output_bus_options(channel_count: int) -> tuple[OutputBusRoute, ...]:
-    """Return single-physical-output choices for the configured output count."""
+def _collapse_adjacent_single_master_routes(
+    routes: tuple[OutputBusRoute, ...],
+) -> tuple[OutputBusRoute, ...]:
+    by_token = {route.token: route for route in routes}
+    collapsed: list[OutputBusRoute] = []
+    consumed: set[str] = set()
+    for route in routes:
+        if route.token in consumed:
+            continue
+        if route.start_channel == route.end_channel and route.start_channel % 2 == 1:
+            next_token = f"outputs_{route.start_channel + 1}_{route.start_channel + 1}"
+            next_route = by_token.get(next_token)
+            if next_route is not None:
+                pair = parse_output_bus_token(
+                    f"outputs_{route.start_channel}_{route.start_channel + 1}"
+                )
+                if pair is not None:
+                    collapsed.append(pair)
+                    consumed.add(route.token)
+                    consumed.add(next_route.token)
+                    continue
+        collapsed.append(route)
+        consumed.add(route.token)
+    return tuple(collapsed)
+
+
+def output_bus_options(
+    channel_count: int,
+    *,
+    include_stereo_pairs: bool = False,
+) -> tuple[OutputBusRoute, ...]:
+    """Return physical output choices for the configured output count."""
 
     resolved_count = max(1, min(MAX_OUTPUT_CHANNELS, int(channel_count or 0)))
-    return tuple(
+    routes = [
         OutputBusRoute(
             token=f"outputs_{channel}_{channel}",
             label=f"Output {channel}",
@@ -148,7 +180,18 @@ def output_bus_options(channel_count: int) -> tuple[OutputBusRoute, ...]:
             end_channel=channel,
         )
         for channel in range(1, resolved_count + 1)
-    )
+    ]
+    if include_stereo_pairs:
+        routes.extend(
+            OutputBusRoute(
+                token=f"outputs_{channel}_{channel + 1}",
+                label=f"Outputs {channel}-{channel + 1}",
+                start_channel=channel,
+                end_channel=channel + 1,
+            )
+            for channel in range(1, resolved_count, 2)
+        )
+    return tuple(routes)
 
 
 def output_bus_label(value: object) -> str:

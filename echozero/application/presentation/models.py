@@ -484,6 +484,7 @@ class LayerPresentation:
     video_path: str | None = None
     video_start_seconds: float = 0.0
     video_duration_seconds: float = 0.0
+    video_loop_enabled: bool = False
     status: LayerStatusPresentation = field(default_factory=LayerStatusPresentation)
     sync_target_channel_no: int | None = None
     object_id: TimelineObjectId | None = None

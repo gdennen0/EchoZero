@@ -113,6 +113,7 @@ class SongVideoPlacementRecord:
 
     song_version_id: str
     video_start_seconds: float = 0.0
+    video_loop_enabled: bool = False
 
 
 # ---------------------------------------------------------------------------

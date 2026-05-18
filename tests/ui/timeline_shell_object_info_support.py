@@ -219,6 +219,7 @@ def test_object_info_panel_audio_surface_exposes_inline_routing_controls():
         assert checkbox.isChecked() is False
         combo = widget._object_info._routing_table.cellWidget(0, 1)
         assert isinstance(combo, QComboBox)
+        assert combo.findData("outputs_3_4") >= 0
         combo.setCurrentIndex(combo.findData("outputs_3_3"))
         assert intents == [SetLayerOutputBus(layer_id=LayerId("layer_kick"), output_bus="none")]
         checkbox.setChecked(True)

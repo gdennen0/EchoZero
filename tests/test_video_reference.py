@@ -13,6 +13,9 @@ import zipfile
 
 import pytest
 
+from echozero.application.presentation.inspector_contract_context_actions import (
+    shared_context_sections,
+)
 from echozero.application.presentation.models import LayerPresentation, TimelinePresentation
 from echozero.application.shared.enums import LayerKind
 from echozero.application.shared.ids import LayerId, TimelineId
@@ -64,6 +67,21 @@ def test_video_timeline_mapping_clamps_before_and_after_clip() -> None:
     assert not mapping.contains_song_time(12.6)
 
 
+def test_video_timeline_mapping_wraps_when_loop_enabled() -> None:
+    mapping = VideoTimelineMapping(
+        video_path="/tmp/ref.mov",
+        start_seconds=2.5,
+        duration_seconds=10.0,
+        loop_enabled=True,
+    )
+
+    assert mapping.media_seconds_for_song_time(1.0) == 0.0
+    assert mapping.media_seconds_for_song_time(7.0) == 4.5
+    assert mapping.media_seconds_for_song_time(15.0) == pytest.approx(2.5)
+    assert not mapping.contains_song_time(1.0)
+    assert mapping.contains_song_time(120.0)
+
+
 def test_project_storage_imports_one_video_per_song_with_per_version_offset(
     tmp_path,
     monkeypatch,
@@ -106,6 +124,7 @@ def test_project_storage_imports_one_video_per_song_with_per_version_offset(
 
         first = storage.import_or_replace_song_video(song.id, tmp_path / "a.mov")
         storage.set_song_video_start_seconds(version.id, -1.25)
+        storage.set_song_video_loop_enabled(version.id, True)
         second = storage.import_or_replace_song_video(song.id, tmp_path / "b.mov")
 
         attachment = storage.song_video_attachments.get_by_song(song.id)
@@ -118,6 +137,7 @@ def test_project_storage_imports_one_video_per_song_with_per_version_offset(
         assert attachment.extracted_audio_file == "audio/video_refs/ref.wav"
         assert placement is not None
         assert placement.video_start_seconds == -1.25
+        assert placement.video_loop_enabled is True
     finally:
         storage.close()
 
@@ -206,6 +226,60 @@ def test_video_clock_corrects_playback_drift() -> None:
     assert decision.should_play is True
     assert decision.media_seconds == 4.0
     assert decision.should_seek is True
+
+
+def test_video_clock_loops_after_clip_end() -> None:
+    sync = VideoClockSync(drift_threshold_seconds=0.05)
+    mapping = VideoTimelineMapping(
+        "/tmp/ref.mov",
+        start_seconds=2.0,
+        duration_seconds=10.0,
+        loop_enabled=True,
+    )
+
+    decision = sync.decision(
+        mapping,
+        song_seconds=24.25,
+        audio_is_playing=True,
+        media_seconds=2.0,
+    )
+
+    assert decision.should_play is True
+    assert decision.media_seconds == pytest.approx(2.25)
+    assert decision.should_seek is True
+
+
+def test_video_mapping_from_presentation_preserves_loop_state(tmp_path: Path) -> None:
+    video_path = tmp_path / "ref.mov"
+    video_path.write_bytes(b"video")
+
+    mapping = video_mapping_from_presentation(
+        _video_presentation(video_path, loop_enabled=True)
+    )
+
+    assert mapping is not None
+    assert mapping.loop_enabled is True
+
+
+def test_video_layer_context_action_toggles_loop_state() -> None:
+    presentation = _video_presentation(Path("/tmp/ref.mov"), loop_enabled=False)
+    layer = presentation.layers[0]
+
+    sections = shared_context_sections(
+        presentation=presentation,
+        layer=layer,
+        take=None,
+        hit_target=None,
+        has_selected_events=False,
+        include_layer_transfer_controls=False,
+    )
+    actions = [action for section in sections for action in section.actions]
+    loop_action = next(
+        action for action in actions if action.action_id == "video.set_loop_enabled"
+    )
+
+    assert loop_action.label == "Enable Video Loop"
+    assert loop_action.params["enabled"] is True
 
 
 def test_runtime_video_update_syncs_presentation_and_clock() -> None:
@@ -366,6 +440,7 @@ def _video_presentation(
     video_path: Path,
     *,
     title: str = "Presentation",
+    loop_enabled: bool = False,
 ) -> TimelinePresentation:
     return TimelinePresentation(
         timeline_id=TimelineId("timeline-video"),
@@ -379,6 +454,7 @@ def _video_presentation(
                 video_path=str(video_path),
                 video_start_seconds=1.5,
                 video_duration_seconds=8.0,
+                video_loop_enabled=loop_enabled,
             )
         ],
     )

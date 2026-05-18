@@ -9,6 +9,7 @@ from echozero.application.shared.cue_numbers import (
     CueNumber,
     cue_number_text,
     cue_number_from_ref_text as shared_cue_number_from_ref_text,
+    normalize_ma_scaled_cue_number,
     parse_positive_cue_number,
 )
 
@@ -706,6 +707,13 @@ def transport_event_cue_ref(raw_event: Any) -> str | None:
     if cue_ref in {None, ""}:
         return None
     normalized = str(cue_ref).strip()
+    parsed = parse_positive_cue_number(normalized)
+    if parsed is not None:
+        return cue_number_text(normalize_ma_scaled_cue_number(parsed)) or normalized
+    if normalized.casefold().startswith("cue "):
+        cue_number = _cue_number_from_ref_text(normalized)
+        if cue_number is not None:
+            return cue_number_text(normalize_ma_scaled_cue_number(cue_number)) or normalized
     return normalized or None
 
 
@@ -723,28 +731,14 @@ def _coerce_possible_scaled_ma_cue_number(
     raw_cue_number: object,
     *hints: object,
 ) -> CueNumber | None:
+    del hints
     parsed = parse_positive_cue_number(raw_cue_number)
     if parsed is None:
         return None
     if not isinstance(parsed, int) or parsed < 1000:
         return parsed
-    scaled_candidate = parse_positive_cue_number(float(parsed) / 1000.0)
-    if scaled_candidate is None:
-        return parsed
-    for hint in hints:
-        hinted_cue_number = _cue_number_hint(hint)
-        if hinted_cue_number == scaled_candidate:
-            return scaled_candidate
-    return parsed
-
-
-def _cue_number_hint(value: object) -> CueNumber | None:
-    if value in {None, ""}:
-        return None
-    ref_number = _cue_number_from_ref_text(str(value))
-    if ref_number is not None:
-        return ref_number
-    return _cue_number_from_destination_text(value)
+    scaled_candidate = normalize_ma_scaled_cue_number(parsed)
+    return parsed if scaled_candidate is None else scaled_candidate
 
 
 def _cue_number_from_destination_text(cue_destination: object) -> CueNumber | None:

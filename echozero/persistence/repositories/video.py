@@ -103,24 +103,31 @@ class SongVideoPlacementRepository(BaseRepository[SongVideoPlacementRecord]):
         return SongVideoPlacementRecord(
             song_version_id=row["song_version_id"],
             video_start_seconds=float(row["video_start_seconds"]),
+            video_loop_enabled=bool(row["video_loop_enabled"]),
         )
 
     def upsert(self, record: SongVideoPlacementRecord) -> None:
         """Insert or update video placement for one song version."""
 
         self._execute(
-            "INSERT INTO song_video_placements (song_version_id, video_start_seconds) "
-            "VALUES (?, ?) "
+            "INSERT INTO song_video_placements "
+            "(song_version_id, video_start_seconds, video_loop_enabled) "
+            "VALUES (?, ?, ?) "
             "ON CONFLICT(song_version_id) DO UPDATE SET "
-            "video_start_seconds = excluded.video_start_seconds",
-            (record.song_version_id, float(record.video_start_seconds)),
+            "video_start_seconds = excluded.video_start_seconds, "
+            "video_loop_enabled = excluded.video_loop_enabled",
+            (
+                record.song_version_id,
+                float(record.video_start_seconds),
+                int(bool(record.video_loop_enabled)),
+            ),
         )
 
     def get(self, song_version_id: str) -> SongVideoPlacementRecord | None:
         """Return video placement for one song version, or None if absent."""
 
         row = self._fetchone(
-            "SELECT song_version_id, video_start_seconds "
+            "SELECT song_version_id, video_start_seconds, video_loop_enabled "
             "FROM song_video_placements WHERE song_version_id = ?",
             (song_version_id,),
         )

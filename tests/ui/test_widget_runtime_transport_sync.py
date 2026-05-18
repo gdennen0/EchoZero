@@ -2,12 +2,59 @@ from __future__ import annotations
 
 import pytest
 
+from echozero.application.presentation.models import TimelinePresentation
+from echozero.application.shared.ids import TimelineId
 from echozero.application.timeline.external_transport import normalize_external_transport_intents
 from echozero.application.timeline.intents import Pause, Play, Seek, Stop
 from echozero.ui.qt.timeline.widget_runtime_mixin import (
+    TimelineWidgetRuntimeMixin,
     _resolve_transport_action,
     _resolve_transport_seek_seconds,
 )
+
+
+class _RuntimeWithNoTransportUpdate:
+    def __init__(self) -> None:
+        self.apply_calls = 0
+
+    def consume_sync_transport_update(self) -> dict[str, object] | None:
+        return None
+
+    def apply_sync_transport_update(
+        self,
+        payload: dict[str, object] | None,
+        *,
+        current_playhead_seconds: float | None = None,
+        current_is_playing: bool | None = None,
+    ) -> TimelinePresentation:
+        self.apply_calls += 1
+        return TimelinePresentation(
+            timeline_id=TimelineId("unexpected"),
+            title="Unexpected",
+        )
+
+
+class _RuntimeTickHost:
+    def __init__(self, runtime: _RuntimeWithNoTransportUpdate) -> None:
+        self.presentation = TimelinePresentation(
+            timeline_id=TimelineId("timeline_transport"),
+            title="Transport",
+        )
+        self._runtime = runtime
+        self._runtime_audio = None
+        self._runtime_mix_sync_pending_presentation = None
+        self._runtime_structural_sync_pending_presentation = None
+        self.set_presentation_calls = 0
+
+    def _resolve_runtime_shell(self) -> _RuntimeWithNoTransportUpdate:
+        return self._runtime
+
+    def _sync_runtime_timer_cadence(self) -> None:
+        return None
+
+    def set_presentation(self, presentation: TimelinePresentation) -> None:
+        self.set_presentation_calls += 1
+        self.presentation = presentation
 
 
 def test_resolve_transport_seek_seconds_prefers_normalized_playhead_value() -> None:
@@ -28,6 +75,16 @@ def test_resolve_transport_seek_seconds_falls_back_to_nested_fields() -> None:
 
 def test_resolve_transport_seek_seconds_returns_none_without_position_values() -> None:
     assert _resolve_transport_seek_seconds({"change": "state", "is_playing": True}) is None
+
+
+def test_runtime_tick_skips_external_transport_apply_without_update() -> None:
+    runtime = _RuntimeWithNoTransportUpdate()
+    host = _RuntimeTickHost(runtime)
+
+    TimelineWidgetRuntimeMixin._on_runtime_tick(host)
+
+    assert runtime.apply_calls == 0
+    assert host.set_presentation_calls == 0
 
 
 def test_resolve_transport_action_prefers_change_and_supports_play_pause_stop() -> None:

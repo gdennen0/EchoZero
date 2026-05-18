@@ -60,6 +60,19 @@ def cue_number_text(value: CueNumber | None) -> str | None:
     return format(parsed, "f").rstrip("0").rstrip(".")
 
 
+def normalize_ma_scaled_cue_number(value: object) -> CueNumber | None:
+    """Normalize MA3 thousand-scaled cue payloads back to operator cue numbers."""
+
+    parsed = parse_positive_cue_number(value)
+    if parsed is None:
+        return None
+    if isinstance(parsed, int) and parsed >= 1000:
+        scaled = parse_positive_cue_number(float(parsed) / 1000.0)
+        if scaled is not None:
+            return scaled
+    return parsed
+
+
 def cue_number_from_ref_text(cue_ref: str | None) -> CueNumber | None:
     """Resolve one best-effort cue number from a cue-ref string."""
 

@@ -151,6 +151,7 @@ def _apply_video_fields(
         video_path=video_fields.video_path,
         video_start_seconds=float(video_fields.video_start_seconds),
         video_duration_seconds=float(video_fields.video_duration_seconds),
+        video_loop_enabled=bool(video_fields.video_loop_enabled),
     )
 
 

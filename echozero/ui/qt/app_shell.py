@@ -6,6 +6,7 @@ Connects launcher and app-flow entrypoints to the Stage Zero shell contract.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import TypeVar, cast
 
@@ -275,7 +276,31 @@ class StageZeroRuntimeController(
         self._review_server_controller.disable()
 
     def presentation(self) -> TimelinePresentation:
-        return self._app.presentation()
+        return self._with_app_settings_output_channels(self._app.presentation())
+
+    def _with_app_settings_output_channels(
+        self,
+        presentation: TimelinePresentation,
+    ) -> TimelinePresentation:
+        if self._app_settings_service is None:
+            return presentation
+        resolve_channel_count = getattr(
+            self._app_settings_service,
+            "resolve_audio_output_channel_count",
+            None,
+        )
+        if not callable(resolve_channel_count):
+            return presentation
+        try:
+            settings_channels = int(resolve_channel_count() or 0)
+        except Exception:
+            return presentation
+        if settings_channels <= int(presentation.playback_output_channels or 0):
+            return presentation
+        return replace(
+            presentation,
+            playback_output_channels=min(16, max(1, settings_channels)),
+        )
 
     def consume_sync_transport_update(self) -> dict[str, object] | None:
         bridge = self._sync_bridge
@@ -657,6 +682,25 @@ class StageZeroRuntimeController(
         self.project_storage.set_song_video_start_seconds(
             str(active_song_version_id),
             float(offset_seconds),
+        )
+        self._refresh_from_storage(
+            active_song_id=active_song_id,
+            active_song_version_id=active_song_version_id,
+        )
+        self._sync_video_playback_from_presentation()
+        self._is_dirty = True
+        return self.presentation()
+
+    def set_active_song_video_loop_enabled(self, enabled: bool) -> TimelinePresentation:
+        """Persist whether the active song version's video reference loops."""
+
+        active_song_id = self.session.active_song_id
+        active_song_version_id = self.session.active_song_version_id
+        if active_song_version_id is None:
+            raise ValueError("Select a song version before changing video loop state.")
+        self.project_storage.set_song_video_loop_enabled(
+            str(active_song_version_id),
+            bool(enabled),
         )
         self._refresh_from_storage(
             active_song_id=active_song_id,

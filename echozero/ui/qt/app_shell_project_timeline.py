@@ -193,6 +193,7 @@ def build_project_native_baseline_timeline(
         )
         placement = project_storage.song_video_placements.get(version.id)
         video_start_seconds = 0.0 if placement is None else float(placement.video_start_seconds)
+        video_loop_enabled = False if placement is None else bool(placement.video_loop_enabled)
         video_path = resolve_project_video_path(
             project_storage.working_dir,
             video_attachment.video_file,
@@ -217,6 +218,7 @@ def build_project_native_baseline_timeline(
             video_path=str(video_path),
             video_start_seconds=video_start_seconds,
             video_duration_seconds=float(video_attachment.duration_seconds),
+            video_loop_enabled=video_loop_enabled,
         )
     for layer_record in project_storage.layers.list_by_version(version.id):
         layer, layer_fields, take_fields = build_storage_layer(

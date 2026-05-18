@@ -7,7 +7,12 @@ from tests.ui.runtime_audio_shared_support import *  # noqa: F401,F403
 from echozero.ui.FEEL import TIMELINE_RUNTIME_TICK_IDLE_MS
 from echozero.application.presentation.models import SectionCuePresentation
 from echozero.application.shared.ranges import TimeRange
-from echozero.application.timeline.intents import CreateEvent, SetSelectedEvents
+from echozero.application.timeline.intents import (
+    CreateEvent,
+    ReplaceSectionCues,
+    SectionCueEdit,
+    SetSelectedEvents,
+)
 from echozero.application.timeline.models import EventRef
 from tests.ui.timeline_shell_shared_support import _selection_test_presentation
 
@@ -219,6 +224,62 @@ def test_widget_dispatch_skips_canvas_layout_recompute_for_live_create_event(mon
                 layer_id=LayerId("kick_lane"),
                 take_id=None,
                 time_range=TimeRange(start=1.0, end=1.1),
+            )
+        )
+
+        assert layout_flags[-1] is False
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_widget_dispatch_skips_canvas_layout_recompute_for_live_section_rename(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(
+        _event_slice_presentation(),
+        is_playing=True,
+        playhead=1.0,
+        current_time_label="00:00:01.00",
+    )
+    runtime_audio = FakeRuntimeAudio()
+    runtime_audio.playing = True
+    runtime_audio.current_time = 1.0
+
+    def _on_intent(intent):
+        if not isinstance(intent, ReplaceSectionCues):
+            return presentation
+        return replace(
+            presentation,
+            section_cues=[
+                SectionCuePresentation(
+                    cue_id="section_1",
+                    start=1.0,
+                    name="Verse",
+                    cue_ref="Q1",
+                )
+            ],
+        )
+
+    widget = TimelineWidget(presentation, on_intent=_on_intent, runtime_audio=runtime_audio)
+    widget._runtime_timer.stop()
+    layout_flags: list[bool] = []
+    original_canvas_set_presentation = widget._canvas.set_presentation
+
+    def _record_canvas_set_presentation(updated, *, recompute_layout=True):
+        layout_flags.append(bool(recompute_layout))
+        return original_canvas_set_presentation(updated, recompute_layout=recompute_layout)
+
+    monkeypatch.setattr(widget._canvas, "set_presentation", _record_canvas_set_presentation)
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+        layout_flags.clear()
+
+        widget._dispatch(
+            ReplaceSectionCues(
+                target_layer_id=LayerId("layer_sections"),
+                cues=[SectionCueEdit(cue_id=None, start=1.0, name="Verse", cue_ref="Q1")],
             )
         )
 

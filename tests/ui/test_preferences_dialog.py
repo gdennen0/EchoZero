@@ -109,7 +109,7 @@ def test_preferences_dialog_save_persists_json_settings_and_calls_saved_hook(mon
         app.processEvents()
 
 
-def test_preferences_dialog_master_output_buses_are_device_channel_checkboxes(monkeypatch) -> None:
+def test_preferences_dialog_master_output_buses_are_stereo_pair_checkboxes(monkeypatch) -> None:
     app = QApplication.instance() or QApplication([])
     service = AppSettingsService(_MemoryStore(), audio_device_options_provider=_device_options)
     dialog = PreferencesDialog(service)
@@ -129,17 +129,13 @@ def test_preferences_dialog_master_output_buses_are_device_channel_checkboxes(mo
         device_output_names = sorted(
             checkbox.text()
             for checkbox in dialog.findChildren(QCheckBox)
-            if checkbox.text().startswith("Output ")
+            if checkbox.text().startswith("Outputs ")
         )
         assert device_output_names == [
-            "Output 1",
-            "Output 2",
-            "Output 3",
-            "Output 4",
-            "Output 5",
-            "Output 6",
-            "Output 7",
-            "Output 8",
+            "Outputs 1-2",
+            "Outputs 3-4",
+            "Outputs 5-6",
+            "Outputs 7-8",
         ]
 
         output_channels = dialog._form._inputs["audio.output_channels"]
@@ -150,29 +146,25 @@ def test_preferences_dialog_master_output_buses_are_device_channel_checkboxes(mo
         output_checkboxes = {
             checkbox.text(): checkbox
             for checkbox in dialog.findChildren(QCheckBox)
-            if checkbox.text().startswith("Output ")
+            if checkbox.text().startswith("Outputs ")
         }
         assert sorted(output_checkboxes) == [
-            "Output 1",
-            "Output 2",
-            "Output 3",
-            "Output 4",
-            "Output 5",
-            "Output 6",
-            "Output 7",
-            "Output 8",
+            "Outputs 1-2",
+            "Outputs 3-4",
+            "Outputs 5-6",
+            "Outputs 7-8",
         ]
-        output_checkboxes["Output 2"].setChecked(True)
+        output_checkboxes["Outputs 3-4"].setChecked(True)
 
         assert dialog._form.values()["audio.master_output_bus"] == (
-            "outputs_1_1,outputs_2_2"
+            "outputs_1_2,outputs_3_4"
         )
 
         dialog._on_save()
 
         assert service.preferences().audio_output.output_channels == 4
         assert service.preferences().audio_output.master_output_bus == (
-            "outputs_1_1,outputs_2_2"
+            "outputs_1_2,outputs_3_4"
         )
     finally:
         dialog.close()

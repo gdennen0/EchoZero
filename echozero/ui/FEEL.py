@@ -27,6 +27,9 @@ TIMELINE_ZOOM_STEP_FACTOR = 1.12  # Per-notch timeline zoom multiplier
 TIMELINE_ZOOM_MIN_PPS = 5.0  # Minimum timeline zoom clamp in pixels/second
 TIMELINE_ZOOM_MAX_PPS = 720.0  # Maximum timeline zoom clamp in pixels/second
 TIMELINE_RUNTIME_TICK_ACTIVE_MS = 16  # Runtime timer cadence while transport is actively moving
+TIMELINE_RUNTIME_TICK_TEXT_INPUT_MS = (
+    48  # Runtime cadence while transport moves and the operator is typing
+)
 TIMELINE_RUNTIME_TICK_IDLE_MS = 64  # Runtime timer cadence while idle (reduced overhead)
 TIMELINE_MIX_SYNC_DEBOUNCE_MS = (
     24  # Coalesce non-structural runtime mix sync off the action hot path

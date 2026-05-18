@@ -62,7 +62,7 @@ class LayerRoutingSettingsDialog(QDialog):
         route_intro.setWordWrap(True)
         layout.addWidget(route_intro)
 
-        for route in output_bus_options(self._channel_count):
+        for route in output_bus_options(self._channel_count, include_stereo_pairs=True):
             button = QRadioButton(route.label, self)
             button.toggled.connect(self._sync_controls)
             self._route_buttons.append((route.token, button))

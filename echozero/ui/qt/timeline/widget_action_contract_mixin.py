@@ -667,6 +667,9 @@ class TimelineWidgetContractActionMixin:
         if action_id == "video.reset_offset":
             self._run_reset_video_offset_action()
             return
+        if action_id == "video.set_loop_enabled":
+            self._run_set_video_loop_enabled_action(params)
+            return
         if action_id in {
             "song.version.set_first_beat_here",
             "song.version.set_first_beat_to_playhead",
@@ -1035,6 +1038,16 @@ class TimelineWidgetContractActionMixin:
         if not callable(setter):
             return
         updated = setter(0.0)
+        if updated is not None:
+            host._set_presentation(updated)
+
+    def _run_set_video_loop_enabled_action(self, params: dict[str, object]) -> None:
+        host = cast(_ContractActionHost, self)
+        runtime = host._resolve_runtime_shell()
+        setter = getattr(runtime, "set_active_song_video_loop_enabled", None)
+        if not callable(setter):
+            return
+        updated = setter(bool(params.get("enabled", False)))
         if updated is not None:
             host._set_presentation(updated)
 

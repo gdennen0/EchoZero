@@ -12,6 +12,7 @@ from typing import Any, Protocol
 from echozero.application.shared.cue_numbers import (
     CueNumber,
     cue_number_text,
+    normalize_ma_scaled_cue_number,
     parse_positive_cue_number,
 )
 from echozero.infrastructure.osc import (
@@ -1707,7 +1708,7 @@ class MA3OSCBridge:
             command = self._event_command_text(snapshot)
             event_name = transport_event_label(raw_event)
             event_name = str(event_name or "").strip() or None
-            cue_number = snapshot.cue_number
+            cue_number = normalize_ma_scaled_cue_number(snapshot.cue_number)
             cue_label = self._event_cue_name(snapshot, event_name=event_name)
             if mode == "merge":
                 fingerprint = self._event_fingerprint(snapshot)
@@ -1783,7 +1784,7 @@ class MA3OSCBridge:
             cue_number_text(cue_number) or str(cue_number)
             for raw_cue in self.list_sequence_cues(sequence_no=int(sequence_no))
             for cue_number in [
-                parse_positive_cue_number(
+                normalize_ma_scaled_cue_number(
                     raw_cue.get("cue_number")
                     or raw_cue.get("cue_no")
                     or raw_cue.get("no")
@@ -2460,7 +2461,7 @@ class MA3OSCBridge:
         for raw_cue in (raw_cues if isinstance(raw_cues, list) else []):
             if not isinstance(raw_cue, dict):
                 continue
-            cue_number = parse_positive_cue_number(
+            cue_number = normalize_ma_scaled_cue_number(
                 raw_cue.get("cue_number")
                 or raw_cue.get("cue_no")
                 or raw_cue.get("no")

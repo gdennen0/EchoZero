@@ -25,7 +25,7 @@ from echozero.application.shared.cue_numbers import (
     CueNumber,
     cue_number_from_ref_text,
     cue_number_text,
-    parse_positive_cue_number,
+    normalize_ma_scaled_cue_number,
 )
 
 
@@ -76,7 +76,7 @@ class MA3CueMatcherDialog(QDialog):
         self.resize(980, 620)
         self._rows = list(rows)
         self._cue_options = sorted(
-            list(cue_options),
+            self._normalized_cue_options(cue_options),
             key=lambda item: float(item.cue_number),
         )
         self._new_cue_name_by_number_text: dict[str, str] = {}
@@ -326,13 +326,27 @@ class MA3CueMatcherDialog(QDialog):
         if not raw:
             return None
         number_token = raw.split("-", 1)[0].strip()
-        parsed = parse_positive_cue_number(number_token)
+        parsed = normalize_ma_scaled_cue_number(number_token)
         if parsed is not None:
             return parsed
-        parsed = parse_positive_cue_number(raw)
+        parsed = normalize_ma_scaled_cue_number(raw)
         if parsed is not None:
             return parsed
-        return cue_number_from_ref_text(raw)
+        return normalize_ma_scaled_cue_number(cue_number_from_ref_text(raw))
+
+    @staticmethod
+    def _normalized_cue_options(cue_options: list[MA3CueOption]) -> list[MA3CueOption]:
+        deduped: dict[str, MA3CueOption] = {}
+        for cue in cue_options:
+            cue_number = normalize_ma_scaled_cue_number(cue.cue_number)
+            cue_no_text = cue_number_text(cue_number)
+            if cue_number is None or cue_no_text is None:
+                continue
+            deduped[cue_no_text] = MA3CueOption(
+                cue_number=cue_number,
+                name=str(cue.name or "").strip(),
+            )
+        return list(deduped.values())
 
     def _target_combo(self, row_idx: int) -> QComboBox:
         widget = self._table.cellWidget(row_idx, self._COL_TARGET)

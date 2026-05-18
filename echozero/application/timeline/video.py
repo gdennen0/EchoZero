@@ -19,16 +19,24 @@ class VideoTimelineMapping:
     video_path: str
     start_seconds: float
     duration_seconds: float
+    loop_enabled: bool = False
 
     def media_seconds_for_song_time(self, song_seconds: float) -> float:
-        """Return the clamped media position for a song timeline position."""
+        """Return the media position for a song timeline position."""
 
-        return max(0.0, min(self.duration_seconds, float(song_seconds) - self.start_seconds))
+        elapsed_seconds = float(song_seconds) - self.start_seconds
+        if elapsed_seconds <= 0.0 or self.duration_seconds <= 0.0:
+            return 0.0
+        if self.loop_enabled:
+            return elapsed_seconds % self.duration_seconds
+        return min(self.duration_seconds, elapsed_seconds)
 
     def contains_song_time(self, song_seconds: float) -> bool:
         """Return whether the song timeline position is inside the video range."""
 
         media_seconds = float(song_seconds) - self.start_seconds
+        if self.loop_enabled:
+            return media_seconds >= 0.0 and self.duration_seconds > 0.0
         return 0.0 <= media_seconds <= self.duration_seconds
 
 
@@ -91,5 +99,6 @@ def video_mapping_from_presentation(
             video_path=str(path),
             start_seconds=float(getattr(layer, "video_start_seconds", 0.0)),
             duration_seconds=max(0.0, float(getattr(layer, "video_duration_seconds", 0.0))),
+            loop_enabled=bool(getattr(layer, "video_loop_enabled", False)),
         )
     return None

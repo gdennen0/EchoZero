@@ -52,8 +52,9 @@ class _SessionService(SessionService):
 
 
 class _TransportService(TransportService):
-    def __init__(self, state: TransportState) -> None:
+    def __init__(self, state: TransportState, *, apply_seek_to_state: bool = True) -> None:
         self._state = state
+        self._apply_seek_to_state = bool(apply_seek_to_state)
         self.calls: list[tuple[str, float | None]] = []
 
     def get_state(self) -> TransportState:
@@ -77,7 +78,8 @@ class _TransportService(TransportService):
 
     def seek(self, position: float) -> TransportState:
         self.calls.append(("seek", float(position)))
-        self._state.playhead = max(0.0, float(position))
+        if self._apply_seek_to_state:
+            self._state.playhead = max(0.0, float(position))
         return self._state
 
     def set_loop(self, loop_region, enabled: bool = True) -> TransportState:
@@ -158,6 +160,7 @@ def _build_app(
     playhead: float = 0.0,
     is_playing: bool = False,
     timeline_end: float = 32.0,
+    apply_seek_to_state: bool = True,
 ) -> tuple[TimelineApplication, _TransportService]:
     transport_state = TransportState(is_playing=is_playing, playhead=playhead)
     session = Session(
@@ -216,7 +219,7 @@ def _build_app(
             SectionCue(SectionCueId("chorus"), start=24.0, name="Chorus"),
         ],
     )
-    transport = _TransportService(transport_state)
+    transport = _TransportService(transport_state, apply_seek_to_state=apply_seek_to_state)
     assembler = TimelineAssembler()
     orchestrator = TimelineOrchestrator(
         session_service=_SessionService(session),
@@ -297,3 +300,51 @@ def test_external_transport_section_jumps_use_ez_section_cues() -> None:
 
     assert transport.calls == [("seek", 24.0), ("seek", 8.0)]
     assert app.session.transport_state.is_playing is True
+
+
+def test_external_transport_section_jump_presentation_uses_seek_target() -> None:
+    app, transport = _build_app(
+        playhead=12.0,
+        is_playing=True,
+        apply_seek_to_state=False,
+    )
+
+    presentation = app.apply_external_transport_update(
+        {"change": "jump_previous_section", "source": "ez_sections"},
+        current_playhead_seconds=12.0,
+        current_is_playing=True,
+    )
+
+    assert transport.calls == [("seek", 8.0)]
+    assert presentation.playhead == pytest.approx(8.0)
+    assert presentation.current_time_label == "00:00:08.00"
+
+
+def test_external_transport_previous_section_can_repeat_while_playing() -> None:
+    app, transport = _build_app(playhead=12.0, is_playing=True)
+
+    app.apply_external_transport_update(
+        {"change": "jump_previous_section", "source": "ez_sections"},
+        current_playhead_seconds=12.0,
+        current_is_playing=True,
+    )
+    app.apply_external_transport_update(
+        {"change": "jump_previous_section", "source": "ez_sections"},
+        current_playhead_seconds=8.4,
+        current_is_playing=True,
+    )
+
+    assert transport.calls == [("seek", 8.0), ("seek", 0.0)]
+    assert app.session.transport_state.is_playing is True
+
+
+def test_external_transport_move_after_section_jump_uses_ez_playhead() -> None:
+    app, transport = _build_app(playhead=12.0, is_playing=True)
+
+    app.apply_external_transport_update({"change": "jump_next_section", "source": "ez_sections"})
+    app.apply_external_transport_update(
+        {"change": "move", "action": "move", "delta_seconds": -1.0},
+    )
+
+    assert transport.calls == [("seek", 24.0), ("seek", 23.0)]
+    assert app.session.transport_state.playhead == pytest.approx(23.0)

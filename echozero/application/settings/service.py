@@ -274,6 +274,17 @@ class AppSettingsService:
             prime_output_buffers_using_stream_callback=audio.prime_output_buffers_using_stream_callback,
         )
 
+    def resolve_audio_output_channel_count(self) -> int | None:
+        """Resolve the channel count implied by saved audio preferences."""
+
+        audio = self._preferences.audio_output
+        device_channels = self._selected_device_output_channels(audio.output_device)
+        if device_channels is not None:
+            return int(device_channels)
+        if audio.output_channels is not None:
+            return int(audio.output_channels)
+        return None
+
     def resolve_ma3_osc_runtime_config(
         self,
         *,
@@ -390,10 +401,6 @@ class AppSettingsService:
             updates.get("audio.output_channels"),
             current.output_channels,
         )
-        max_master_channel = self._selected_device_output_channels(
-            output_device,
-            fallback=output_channels,
-        )
         return AudioOutputPreferences(
             output_device=output_device,
             sample_rate=self._optional_positive_int(
@@ -404,7 +411,6 @@ class AppSettingsService:
             master_output_bus=self._output_bus_value(
                 updates.get("audio.master_output_bus"),
                 current.master_output_bus,
-                max_channel=max_master_channel,
             ),
             latency_profile=self._latency_profile(
                 updates.get("audio.latency_profile"),
@@ -538,21 +544,6 @@ class AppSettingsService:
             raise AppSettingsValidationError(
                 "Master output buses must be valid outputs_X_Y routes within outputs 1-16."
             )
-        max_master_channel = max(
-            end_channel for _start_channel, end_channel in parsed_master_buses
-        )
-        if audio.output_channels is not None and max_master_channel > audio.output_channels:
-            raise AppSettingsValidationError(
-                "Master output buses require enough configured output channels."
-            )
-        device_output_channels = self._selected_device_output_channels(
-            audio.output_device,
-            fallback=audio.output_channels,
-        )
-        if device_output_channels is not None and max_master_channel > device_output_channels:
-            raise AppSettingsValidationError(
-                "Master output buses require enough outputs on the selected audio device."
-            )
         if audio.blocksize is not None and audio.blocksize <= 0:
             raise AppSettingsValidationError("Audio blocksize override must be greater than 0.")
 
@@ -606,12 +597,16 @@ class AppSettingsService:
             )
         return values
 
-    def _selected_device_output_channels(
-        self,
-        output_device: str | None,
-        *,
-        fallback: int | None,
-    ) -> int | None:
+    @staticmethod
+    def _runtime_output_device(value: str | None) -> int | str | None:
+        if value is None or not str(value).strip():
+            return None
+        text = str(value).strip()
+        if text.isdigit():
+            return int(text)
+        return text
+
+    def _selected_device_output_channels(self, output_device: str | None) -> int | None:
         selected_device = str(output_device or "").strip()
         try:
             device_options = self._audio_device_options_provider()
@@ -626,23 +621,12 @@ class AppSettingsService:
                 max_outputs = 0
             if max_outputs > 0:
                 return max_outputs
-        return fallback
-
-    @staticmethod
-    def _runtime_output_device(value: str | None) -> int | str | None:
-        if value is None or not str(value).strip():
-            return None
-        text = str(value).strip()
-        if text.isdigit():
-            return int(text)
-        return text
+        return None
 
     @staticmethod
     def _output_bus_value(
         value: object,
         current: str,
-        *,
-        max_channel: int | None = None,
     ) -> str:
         source = value if value is not None else current
         parsed = parse_output_bus_spans(source, reject_invalid=True)
@@ -653,8 +637,6 @@ class AppSettingsService:
         tokens = canonical_master_output_buses(
             source,
             default=DEFAULT_MASTER_OUTPUT_BUS,
-            max_channel=max_channel,
-            clamp_to_channels=max_channel is not None,
             reject_invalid=False,
         )
         if not tokens:

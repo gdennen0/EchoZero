@@ -676,7 +676,7 @@ class _LiteralThousandCueBridge(_Bridge):
         ]
 
 
-def test_ma3_sync_adapter_does_not_normalize_scaled_cue_without_matching_hint():
+def test_ma3_sync_adapter_normalizes_scaled_cue_without_matching_hint():
     service = MA3SyncAdapter(_LiteralThousandCueBridge())
 
     pull_events = service.list_pull_source_events("tc1_tg2_tr3")
@@ -687,8 +687,8 @@ def test_ma3_sync_adapter_does_not_normalize_scaled_cue_without_matching_hint():
             "label": "Cue 1000",
             "start": 1.25,
             "end": None,
-            "cue_number": 1000,
-            "cue_ref": "1000",
+            "cue_number": 1,
+            "cue_ref": "1",
             "color": None,
             "notes": None,
             "payload_ref": None,

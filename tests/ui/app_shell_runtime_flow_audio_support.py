@@ -3,10 +3,17 @@ Exists to isolate runtime-audio rebuild and canonical build assertions from proj
 Connects canonical playback-controller construction to the bounded audio support slice.
 """
 
+from pathlib import Path
 import shutil
 import time
 
-from echozero.application.settings import AudioOutputRuntimeConfig
+from echozero.application.settings import (
+    AppPreferences,
+    AppSettingsService,
+    AudioOutputPreferences,
+    AudioOutputRuntimeConfig,
+    SettingsOption,
+)
 from echozero.application.shared.enums import LayerKind
 from echozero.application.timeline.intents import Play, SelectEvent, SelectLayer, SetLayerMute
 from echozero.audio.engine import AudioEngine
@@ -21,6 +28,19 @@ from tests.ui.app_shell_runtime_flow_shared_support import (
     _repo_local_temp_root,
 )
 from tests.ui.runtime_audio_shared_support import _fake_stream_factory
+
+
+class _MemoryAppSettingsStore:
+    path = Path("/tmp/echozero-test-app-settings.json")
+
+    def __init__(self, preferences=None) -> None:
+        self._preferences = preferences or AppPreferences()
+
+    def load(self):
+        return self._preferences
+
+    def save(self, preferences) -> None:
+        self._preferences = preferences
 
 
 def test_app_shell_runtime_add_song_from_path_defers_runtime_audio_build_until_playback():
@@ -41,6 +61,41 @@ def test_app_shell_runtime_add_song_from_path_defers_runtime_audio_build_until_p
 
         assert counted.build_calls == 0
         assert runtime.presentation().layers[0].title == "Imported Song"
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_presentation_uses_selected_device_channel_count_for_routing_ui():
+    temp_root = _repo_local_temp_root()
+    settings_service = AppSettingsService(
+        _MemoryAppSettingsStore(
+            AppPreferences(
+                audio_output=AudioOutputPreferences(
+                    output_device="7",
+                    output_channels=2,
+                )
+            )
+        ),
+        audio_device_options_provider=lambda: (
+            SettingsOption(
+                value="7",
+                label="Four Output Device",
+                metadata={"max_output_channels": 4},
+            ),
+        ),
+    )
+    runtime = build_app_shell(
+        working_dir_root=temp_root / "working",
+        app_settings_service=settings_service,
+    )
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        runtime.session.playback_state.output_channels = 2
+
+        assert runtime.presentation().playback_output_channels == 4
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)

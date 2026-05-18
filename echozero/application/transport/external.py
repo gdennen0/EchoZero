@@ -38,6 +38,8 @@ _ACTION_ALIASES = {
 }
 _TRUE_STATES = {"play", "playing", "run", "running", "go"}
 _FALSE_STATES = {"pause", "paused", "stop", "stopped"}
+_SECTION_EDGE_EPSILON_SECONDS = 0.025
+_PREVIOUS_SECTION_RESTART_GRACE_SECONDS = 1.0
 
 
 def normalize_external_transport_command(
@@ -174,11 +176,14 @@ def resolve_adjacent_section_start(
     if not cues:
         return None
     playhead = max(0.0, float(playhead_seconds))
-    epsilon = 0.025
     if direction < 0:
-        previous = [start for start in cues if start < playhead - epsilon]
+        edge_seconds = max(
+            _SECTION_EDGE_EPSILON_SECONDS,
+            _PREVIOUS_SECTION_RESTART_GRACE_SECONDS,
+        )
+        previous = [start for start in cues if start < playhead - edge_seconds]
         return previous[-1] if previous else cues[0]
-    next_cues = [start for start in cues if start > playhead + epsilon]
+    next_cues = [start for start in cues if start > playhead + _SECTION_EDGE_EPSILON_SECONDS]
     return next_cues[0] if next_cues else cues[-1]
 
 

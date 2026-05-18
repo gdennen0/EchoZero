@@ -6,10 +6,11 @@ Connects orchestrator, queries, and runtime-audio side effects behind one app-fa
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable
 
 from echozero.application.presentation.models import TimelinePresentation
+from echozero.application.playback.timecode import format_transport_clock_label
 from echozero.application.session.models import Session
 from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
@@ -105,6 +106,11 @@ class TimelineApplication:
                 playhead_seconds = 0.0
             if isinstance(intent, Seek):
                 playhead_seconds = float(intent.position)
+                presentation = replace(
+                    presentation,
+                    playhead=playhead_seconds,
+                    current_time_label=format_transport_clock_label(playhead_seconds),
+                )
         return presentation
 
     @property

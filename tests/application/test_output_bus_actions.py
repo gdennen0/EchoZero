@@ -24,12 +24,14 @@ def _audio_layer(*, output_bus: str | None = None) -> LayerPresentation:
     )
 
 
-def test_available_output_bus_tokens_are_single_physical_outputs() -> None:
+def test_available_output_bus_tokens_include_stereo_pairs_for_layer_routing() -> None:
     assert _available_output_bus_tokens(4) == (
         "outputs_1_1",
         "outputs_2_2",
         "outputs_3_3",
         "outputs_4_4",
+        "outputs_1_2",
+        "outputs_3_4",
     )
 
 

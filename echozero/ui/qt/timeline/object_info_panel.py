@@ -557,7 +557,9 @@ class ObjectInfoPanel(_ObjectInfoPanelActionsMixin, QFrame):
 
         combo = QComboBox(self._routing_table)
         combo.setObjectName("inspectorRoutingOutputCombo")
-        route_options = list(output_bus_options(self._routing_output_channels))
+        route_options = list(
+            output_bus_options(self._routing_output_channels, include_stereo_pairs=True)
+        )
         option_tokens = {route.token for route in route_options}
         selected_token = str(output_bus or "").strip()
         if selected_token and selected_token not in option_tokens:

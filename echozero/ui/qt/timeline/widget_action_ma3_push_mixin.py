@@ -30,6 +30,7 @@ from echozero.ui.qt.timeline.manual_push_route import ManualPushRouteDialog
 from echozero.application.shared.cue_numbers import (
     cue_number_from_ref_text,
     cue_number_text,
+    normalize_ma_scaled_cue_number,
     parse_positive_cue_number,
 )
 from echozero.application.shared.enums import LayerKind
@@ -1545,7 +1546,7 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
         for raw in raw_rows:
             if not isinstance(raw, dict):
                 continue
-            cue_number = parse_positive_cue_number(
+            cue_number = normalize_ma_scaled_cue_number(
                 raw.get("cue_number")
                 or raw.get("cue_no")
                 or raw.get("no")

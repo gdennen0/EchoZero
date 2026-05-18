@@ -1476,45 +1476,26 @@ function EZ.JumpToNextSection(tcNo, tgNo, trackNo)
     })
 end
 
--- Move timecode cursor by delta seconds (+/-).
--- tcNo is optional; defaults to SelectedTimecode().
+-- Move EchoZero's playhead by delta seconds (+/-).
+-- EchoZero owns transport truth, so send a relative move instead of deriving an
+-- absolute target from MA3's cursor. The MA3 cursor can lag behind an EZ-owned
+-- section jump and would otherwise pull the playhead back to the pre-jump spot.
 function EZ.ScrubTimecodeBy(deltaSeconds, tcNo)
-    local tc, resolvedTcNo, tcErr = resolveTimecodeForTransport(tcNo)
-    if not tc then
-        sendTransportMessage("error", {
-            action = "scrub",
-            error = tcErr
-        })
-        return false
-    end
-
     local delta = tonumber(deltaSeconds)
     if not delta then
         sendTransportMessage("error", {
-            action = "scrub",
-            tc = resolvedTcNo,
+            action = "move",
+            tc = tcNo,
             error = "delta_seconds_required"
         })
         return false
     end
 
-    local fromSeconds = readTimecodeCursorSeconds(tc) or 0
-    local toSeconds = math.max(0, fromSeconds + delta)
-    local wrote = writeTimecodeCursorSeconds(tc, toSeconds)
-    if not wrote then
-        sendTransportMessage("error", {
-            action = "scrub",
-            tc = resolvedTcNo,
-            error = "cursor_write_failed"
-        })
-        return false
-    end
-
-    local sent = sendTransportMessage("scrubbed", {
-        tc = resolvedTcNo,
-        from_seconds = fromSeconds,
+    local sent = sendTransportMessage("move", {
+        action = "move",
+        tc = tcNo,
         delta_seconds = delta,
-        to_seconds = toSeconds
+        source = "ez_playhead"
     })
     return sent
 end

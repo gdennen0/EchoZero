@@ -638,6 +638,30 @@ def test_ma3_osc_bridge_uses_event_label_for_cue_name_when_cue_ref_exists():
     assert "EZ.AddEvent(1, 2, 5, 1, 'Go+ Cue 11', 'Q11A Verse', 11, 'Verse', 1)" in bridge.commands
 
 
+def test_ma3_osc_bridge_push_normalizes_scaled_cue_numbers_before_write():
+    bridge = SimulatedMA3Bridge()
+    bridge.set_sequences([MA3SequenceSnapshot(number=12, name="Song A", cue_count=1)])
+
+    bridge.apply_push_transfer(
+        target_track_coord="tc1_tg2_tr3",
+        selected_events=[
+            Event(
+                id="evt_section",
+                take_id="take_1",
+                start=1.0,
+                end=1.1,
+                cue_number=1000,
+                cue_ref="1000",
+                label="Intro",
+            )
+        ],
+        transfer_mode="overwrite",
+    )
+
+    assert 'label sequence 12 cue 1 "Intro"' in bridge.commands
+    assert "EZ.AddEvent(1, 2, 3, 1, 'Go+ Cue 1', '1 Intro', 1, 'Intro', 1)" in bridge.commands
+
+
 def test_ma3_osc_bridge_relabels_assigned_sequence_cue_before_section_event_write():
     bridge = SimulatedMA3Bridge()
     bridge.set_sequences([MA3SequenceSnapshot(number=12, name="Song A", cue_count=1)])

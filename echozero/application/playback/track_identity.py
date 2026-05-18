@@ -38,15 +38,12 @@ def sanitize_output_bus_for_channels(
     *,
     playback_output_channels: int,
 ) -> str | None:
-    """Return one explicit layer route when it fits within the active output width."""
+    """Return a canonical explicit layer route, even if current hardware is narrower."""
 
-    output_bus = canonical_layer_output_bus(
-        value,
-        max_channel=max(1, int(playback_output_channels)),
-        clamp_to_channels=True,
-        reject_invalid=True,
-    )
-    if output_bus is None and normalize_output_bus(value) is not None:
+    _ = playback_output_channels
+    output_bus = canonical_layer_output_bus(value, reject_invalid=True)
+    normalized = normalize_output_bus(value)
+    if output_bus is None and normalized is not None and normalized not in {"master", "default"}:
         return NO_OUTPUT_BUS
     return output_bus
 

@@ -145,7 +145,11 @@ def _changed_layer_ids_for_intent(
         return (LayerId(str(intent.layer_id)),)
     if isinstance(intent, TriggerTakeAction):
         return (LayerId(str(intent.layer_id)),)
-    if isinstance(intent, (ReorderLayer, ReplaceSectionCues)):
+    if isinstance(intent, ReplaceSectionCues):
+        if intent.target_layer_id is not None:
+            return (LayerId(str(intent.target_layer_id)),)
+        return _first_section_layer_id(timeline)
+    if isinstance(intent, ReorderLayer):
         return ()
     return ()
 
@@ -205,6 +209,7 @@ def _supports_scoped_history(intent: TimelineIntent) -> bool:
             MoveSelectedEvents,
             NudgeSelectedEvents,
             PasteCopiedEvents,
+            ReplaceSectionCues,
             SetGain,
             SnapEventsToBeatGrid,
             TrimEvent,
@@ -216,7 +221,7 @@ def _supports_scoped_history(intent: TimelineIntent) -> bool:
 def _can_sync_storage_by_layer(intent: TimelineIntent) -> bool:
     return _supports_scoped_history(intent) and not isinstance(
         intent,
-        (ReplaceSectionCues, ReorderLayer),
+        (ReorderLayer,),
     )
 
 
@@ -225,6 +230,23 @@ def _selected_layer_id(timeline: Timeline) -> tuple[LayerId, ...]:
     if selected_layer_id is None:
         return ()
     return (LayerId(str(selected_layer_id)),)
+
+
+def _first_section_layer_id(timeline: Timeline) -> tuple[LayerId, ...]:
+    section_layer = next(
+        (
+            layer
+            for layer in sorted(
+                timeline.layers,
+                key=lambda candidate: (int(candidate.order_index), str(candidate.id)),
+            )
+            if layer.kind.value == "section"
+        ),
+        None,
+    )
+    if section_layer is None:
+        return ()
+    return (LayerId(str(section_layer.id)),)
 
 
 def _changed_layer_ids_for_event_batch_scope(

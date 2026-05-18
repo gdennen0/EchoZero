@@ -87,8 +87,7 @@ def test_app_settings_service_describe_surfaces_audio_osc_and_import_sections() 
     master_bus_field = next(field for field in fields if field.key == "audio.master_output_bus")
     assert master_bus_field.widget is SettingsFieldWidget.CHECKBOX_GROUP
     assert [(option.value, option.label) for option in master_bus_field.options] == [
-        ("outputs_1_1", "Output 1"),
-        ("outputs_2_2", "Output 2"),
+        ("outputs_1_2", "Outputs 1-2"),
     ]
     assert page.warnings == (
         "Changes are saved to the local config JSON only.",
@@ -104,14 +103,10 @@ def test_app_settings_service_describe_uses_selected_device_channels_for_master_
     master_bus_field = next(field for field in fields if field.key == "audio.master_output_bus")
 
     assert [option.value for option in master_bus_field.options] == [
-        "outputs_1_1",
-        "outputs_2_2",
-        "outputs_3_3",
-        "outputs_4_4",
-        "outputs_5_5",
-        "outputs_6_6",
-        "outputs_7_7",
-        "outputs_8_8",
+        "outputs_1_2",
+        "outputs_3_4",
+        "outputs_5_6",
+        "outputs_7_8",
     ]
 
 
@@ -125,14 +120,10 @@ def test_app_settings_service_describe_limits_master_bus_options_to_device_chann
     master_bus_field = next(field for field in fields if field.key == "audio.master_output_bus")
 
     assert [option.value for option in master_bus_field.options] == [
-        "outputs_1_1",
-        "outputs_2_2",
-        "outputs_3_3",
-        "outputs_4_4",
-        "outputs_5_5",
-        "outputs_6_6",
-        "outputs_7_7",
-        "outputs_8_8",
+        "outputs_1_2",
+        "outputs_3_4",
+        "outputs_5_6",
+        "outputs_7_8",
     ]
 
 
@@ -208,6 +199,33 @@ def test_app_settings_service_apply_updates_accepts_four_output_channels() -> No
     assert result.preferences.audio_output.output_channels == 4
 
 
+def test_app_settings_service_resolves_saved_output_channels_without_device_metadata() -> None:
+    service = AppSettingsService(
+        _MemoryStore(),
+        audio_device_options_provider=lambda: (),
+    )
+
+    service.apply_updates({"audio.output_channels": 4})
+
+    assert service.resolve_audio_output_channel_count() == 4
+
+
+def test_app_settings_service_resolves_auto_output_channels_from_selected_device() -> None:
+    service = AppSettingsService(_MemoryStore(), audio_device_options_provider=_device_options)
+
+    service.apply_updates({"audio.output_device": "7", "audio.output_channels": 0})
+
+    assert service.resolve_audio_output_channel_count() == 8
+
+
+def test_app_settings_service_resolves_selected_device_channels_over_saved_override() -> None:
+    service = AppSettingsService(_MemoryStore(), audio_device_options_provider=_device_options)
+
+    service.apply_updates({"audio.output_device": "7", "audio.output_channels": 2})
+
+    assert service.resolve_audio_output_channel_count() == 8
+
+
 def test_app_settings_service_apply_updates_accepts_mirrored_master_output_channels() -> None:
     service = AppSettingsService(_MemoryStore(), audio_device_options_provider=_device_options)
 
@@ -218,11 +236,11 @@ def test_app_settings_service_apply_updates_accepts_mirrored_master_output_chann
         }
     )
 
-    assert result.preferences.audio_output.master_output_bus == "outputs_1_1,outputs_2_2"
-    assert service.resolve_audio_output_config().master_output_bus == "outputs_1_1,outputs_2_2"
+    assert result.preferences.audio_output.master_output_bus == "outputs_1_2"
+    assert service.resolve_audio_output_config().master_output_bus == "outputs_1_2"
 
 
-def test_app_settings_service_prunes_master_outputs_when_channel_count_shrinks() -> None:
+def test_app_settings_service_preserves_master_outputs_when_channel_count_shrinks() -> None:
     service = AppSettingsService(_MemoryStore(), audio_device_options_provider=_device_options)
 
     result = service.apply_updates(
@@ -232,10 +250,10 @@ def test_app_settings_service_prunes_master_outputs_when_channel_count_shrinks()
         }
     )
 
-    assert result.preferences.audio_output.master_output_bus == "outputs_1_1"
+    assert result.preferences.audio_output.master_output_bus == "outputs_1_1,outputs_3_3"
 
 
-def test_app_settings_service_prunes_master_outputs_when_selected_device_changes() -> None:
+def test_app_settings_service_preserves_master_outputs_when_selected_device_changes() -> None:
     service = AppSettingsService(
         _MemoryStore(
             AppPreferences(
@@ -251,7 +269,31 @@ def test_app_settings_service_prunes_master_outputs_when_selected_device_changes
     result = service.apply_updates({"audio.output_device": ""})
 
     assert result.preferences.audio_output.output_device is None
-    assert result.preferences.audio_output.master_output_bus == "outputs_1_1"
+    assert result.preferences.audio_output.master_output_bus == "outputs_1_1,outputs_8_8"
+
+
+def test_app_settings_service_describe_keeps_saved_unavailable_master_outputs() -> None:
+    service = AppSettingsService(
+        _MemoryStore(
+            AppPreferences(
+                audio_output=AudioOutputPreferences(
+                    output_device="",
+                    master_output_bus="outputs_1_1,outputs_3_4",
+                )
+            )
+        ),
+        audio_device_options_provider=_device_options,
+    )
+
+    page = service.describe()
+    fields = tuple(field for section in page.sections for field in section.fields)
+    master_bus_field = next(field for field in fields if field.key == "audio.master_output_bus")
+
+    assert [(option.value, option.label) for option in master_bus_field.options] == [
+        ("outputs_1_2", "Outputs 1-2"),
+        ("outputs_1_1", "Output 1 (saved)"),
+        ("outputs_3_4", "Outputs 3-4 (saved)"),
+    ]
 
 
 def test_app_settings_service_apply_updates_rejects_output_channels_above_supported_range() -> (
@@ -393,7 +435,7 @@ def test_app_preferences_from_dict_canonicalizes_mirrored_master_output_buses() 
         }
     )
 
-    assert preferences.audio_output.master_output_bus == "outputs_1_1,outputs_2_2"
+    assert preferences.audio_output.master_output_bus == "outputs_1_2"
 
 
 def test_app_preferences_from_dict_parses_song_import_pipeline_actions() -> None:

@@ -13,7 +13,7 @@ import json
 
 from echozero.errors import PersistenceError
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 OBJECT_CONTENT_SCHEMA_VERSION = 10
 
 _DDL = """\
@@ -174,7 +174,8 @@ CREATE TABLE IF NOT EXISTS song_video_attachments (
 
 CREATE TABLE IF NOT EXISTS song_video_placements (
     song_version_id TEXT PRIMARY KEY REFERENCES song_versions(id) ON DELETE CASCADE,
-    video_start_seconds REAL NOT NULL DEFAULT 0.0
+    video_start_seconds REAL NOT NULL DEFAULT 0.0,
+    video_loop_enabled INTEGER NOT NULL DEFAULT 0
 );
 """
 
@@ -390,6 +391,23 @@ def _migrate_v11_to_v12(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _migrate_v12_to_v13(conn: sqlite3.Connection) -> None:
+    placements_table = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='song_video_placements'"
+    ).fetchone()
+    if placements_table is None:
+        return
+
+    columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(song_video_placements)").fetchall()
+    }
+    if "video_loop_enabled" not in columns:
+        conn.execute(
+            "ALTER TABLE song_video_placements "
+            "ADD COLUMN video_loop_enabled INTEGER NOT NULL DEFAULT 0"
+        )
+
+
 _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _migrate_v1_to_v2,
     3: _migrate_v2_to_v3,
@@ -417,6 +435,7 @@ _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     10: _migrate_v9_to_v10,
     11: _migrate_v10_to_v11,
     12: _migrate_v11_to_v12,
+    13: _migrate_v12_to_v13,
 }
 
 

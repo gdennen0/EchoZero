@@ -79,6 +79,7 @@ def build_layer_signature(
                 getattr(layer, "video_path", None),
                 float(getattr(layer, "video_start_seconds", 0.0)),
                 float(getattr(layer, "video_duration_seconds", 0.0)),
+                bool(getattr(layer, "video_loop_enabled", False)),
                 take_sigs,
             )
         )

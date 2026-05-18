@@ -13,7 +13,18 @@ from typing import Protocol, cast
 
 from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QResizeEvent
-from PyQt6.QtWidgets import QFrame, QLabel, QScrollArea, QScrollBar, QWidget
+from PyQt6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QFrame,
+    QLabel,
+    QLineEdit,
+    QPlainTextEdit,
+    QScrollArea,
+    QScrollBar,
+    QTextEdit,
+    QWidget,
+)
 
 from echozero.application.playback.timecode import format_transport_clock_label
 from echozero.application.playback.sync_delta import (
@@ -73,6 +84,7 @@ from echozero.ui.FEEL import (
     TIMELINE_MIX_SYNC_DEBOUNCE_MS,
     TIMELINE_RUNTIME_TICK_ACTIVE_MS,
     TIMELINE_RUNTIME_TICK_IDLE_MS,
+    TIMELINE_RUNTIME_TICK_TEXT_INPUT_MS,
     TIMELINE_STRUCTURAL_SYNC_DEBOUNCE_MS,
     TIMELINE_ZOOM_MAX_PPS,
     TIMELINE_ZOOM_MIN_PPS,
@@ -851,7 +863,7 @@ class TimelineWidgetRuntimeMixin:
             updated,
             sync_runtime_audio=False,
             refresh_object_info=not live_structural_intent and not selection_refresh_deferred,
-            recompute_canvas_layout=False if selection_only_intent else True,
+            recompute_canvas_layout=not (selection_only_intent or live_structural_intent),
         )
 
     def _sync_runtime_audio_for_intent(
@@ -982,7 +994,7 @@ class TimelineWidgetRuntimeMixin:
                 and callable(getattr(runtime, "apply_sync_transport_update", None))
                 else None
             )
-            if callable(apply_transport_update):
+            if transport_update is not None and callable(apply_transport_update):
                 updated = apply_transport_update(
                     transport_update,
                     current_playhead_seconds=float(self.presentation.playhead),
@@ -1085,7 +1097,10 @@ class TimelineWidgetRuntimeMixin:
             == "running"
             or _runtime_prefers_low_latency_transport_poll(runtime)
         )
-        interval = TIMELINE_RUNTIME_TICK_ACTIVE_MS if active else TIMELINE_RUNTIME_TICK_IDLE_MS
+        if active and _text_input_has_focus():
+            interval = TIMELINE_RUNTIME_TICK_TEXT_INPUT_MS
+        else:
+            interval = TIMELINE_RUNTIME_TICK_ACTIVE_MS if active else TIMELINE_RUNTIME_TICK_IDLE_MS
         current_interval = int(timer.interval()) if hasattr(timer, "interval") else None
         if current_interval == int(interval):
             return
@@ -1227,6 +1242,11 @@ def _runtime_prefers_low_latency_transport_poll(runtime: object | None) -> bool:
         return bool(prefers_low_latency())
     except Exception:
         return False
+
+
+def _text_input_has_focus() -> bool:
+    focused = QApplication.focusWidget()
+    return isinstance(focused, (QComboBox, QLineEdit, QPlainTextEdit, QTextEdit))
 
 
 __all__ = ["TimelineWidgetRuntimeMixin"]

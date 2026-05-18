@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
 from PyQt6.QtGui import QMouseEvent, QNativeGestureEvent, QPointingDevice
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QLineEdit
 
 from echozero.application.presentation.models import LayerPresentation, TimelinePresentation
 from echozero.application.shared.enums import LayerKind
@@ -20,6 +20,7 @@ from echozero.ui.FEEL import (
     TIMELINE_RIGHT_PADDING_PX,
     TIMELINE_RUNTIME_TICK_ACTIVE_MS,
     TIMELINE_RUNTIME_TICK_IDLE_MS,
+    TIMELINE_RUNTIME_TICK_TEXT_INPUT_MS,
     TIMELINE_ZOOM_MAX_PPS,
     TIMELINE_ZOOM_MIN_PPS,
     TIMELINE_ZOOM_STEP_FACTOR,
@@ -424,6 +425,24 @@ def test_runtime_timer_cadence_slows_when_idle_and_speeds_when_playing():
 
         widget.set_presentation(replace(widget.presentation, is_playing=True))
         assert widget._runtime_timer.interval() == TIMELINE_RUNTIME_TICK_ACTIVE_MS
+    finally:
+        widget.close()
+
+
+def test_runtime_timer_cadence_backs_off_while_text_input_has_focus():
+    app = QApplication.instance() or QApplication([])
+    presentation = build_demo_app().presentation()
+    widget = TimelineWidget(replace(presentation, is_playing=True))
+    text_input = QLineEdit(widget)
+    try:
+        widget.show()
+        text_input.show()
+        text_input.setFocus()
+        app.processEvents()
+
+        widget._sync_runtime_timer_cadence()
+
+        assert widget._runtime_timer.interval() == TIMELINE_RUNTIME_TICK_TEXT_INPUT_MS
     finally:
         widget.close()
 

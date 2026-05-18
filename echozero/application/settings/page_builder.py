@@ -27,7 +27,7 @@ from echozero.application.settings.models import (
     import_safe_pipeline_action_descriptors,
 )
 from echozero.application.settings.network_options import list_osc_receive_address_options
-from echozero.output_routing import output_bus_options
+from echozero.output_routing import OutputBusRoute, output_bus_options, parse_output_bus_token
 
 
 def list_audio_output_device_options() -> tuple[SettingsOption, ...]:
@@ -72,11 +72,43 @@ def list_audio_output_device_options() -> tuple[SettingsOption, ...]:
     return tuple(options)
 
 
-def _audio_master_output_bus_options(channel_count: int) -> tuple[SettingsOption, ...]:
-    return tuple(
+def _audio_master_output_bus_options(
+    channel_count: int,
+    current_value: str,
+) -> tuple[SettingsOption, ...]:
+    options = [
         SettingsOption(value=route.token, label=route.label)
-        for route in output_bus_options(channel_count)
-    )
+        for route in _master_output_bus_routes(channel_count)
+    ]
+    option_tokens = {str(option.value) for option in options}
+    for raw_token in str(current_value or "").split(","):
+        route = parse_output_bus_token(raw_token)
+        if route is None or route.token in option_tokens:
+            continue
+        options.append(
+            SettingsOption(
+                value=route.token,
+                label=f"{route.label} (saved)",
+                metadata={"saved_unavailable": True},
+            )
+        )
+        option_tokens.add(route.token)
+    return tuple(options)
+
+
+def _master_output_bus_routes(channel_count: int) -> tuple[OutputBusRoute, ...]:
+    resolved_count = max(1, int(channel_count or 0))
+    if resolved_count <= 1:
+        return output_bus_options(1)
+    routes = []
+    for channel in range(1, resolved_count + 1, 2):
+        if channel + 1 <= resolved_count:
+            route = parse_output_bus_token(f"outputs_{channel}_{channel + 1}")
+        else:
+            route = parse_output_bus_token(f"outputs_{channel}_{channel}")
+        if route is not None:
+            routes.append(route)
+    return tuple(routes)
 
 
 def _master_output_bus_channel_count(
@@ -239,14 +271,17 @@ def _audio_section(
             key="audio.master_output_bus",
             label="Master Output Buses",
             value=audio.master_output_bus,
-            default_value="outputs_1_1",
+            default_value="outputs_1_2",
             widget=SettingsFieldWidget.CHECKBOX_GROUP,
             description=(
                 "Default route for un-routed song/master playback. Explicit layer/timecode "
                 "routes stay unchanged. Select one or more physical outputs to mirror the master. "
                 "Options are limited to the selected audio device's reported output count."
             ),
-            options=_audio_master_output_bus_options(master_output_channel_count),
+            options=_audio_master_output_bus_options(
+                master_output_channel_count,
+                audio.master_output_bus,
+            ),
             surface=SettingsFieldSurface.ADVANCED,
         ),
         SettingsField(

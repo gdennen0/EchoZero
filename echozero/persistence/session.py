@@ -382,6 +382,7 @@ class ProjectStorage(
                         SongVideoPlacementRecord(
                             song_version_id=version.id,
                             video_start_seconds=0.0,
+                            video_loop_enabled=False,
                         )
                     )
             self.db.commit()
@@ -426,9 +427,38 @@ class ProjectStorage(
             version = self.song_versions.get(song_version_id)
             if version is None:
                 raise ValueError(f"SongVersionRecord not found: {song_version_id}")
+            existing = self.song_video_placements.get(song_version_id)
             record = SongVideoPlacementRecord(
                 song_version_id=song_version_id,
                 video_start_seconds=float(video_start_seconds),
+                video_loop_enabled=(
+                    False if existing is None else bool(existing.video_loop_enabled)
+                ),
+            )
+            self.song_video_placements.upsert(record)
+            self.db.commit()
+            self.dirty_tracker.mark_dirty(version.song_id)
+            return record
+
+    def set_song_video_loop_enabled(
+        self,
+        song_version_id: str,
+        enabled: bool,
+    ) -> SongVideoPlacementRecord:
+        """Persist whether the song version's video reference loops during playback."""
+
+        with self._lock:
+            self._check_closed()
+            version = self.song_versions.get(song_version_id)
+            if version is None:
+                raise ValueError(f"SongVersionRecord not found: {song_version_id}")
+            existing = self.song_video_placements.get(song_version_id)
+            record = SongVideoPlacementRecord(
+                song_version_id=song_version_id,
+                video_start_seconds=(
+                    0.0 if existing is None else float(existing.video_start_seconds)
+                ),
+                video_loop_enabled=bool(enabled),
             )
             self.song_video_placements.upsert(record)
             self.db.commit()

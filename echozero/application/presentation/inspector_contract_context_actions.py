@@ -478,6 +478,19 @@ def shared_context_sections(
                     params=scoped_layer_params,
                 ),
                 InspectorAction(
+                    action_id="video.set_loop_enabled",
+                    label=(
+                        "Disable Video Loop"
+                        if bool(layer.video_loop_enabled)
+                        else "Enable Video Loop"
+                    ),
+                    group="layer",
+                    params={
+                        **scoped_layer_params,
+                        "enabled": not bool(layer.video_loop_enabled),
+                    },
+                ),
+                InspectorAction(
                     action_id="video.remove",
                     label="Remove Video",
                     group="layer",
@@ -997,7 +1010,10 @@ def _is_smpte_layer(layer: LayerPresentation) -> bool:
 
 
 def _available_output_bus_tokens(playback_output_channels: int) -> tuple[str, ...]:
-    return tuple(route.token for route in output_bus_options(playback_output_channels))
+    return tuple(
+        route.token
+        for route in output_bus_options(playback_output_channels, include_stereo_pairs=True)
+    )
 
 
 def _output_bus_name(output_bus: str) -> str:
