@@ -771,11 +771,14 @@ class MA3OSCBridge:
             return dict(self._transport_updates.pop(0))
 
     def consume_latest_transport_update(self) -> dict[str, object] | None:
-        """Consume the newest queued MA3 transport update and clear older ones."""
+        """Consume one edge action FIFO, otherwise coalesce latest telemetry."""
 
         with self._lock:
             if not self._transport_updates:
                 return None
+            for index, update in enumerate(self._transport_updates):
+                if _is_transport_edge_update(update):
+                    return dict(self._transport_updates.pop(index))
             latest = dict(self._transport_updates[-1])
             self._transport_updates.clear()
             return latest
@@ -3123,7 +3126,9 @@ def _first_transport_action(change: object, fields: dict[str, object]) -> str | 
             "pause",
             "stop",
             "seek",
+            "move",
             "scrubbed",
+            "scrub",
             "toggle",
             "play_pause",
             "toggle_play_pause",
@@ -3133,7 +3138,29 @@ def _first_transport_action(change: object, fields: dict[str, object]) -> str | 
             return text
         if text in {"scrub", "scrubbing"}:
             return "scrubbed"
+        if text in {"nudge", "move_timecode"}:
+            return "move"
+        if text in {"previous_section", "prev_section"}:
+            return "jump_previous_section"
+        if text == "next_section":
+            return "jump_next_section"
     return None
+
+
+def _is_transport_edge_update(update: dict[str, object]) -> bool:
+    action = str(update.get("action") or update.get("change") or "").strip().lower()
+    action = action.replace("-", "_").replace(" ", "_")
+    return action in {
+        "play",
+        "pause",
+        "stop",
+        "toggle",
+        "play_pause",
+        "toggle_play_pause",
+        "jump_previous_section",
+        "jump_next_section",
+        "move",
+    }
 
 
 def _coerce_bool(value: object) -> bool | None:

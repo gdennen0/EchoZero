@@ -24,8 +24,9 @@ from echozero.application.playback.sync_delta import (
 from echozero.application.playback.sync_projection import PlaybackSyncPayload
 from echozero.application.presentation.models import TimelinePresentation
 from echozero.application.shared.enums import FollowMode
+from echozero.application.shared.ids import SectionCueId, SongVersionId, TimelineId
 from echozero.application.timeline.ma3_push_intents import PollMA3PushOperation
-from echozero.application.timeline.external_transport import (
+from echozero.application.transport.external import (
     normalize_external_transport_intents,
     resolve_external_transport_action,
     resolve_external_transport_seek_seconds,
@@ -67,7 +68,7 @@ from echozero.application.timeline.intents import (
     TrimEvent,
     UpdateEventLabel,
 )
-from echozero.application.timeline.models import EventRef
+from echozero.application.timeline.models import EventRef, SectionCue, Timeline
 from echozero.ui.FEEL import (
     TIMELINE_MIX_SYNC_DEBOUNCE_MS,
     TIMELINE_RUNTIME_TICK_ACTIVE_MS,
@@ -135,6 +136,16 @@ class _RuntimeShellWithPipelineUpdate(Protocol):
 
 class _RuntimeShellWithSyncTransportUpdate(Protocol):
     def consume_sync_transport_update(self) -> dict[str, object] | None: ...
+
+
+class _RuntimeShellWithExternalTransportApply(Protocol):
+    def apply_sync_transport_update(
+        self,
+        payload: dict[str, object] | None,
+        *,
+        current_playhead_seconds: float | None = None,
+        current_is_playing: bool | None = None,
+    ) -> TimelinePresentation: ...
 
 
 class _RuntimeShellWithSyncCadenceHint(Protocol):
@@ -948,15 +959,6 @@ class TimelineWidgetRuntimeMixin:
                         return 0.5 * (float(event.start) + float(event.end))
         return None
 
-    def _jump_to_adjacent_section(self: _TimelineWidgetRuntimeHost, *, direction: int) -> None:
-        target = _adjacent_section_start(
-            self.presentation,
-            direction=direction,
-            playhead=float(self.presentation.playhead),
-        )
-        if target is not None:
-            self._dispatch(Seek(position=float(target)))
-
     def _on_runtime_tick(self: _TimelineWidgetRuntimeHost) -> None:
         operation_id = str(self.presentation.manual_push_flow.operation_id or "").strip()
         operation_status = (
@@ -974,15 +976,25 @@ class TimelineWidgetRuntimeMixin:
         )
         if callable(consume_transport_update):
             transport_update = consume_transport_update()
-            transport_action = _resolve_transport_action(transport_update)
-            if transport_action == "jump_previous_section":
-                self._jump_to_adjacent_section(direction=-1)
-            elif transport_action == "jump_next_section":
-                self._jump_to_adjacent_section(direction=1)
-            else:
+            apply_transport_update = (
+                cast(_RuntimeShellWithExternalTransportApply, runtime).apply_sync_transport_update
+                if runtime is not None
+                and callable(getattr(runtime, "apply_sync_transport_update", None))
+                else None
+            )
+            if callable(apply_transport_update):
+                updated = apply_transport_update(
+                    transport_update,
+                    current_playhead_seconds=float(self.presentation.playhead),
+                    current_is_playing=bool(self.presentation.is_playing),
+                )
+                self.set_presentation(self._with_local_viewport(updated))
+            elif transport_update is not None:
                 for intent in normalize_external_transport_intents(
                     transport_update,
+                    timeline=_timeline_from_presentation(self.presentation),
                     is_playing=bool(self.presentation.is_playing),
+                    playhead_seconds=float(self.presentation.playhead),
                 ):
                     self._dispatch(intent)
 
@@ -1169,23 +1181,36 @@ def _resolve_transport_action(payload: dict[str, object] | None) -> str | None:
     return resolve_external_transport_action(payload)
 
 
-def _adjacent_section_start(
-    presentation: TimelinePresentation,
-    *,
-    direction: int,
-    playhead: float,
-) -> float | None:
-    cues = sorted(
-        {max(0.0, float(cue.start)) for cue in getattr(presentation, "section_cues", [])},
+def _timeline_from_presentation(presentation: TimelinePresentation) -> Timeline:
+    section_cues = [
+        SectionCue(
+            id=SectionCueId(str(cue.cue_id)),
+            start=float(cue.start),
+            name=str(cue.name or "Section"),
+            cue_ref=cue.cue_ref,
+            color=cue.color,
+        )
+        for cue in getattr(presentation, "section_cues", [])
+    ]
+    return Timeline(
+        id=TimelineId("external_transport_fallback"),
+        song_version_id=SongVersionId("external_transport_fallback"),
+        end=_presentation_end_seconds(presentation),
+        section_cues=section_cues,
     )
-    if not cues:
-        return None
-    epsilon = 0.025
-    if direction < 0:
-        previous = [start for start in cues if start < playhead - epsilon]
-        return previous[-1] if previous else cues[0]
-    next_cues = [start for start in cues if start > playhead + epsilon]
-    return next_cues[0] if next_cues else cues[-1]
+
+
+def _presentation_end_seconds(presentation: TimelinePresentation) -> float:
+    end_seconds = max(0.0, float(presentation.playhead))
+    for cue in getattr(presentation, "section_cues", []):
+        end_seconds = max(end_seconds, float(cue.start))
+    for layer in getattr(presentation, "layers", []):
+        for event in getattr(layer, "events", []):
+            end_seconds = max(end_seconds, float(event.end))
+        for take in getattr(layer, "takes", []):
+            for event in getattr(take, "events", []):
+                end_seconds = max(end_seconds, float(event.end))
+    return end_seconds
 
 
 def _runtime_prefers_low_latency_transport_poll(runtime: object | None) -> bool:

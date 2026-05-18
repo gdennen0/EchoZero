@@ -43,7 +43,7 @@ def test_resolve_transport_action_falls_back_to_nested_fields_state() -> None:
 
 def test_resolve_transport_action_returns_seek_action_for_scrubbed_updates() -> None:
     payload = {"change": "scrubbed", "fields": {"to_seconds": 9.5}}
-    assert _resolve_transport_action(payload) == "scrubbed"
+    assert _resolve_transport_action(payload) == "seek"
 
 
 def test_external_transport_pause_is_idempotent_not_toggle() -> None:

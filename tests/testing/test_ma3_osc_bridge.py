@@ -65,6 +65,37 @@ def test_ma3_osc_bridge_consumes_latest_transport_update_playhead():
     assert bridge.consume_transport_update() is None
 
 
+def test_ma3_osc_bridge_keeps_edge_actions_fifo_when_latest_scrub_coalesces():
+    bridge = MA3OSCBridge()
+    messages = [
+        parse_ma3_osc_payload("type=transport|change=scrubbed|to_seconds=12.5"),
+        parse_ma3_osc_payload(
+            "type=transport|change=jump_previous_section|action=jump_previous_section"
+        ),
+        parse_ma3_osc_payload(
+            "type=transport|change=jump_previous_section|action=jump_previous_section"
+        ),
+        parse_ma3_osc_payload("type=transport|change=scrubbed|to_seconds=14.0"),
+    ]
+
+    with bridge._condition:
+        for message in messages:
+            bridge._ingest_message_locked(message)
+
+    first = bridge.consume_latest_transport_update()
+    second = bridge.consume_latest_transport_update()
+    latest_scrub = bridge.consume_latest_transport_update()
+
+    assert first is not None
+    assert second is not None
+    assert latest_scrub is not None
+    assert first.get("action") == "jump_previous_section"
+    assert second.get("action") == "jump_previous_section"
+    assert latest_scrub.get("change") == "scrubbed"
+    assert latest_scrub.get("playhead_seconds") == pytest.approx(14.0)
+    assert bridge.consume_transport_update() is None
+
+
 def test_ma3_osc_bridge_queues_transport_state_updates_without_playhead():
     bridge = MA3OSCBridge()
     message = parse_ma3_osc_payload("type=transport|change=state|state=playing")

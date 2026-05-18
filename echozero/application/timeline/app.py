@@ -33,6 +33,10 @@ from echozero.application.timeline.orchestrator import (
 )
 from echozero.application.timeline.queries import TimelineQueries
 from echozero.application.timeline.models import Timeline
+from echozero.application.transport.external import (
+    build_external_transport_intents,
+    normalize_external_transport_command,
+)
 
 
 @dataclass(slots=True)
@@ -59,6 +63,48 @@ class TimelineApplication:
         self._apply_runtime_audio_after_dispatch(intent, presentation)
         self._apply_runtime_video_for_transport_intent(intent, presentation)
         self._sync_runtime_state_for_transport_intent(intent, presentation)
+        return presentation
+
+    def apply_external_transport_update(
+        self,
+        payload: dict[str, object] | None,
+        *,
+        current_playhead_seconds: float | None = None,
+        current_is_playing: bool | None = None,
+    ) -> TimelinePresentation:
+        """Apply one external transport update through canonical timeline intents."""
+
+        command = normalize_external_transport_command(payload)
+        presentation = self.presentation()
+        if command is None:
+            return presentation
+
+        transport_state = self.session.transport_state
+        playhead_seconds = (
+            float(current_playhead_seconds)
+            if current_playhead_seconds is not None
+            else float(transport_state.playhead)
+        )
+        is_playing = (
+            bool(current_is_playing)
+            if current_is_playing is not None
+            else bool(transport_state.is_playing)
+        )
+        intents = build_external_transport_intents(
+            command,
+            timeline=self.timeline,
+            is_playing=is_playing,
+            playhead_seconds=playhead_seconds,
+        )
+        for intent in intents:
+            presentation = self.dispatch(intent)
+            if isinstance(intent, (Play, Pause)):
+                is_playing = isinstance(intent, Play)
+            if isinstance(intent, Stop):
+                is_playing = False
+                playhead_seconds = 0.0
+            if isinstance(intent, Seek):
+                playhead_seconds = float(intent.position)
         return presentation
 
     @property

@@ -287,7 +287,6 @@ class StageZeroRuntimeController(
             payload = consume_latest()
             if isinstance(payload, dict):
                 return payload
-            return None
 
         consume_next = getattr(bridge, "consume_transport_update", None)
         if callable(consume_next):
@@ -295,6 +294,21 @@ class StageZeroRuntimeController(
             if isinstance(payload, dict):
                 return payload
         return None
+
+    def apply_sync_transport_update(
+        self,
+        payload: dict[str, object] | None,
+        *,
+        current_playhead_seconds: float | None = None,
+        current_is_playing: bool | None = None,
+    ) -> TimelinePresentation:
+        """Apply one external transport update through the timeline application."""
+
+        return self._app.apply_external_transport_update(
+            payload,
+            current_playhead_seconds=current_playhead_seconds,
+            current_is_playing=current_is_playing,
+        )
 
     def prefers_low_latency_transport_poll(self) -> bool:
         """Hint UI runtime cadence when live MA3 transport sync is active."""
