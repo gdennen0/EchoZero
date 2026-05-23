@@ -27,10 +27,16 @@ from echozero.application.playback.audio_diagnostics import (
     timestamped_capture_id,
     write_audio_diagnostics_bundle,
 )
+from echozero.application.playback.coordination import (
+    TransportCommand,
+    TransportCommandAction,
+    TransportSnapshot,
+)
 from echozero.application.playback.engine_selection import (
     RuntimeAudioEngine,
     build_runtime_audio_engine,
 )
+from echozero.application.playback.output_matrix import resolve_output_matrix
 from echozero.application.playback.timecode import PlaybackTimecodeAuthority, TimebaseSpec
 from echozero.application.playback.tracks import (
     PlaybackMixPlan,
@@ -125,11 +131,6 @@ class PlaybackController:
     def engine(self) -> RuntimeAudioEngine:
         return self._engine
 
-    def sync_presentation(self, presentation: TimelinePresentation) -> None:
-        """Compatibility alias for callers that still say `sync_presentation`."""
-
-        self.sync_structure_state(presentation)
-
     def sync_structure_state(self, presentation: TimelinePresentation) -> None:
         """Sync the currently playable EZ presentation into engine tracks."""
 
@@ -144,6 +145,18 @@ class PlaybackController:
             return
         self._cancel_pending_structure_sync(reason="structure-sync-superseded")
         self._sync_track_plan(self._track_builder.build_track_plan(resolved))
+
+    def enqueue_structure_prepare(self, presentation: TimelinePresentation) -> int:
+        """Queue structure preparation without applying graph work inline."""
+
+        if self._shutdown_state != "running":
+            self._last_track_sync_reason = "structure-async-shutdown-ignored"
+            return 0
+        if threading.get_ident() == self._owner_thread_id:
+            self.drain_pending_structure_sync()
+        self._latest_presentation = presentation
+        resolved = self._with_resolved_output_channels(presentation)
+        return self._queue_async_structure_sync(resolved)
 
     def sync_mix_state(self, presentation: TimelinePresentation) -> None:
         """Sync track gain and routing changes for the current presentation."""
@@ -162,16 +175,6 @@ class PlaybackController:
             self._last_track_sync_reason = "mix-state-pending-structure-sync"
             return
         self._last_track_sync_reason = "mix-state-applied"
-
-    def build_for_presentation(self, presentation: TimelinePresentation) -> None:
-        """Compatibility alias for callers that still say `build_for_presentation`."""
-
-        self.sync_structure_state(presentation)
-
-    def apply_mix_state(self, presentation: TimelinePresentation) -> None:
-        """Compatibility alias for callers that still say `apply_mix_state`."""
-
-        self.sync_mix_state(presentation)
 
     def record_coalesced_structural_edits(self, count: int = 1) -> None:
         self._coalesced_edit_count += max(0, int(count))
@@ -210,13 +213,48 @@ class PlaybackController:
         )
 
     def current_time_seconds(self) -> float:
-        self.drain_pending_structure_sync()
         self._sync_preview_state()
         return float(self._engine.audible_time_seconds)
 
     def timing_snapshot(self) -> PlaybackTimingSnapshot:
-        self.drain_pending_structure_sync()
         self._sync_preview_state()
+        return self._build_timing_snapshot()
+
+    def latest_timing_snapshot(self) -> PlaybackTimingSnapshot:
+        """Return current timing state through the coordinator-compatible seam."""
+
+        return self._build_timing_snapshot()
+
+    def latest_transport_snapshot(self) -> TransportSnapshot:
+        """Return current transport state through the coordinator-compatible seam."""
+
+        return TransportSnapshot.from_timing_snapshot(self.latest_timing_snapshot())
+
+    def enqueue_transport_command(self, command: TransportCommand) -> None:
+        """Apply a transport command through the coordinator-compatible seam."""
+
+        action = command.action
+        if action is TransportCommandAction.PLAY:
+            if command.position_seconds is not None:
+                self.seek(float(command.position_seconds))
+            self.play()
+            return
+        if action is TransportCommandAction.PAUSE:
+            if command.position_seconds is not None:
+                self.seek(float(command.position_seconds))
+            self.pause()
+            return
+        if action is TransportCommandAction.STOP:
+            self.stop()
+            return
+        if action in {
+            TransportCommandAction.SEEK,
+            TransportCommandAction.SCRUB_UPDATE,
+            TransportCommandAction.SCRUB_COMMIT,
+        }:
+            self.seek(float(command.position_seconds or 0.0))
+
+    def _build_timing_snapshot(self) -> PlaybackTimingSnapshot:
         snapshot_time = getattr(self._engine, "_last_audible_time_seconds", None)
         snapshot_monotonic = getattr(self._engine, "_last_audible_monotonic_seconds", None)
         clock_time = float(self._engine.clock.position_seconds)
@@ -250,9 +288,21 @@ class PlaybackController:
         )
 
     def is_playing(self) -> bool:
-        self.drain_pending_structure_sync()
         self._sync_preview_state()
         return bool(self._engine.transport.is_playing)
+
+    def clear_playback_graph(self, *, reason: str = "clear-playback-graph") -> None:
+        """Commit an empty playback graph without touching hardware settings."""
+
+        self._cancel_pending_structure_sync(reason=reason)
+        self._engine.clear_tracks()
+        self._track_builder.clear_cache()
+        self._async_track_builder.clear_cache()
+        self._loaded_track_signature = ()
+        self._loaded_track_structure_signature = ()
+        self._loaded_uses_track_routing = False
+        self._latest_presentation = None
+        self._last_track_sync_reason = str(reason or "clear-playback-graph")
 
     def shutdown(self) -> None:
         if self._shutdown_state == "shutdown":
@@ -266,6 +316,8 @@ class PlaybackController:
         self._shutdown_state = "shutdown"
         self.stop_preview()
         self._engine.clear_tracks()
+        self._track_builder.clear_cache()
+        self._async_track_builder.clear_cache()
         self._loaded_track_signature = ()
         self._loaded_track_structure_signature = ()
         self._loaded_uses_track_routing = False
@@ -290,21 +342,39 @@ class PlaybackController:
         was_playing = bool(self._engine.transport.is_playing)
         reason = self._classify_device_reconfigure_reason(device_spec)
         self._cancel_pending_structure_sync(reason=reason)
-        self._engine.shutdown()
-        self._engine = self._build_engine_for_device_spec(device_spec)
+        previous_engine = self._engine
+        previous_track_signature = self._loaded_track_signature
+        previous_track_structure_signature = self._loaded_track_structure_signature
+        previous_uses_track_routing = self._loaded_uses_track_routing
+        previous_preview_active = self._preview_active
+        next_engine = self._build_engine_for_device_spec(device_spec)
+        self._engine = next_engine
         self._loaded_track_signature = ()
         self._loaded_track_structure_signature = ()
         self._loaded_uses_track_routing = False
         self._preview_active = False
+        try:
+            if presentation is not None:
+                self.sync_structure_state(presentation)
+                if current_time_seconds > 0.0:
+                    self.seek(current_time_seconds)
+                if was_playing and self._engine.tracks:
+                    self.play()
+        except Exception:
+            self._engine = previous_engine
+            self._loaded_track_signature = previous_track_signature
+            self._loaded_track_structure_signature = previous_track_structure_signature
+            self._loaded_uses_track_routing = previous_uses_track_routing
+            self._preview_active = previous_preview_active
+            try:
+                next_engine.shutdown()
+            finally:
+                self._last_track_sync_reason = "device-reconfigure-rollback"
+            raise
+        previous_engine.shutdown()
         self._device_reinit_count += 1
         self._last_device_reinit_reason = reason
         self._last_track_sync_reason = reason
-        if presentation is not None:
-            self.sync_structure_state(presentation)
-            if current_time_seconds > 0.0:
-                self.seek(current_time_seconds)
-            if was_playing and self._engine.tracks:
-                self.play()
         return {
             "device_reinit_count": int(self._device_reinit_count),
             "reason": reason,
@@ -588,7 +658,7 @@ class PlaybackController:
             latency_ms=float(self._engine.reported_output_latency_seconds) * 1000.0,
             backend_name=self._engine.backend_name or _SOUNDDEVICE_BACKEND,
             active_layer_id=presentation.selected_layer_id,
-            active_take_id=presentation.selected_take_id,
+            active_take_id=None,
             output_sample_rate=int(self._engine.sample_rate),
             output_channels=int(self._engine.output_channels),
             diagnostics=PlaybackDiagnostics(
@@ -749,27 +819,21 @@ class PlaybackController:
                 required = max(required, end_channel)
         return max(0, int(required))
 
-    @staticmethod
     def _route_resolution_summary(
+        self,
         presentation: TimelinePresentation,
         *,
         hardware_channels: int,
     ) -> str:
-        clamped: list[str] = []
-        for layer in getattr(presentation, "layers", ()):
-            output_bus = getattr(layer, "output_bus", None)
-            if not isinstance(output_bus, str):
-                continue
-            over_tokens: list[str] = []
-            for start_channel, end_channel in parse_output_bus_spans(output_bus):
-                if end_channel > hardware_channels:
-                    over_tokens.append(f"outputs_{start_channel}_{end_channel}")
-            if over_tokens:
-                layer_id = str(getattr(layer, "layer_id", "unknown"))
-                clamped.append(f"{layer_id}:{'/'.join(over_tokens)}->pruned")
-        if clamped:
-            return "routes-exceed-hardware:" + ",".join(clamped)
-        return "routes-fit-hardware"
+        matrix = resolve_output_matrix(
+            {
+                str(getattr(layer, "layer_id", "unknown")): getattr(layer, "output_bus", None)
+                for layer in getattr(presentation, "layers", ())
+            },
+            hardware_channels=hardware_channels,
+            default_route=self._engine.master_output_bus or "outputs_1_2",
+        )
+        return matrix.diagnostics_label
 
     @staticmethod
     def _classify_device_reconfigure_reason(device_spec: dict[str, object]) -> str:
@@ -902,10 +966,10 @@ class PlaybackController:
             self._latest_ready_generation = generation
             self._mark_generation_terminal_outcome(generation, "applied")
 
-    def _queue_async_structure_sync(self, presentation: TimelinePresentation) -> None:
+    def _queue_async_structure_sync(self, presentation: TimelinePresentation) -> int:
         if self._shutdown_state != "running":
             self._last_track_sync_reason = "structure-async-shutdown-ignored"
-            return
+            return 0
         generation = self._next_generation
         self._next_generation += 1
         self._latest_requested_generation = generation
@@ -929,6 +993,12 @@ class PlaybackController:
         )
         self._pending_structure_futures[future] = generation
         self._last_track_sync_reason = "structure-async-queued"
+        return generation
+
+    def generation_outcome(self, generation: int) -> str | None:
+        """Return the terminal outcome for a queued structure generation, if known."""
+
+        return self._generation_terminal_outcomes.get(int(generation))
 
     def _cancel_pending_structure_sync(self, *, reason: str) -> None:
         for future, generation in list(self._pending_structure_futures.items()):

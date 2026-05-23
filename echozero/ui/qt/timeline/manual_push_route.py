@@ -8,6 +8,7 @@ from __future__ import annotations
 from PyQt6.QtCore import QSignalBlocker, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QLabel,
@@ -47,6 +48,7 @@ class ManualPushRouteDialog(QDialog):
         self._show_sequence_controls = False
         self._show_apply_mode_controls = False
         self._show_channel_controls = True
+        self._show_skip_cue_1_controls = False
         self._track_by_coord: dict[str, object] = {}
         self._available_sequence_items: list[tuple[int, str]] = []
         self._sequence_range_available = False
@@ -124,6 +126,16 @@ class ManualPushRouteDialog(QDialog):
         layout.addWidget(self._apply_mode_combo)
         layout.addWidget(self._apply_mode_hint)
 
+        self._skip_cue_1_check = QCheckBox("Skip cue 1 for timecode", self)
+        self._skip_cue_1_check.setObjectName("manualPushRouteSkipCue1Check")
+        self._skip_cue_1_hint = QLabel(
+            "Cue 1 can remain a manual song-info cue instead of being stored in timecode.",
+            self,
+        )
+        self._skip_cue_1_hint.setWordWrap(True)
+        layout.addWidget(self._skip_cue_1_check)
+        layout.addWidget(self._skip_cue_1_hint)
+
         self._summary = QLabel("Target: Select an MA3 track", self)
         self._summary.setWordWrap(True)
         layout.addWidget(self._summary)
@@ -158,12 +170,14 @@ class ManualPushRouteDialog(QDialog):
         show_sequence_controls: bool,
         show_apply_mode_controls: bool,
         show_channel_controls: bool = True,
+        show_skip_cue_1_controls: bool = False,
         default_channel_no: int | None = None,
         default_apply_mode: str = "merge",
     ) -> None:
         self._show_sequence_controls = bool(show_sequence_controls)
         self._show_apply_mode_controls = bool(show_apply_mode_controls)
         self._show_channel_controls = bool(show_channel_controls)
+        self._show_skip_cue_1_controls = bool(show_skip_cue_1_controls)
 
         self._set_section_visible(
             self._sequence_mode_label,
@@ -210,6 +224,14 @@ class ManualPushRouteDialog(QDialog):
         self._set_section_visible(
             self._channel_hint,
             self._show_channel_controls,
+        )
+        self._set_section_visible(
+            self._skip_cue_1_check,
+            self._show_skip_cue_1_controls,
+        )
+        self._set_section_visible(
+            self._skip_cue_1_hint,
+            self._show_skip_cue_1_controls,
         )
 
         if default_channel_no not in {None, ""}:
@@ -381,6 +403,11 @@ class ManualPushRouteDialog(QDialog):
         text = str(value).strip().lower()
         return text or "merge"
 
+    def skip_cue_1(self) -> bool:
+        if not self._show_skip_cue_1_controls:
+            return False
+        return bool(self._skip_cue_1_check.isChecked())
+
     def accept(self) -> None:
         selected_track_coord = self.selected_track_coord()
         if selected_track_coord is None:
@@ -531,8 +558,8 @@ class ManualPushRouteDialog(QDialog):
                 self._set_combo_value(self._sequence_mode_combo, previous_mode, default_index=0)
             else:
                 default_mode = (
-                    self.SEQUENCE_MODE_ASSIGN_EXISTING
-                    if self._available_sequence_items
+                    self.SEQUENCE_MODE_CREATE_CURRENT_SONG
+                    if self._sequence_range_available
                     else self.SEQUENCE_MODE_CREATE_NEXT_AVAILABLE
                 )
                 self._set_combo_value(self._sequence_mode_combo, default_mode, default_index=0)

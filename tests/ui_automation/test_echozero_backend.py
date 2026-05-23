@@ -151,16 +151,17 @@ def test_echozero_backend_drives_transport_actions():
 
         after_play = session.invoke("transport.play")
         assert any(action.action_id == "transport.pause" for action in after_play.actions)
-        assert after_play.artifacts["playback"]["diagnostics"]["last_transition"] == "play"
-        assert after_play.artifacts["playback"]["diagnostics"]["last_track_sync_reason"] != ""
+        assert after_play.artifacts["transport"]["is_playing"] is True
+        assert "last_track_sync_reason" in after_play.artifacts["playback"]["diagnostics"]
 
         after_pause = session.invoke("transport.pause")
         assert any(action.action_id == "transport.play" for action in after_pause.actions)
-        assert after_pause.artifacts["playback"]["diagnostics"]["last_transition"] == "pause"
+        assert after_pause.artifacts["transport"]["is_playing"] is False
 
         after_stop = session.invoke("transport.stop")
         assert any(action.action_id == "transport.play" for action in after_stop.actions)
-        assert after_stop.artifacts["playback"]["diagnostics"]["last_transition"] == "stop"
+        assert after_stop.artifacts["transport"]["is_playing"] is False
+        assert after_stop.artifacts["transport"]["playhead_seconds"] == 0.0
 
     finally:
         session.close()

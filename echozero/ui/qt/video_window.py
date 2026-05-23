@@ -63,8 +63,15 @@ class _VideoFrameWidget(QWidget):
 
         self._status_text = str(text or "Video Reference")
         self._status_is_error = bool(is_error)
-        if is_error:
-            self._image = QImage()
+        self._image = QImage()
+        self.update()
+
+    def show_black(self) -> None:
+        """Clear any decoded frame so pre-roll displays as black."""
+
+        self._image = QImage()
+        self._status_text = ""
+        self._status_is_error = False
         self.update()
 
     def paintEvent(self, event: QPaintEvent | None) -> None:  # noqa: N802
@@ -167,10 +174,20 @@ class VideoPlaybackController:
         self._mapping = mapping
         if mapping is None:
             self._player.stop()
+            self._player.setSource(QUrl())
             self._loaded_path = None
             self._video_widget.set_status("No video reference")
             return
         mapping_changed = mapping != previous_mapping
+        if not mapping.media_available:
+            self._player.stop()
+            self._player.setSource(QUrl())
+            self._loaded_path = None
+            self._video_widget.set_status(
+                mapping.unavailable_reason or "Missing video file",
+                is_error=True,
+            )
+            return
         if mapping.video_path != self._loaded_path:
             self._loaded_path = mapping.video_path
             self._error_text = ""
@@ -200,6 +217,14 @@ class VideoPlaybackController:
 
         if self._mapping is None:
             return
+        if not self._mapping.media_available:
+            self._video_widget.set_status(
+                self._mapping.unavailable_reason or "Missing video file",
+                is_error=True,
+            )
+            return
+        if not self._mapping.contains_song_time(song_seconds):
+            self._video_widget.show_black()
         media_seconds = self._mapping.media_seconds_for_song_time(song_seconds)
         media_ms = int(round(media_seconds * 1000.0))
         if abs(int(self._player.position()) - media_ms) > 35:
@@ -208,6 +233,13 @@ class VideoPlaybackController:
     def update(self, song_seconds: float, audio_is_playing: bool) -> None:
         """Slave video playback to one sampled song transport clock value."""
 
+        if self._mapping is not None and not self._mapping.media_available:
+            self._player.pause()
+            self._video_widget.set_status(
+                self._mapping.unavailable_reason or "Missing video file",
+                is_error=True,
+            )
+            return
         decision = self._clock_sync.decision(
             self._mapping,
             song_seconds=float(song_seconds),
@@ -217,6 +249,8 @@ class VideoPlaybackController:
         media_ms = int(round(decision.media_seconds * 1000.0))
         if decision.should_seek:
             self._player.setPosition(media_ms)
+        if self._mapping is not None and not self._mapping.contains_song_time(song_seconds):
+            self._video_widget.show_black()
         playback_state = self._player.playbackState()
         if decision.should_play:
             if playback_state != QMediaPlayer.PlaybackState.PlayingState:

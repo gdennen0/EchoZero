@@ -107,12 +107,36 @@ def test_section_manager_table_edit_updates_selected_row_values() -> None:
     )
     try:
         dialog._refresh_table(select_row=0)
-        dialog._table.item(0, 0).setText("Bridge")
-        dialog._table.item(0, 1).setText("12.25")
+        dialog._table.item(0, 0).setText("7")
+        dialog._table.item(0, 1).setText("Bridge")
+        dialog._table.item(0, 2).setText("12.25")
         row = dialog._rows[0]
         assert row.name == "Bridge"
         assert row.start == 12.25
-        assert row.cue_ref is None
+        assert row.cue_ref == "7"
+    finally:
+        dialog.close()
+        app.processEvents()
+
+
+def test_section_manager_renumber_cues_assigns_consecutive_refs_by_start_time() -> None:
+    app = QApplication.instance() or QApplication([])
+    dialog = SectionManagerDialog(
+        _empty_presentation(),
+        cues=[
+            SectionCueDraft(cue_id="section_b", start=30.0, cue_ref="44", name="Bridge"),
+            SectionCueDraft(cue_id="section_a", start=12.0, cue_ref="7", name="Verse"),
+            SectionCueDraft(cue_id="section_c", start=42.0, cue_ref="9.5", name="Chorus"),
+        ],
+    )
+    try:
+        dialog._on_renumber_cues()
+        drafts = dialog.section_cue_drafts()
+        assert [(row.name, row.start, row.cue_ref) for row in drafts] == [
+            ("Verse", 12.0, "1"),
+            ("Bridge", 30.0, "2"),
+            ("Chorus", 42.0, "3"),
+        ]
     finally:
         dialog.close()
         app.processEvents()

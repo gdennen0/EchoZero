@@ -178,10 +178,23 @@ class CrnnTrainer:
         )
 
         model = _Crnn(num_classes=len(class_names), mel_bins=n_mels)
+        initialization_summary = self._load_initial_weights(
+            model,
+            run=run,
+            class_names=class_names,
+            n_mels=n_mels,
+        )
         optimizer = torch.optim.AdamW(
             model.parameters(), lr=learning_rate, weight_decay=weight_decay
         )
-        criterion = torch.nn.CrossEntropyLoss()
+        class_weight_values = self._resolve_class_weights(
+            training_spec,
+            class_names=class_names,
+            train_labels=train_ds.y,
+        )
+        criterion = torch.nn.CrossEntropyLoss(
+            weight=torch.tensor(class_weight_values, dtype=torch.float32)
+        )
 
         checkpoint_metrics: list[dict[str, float | int | None]] = []
         best_state: dict[str, torch.Tensor] | None = None
@@ -298,6 +311,10 @@ class CrnnTrainer:
                     "learningRate": learning_rate,
                     "batchSize": batch_size,
                     "seed": seed,
+                    "classWeights": {
+                        class_name: float(class_weight_values[index])
+                        for index, class_name in enumerate(class_names)
+                    },
                     "syntheticMix": synthetic_mix,
                     "gradientClipNorm": gradient_clip_norm,
                     "weightDecay": weight_decay,
@@ -321,11 +338,18 @@ class CrnnTrainer:
                     None if early_stopping_patience is None else int(early_stopping_patience)
                 ),
                 "minEpochs": max(1, min_epochs),
+                "classWeighting": str(training_spec.get("classWeighting", "none")).lower(),
+                "classWeights": {
+                    class_name: float(class_weight_values[index])
+                    for index, class_name in enumerate(class_names)
+                },
                 "syntheticMix": synthetic_mix,
                 "gradientClipNorm": gradient_clip_norm,
                 "weightDecay": weight_decay,
             },
         }
+        if initialization_summary is not None:
+            metrics_payload["initialization"] = initialization_summary
         if synthetic_eval is not None:
             metrics_payload["syntheticEval"] = synthetic_eval
 
@@ -351,6 +375,8 @@ class CrnnTrainer:
             "bestCheckpointSplit": best_split_name if best_epoch else None,
             "syntheticMix": synthetic_mix,
         }
+        if initialization_summary is not None:
+            run_summary_payload["initialization"] = initialization_summary
         if synthetic_eval is not None:
             run_summary_payload["syntheticEval"] = {
                 "sampleCount": synthetic_eval["metrics"]["sample_count"],
@@ -383,6 +409,10 @@ class CrnnTrainer:
                 "epochs": epochs,
                 "completed_epochs": len(checkpoint_metrics),
                 "checkpoint_epoch": best_epoch or len(checkpoint_metrics),
+                "class_weights": {
+                    class_name: float(class_weight_values[index])
+                    for index, class_name in enumerate(class_names)
+                },
                 "synthetic_mix": synthetic_mix,
                 "gradient_clip_norm": gradient_clip_norm,
                 "weight_decay": weight_decay,
@@ -410,7 +440,12 @@ class CrnnTrainer:
                     "bestCheckpointEpoch": best_epoch,
                     "metricsPath": metrics_path.name,
                     "runSummaryPath": run_summary_path.name,
+                    "classWeights": {
+                        class_name: float(class_weight_values[index])
+                        for index, class_name in enumerate(class_names)
+                    },
                     "syntheticMix": synthetic_mix,
+                    "initialization": initialization_summary,
                 },
             },
             model_path=model_path,
@@ -419,6 +454,91 @@ class CrnnTrainer:
             eval_split_name=eval_split_name,
             synthetic_eval=synthetic_eval,
         )
+
+    @staticmethod
+    def _resolve_class_weights(
+        training_spec: dict,
+        *,
+        class_names: list[str],
+        train_labels: np.ndarray,
+    ) -> np.ndarray:
+        explicit_weights = training_spec.get("classWeights")
+        if isinstance(explicit_weights, dict) and explicit_weights:
+            return np.asarray(
+                [
+                    float(explicit_weights.get(class_name, 1.0))
+                    for class_name in class_names
+                ],
+                dtype=np.float32,
+            )
+
+        class_weighting = str(training_spec.get("classWeighting", "none")).lower()
+        if class_weighting != "balanced" or len(train_labels) == 0:
+            return np.ones((len(class_names),), dtype=np.float32)
+
+        counts = np.bincount(train_labels, minlength=len(class_names)).astype(np.float32)
+        counts = np.maximum(counts, 1.0)
+        weights = float(len(train_labels)) / (float(len(class_names)) * counts)
+        return weights.astype(np.float32)
+
+    def _load_initial_weights(
+        self,
+        model: _Crnn,
+        *,
+        run: TrainRun,
+        class_names: list[str],
+        n_mels: int,
+    ) -> dict[str, object] | None:
+        model_spec = run.spec.get("model")
+        if not isinstance(model_spec, dict):
+            return None
+        raw_path = model_spec.get("initialWeightsPath") or model_spec.get("initialModelPath")
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            return None
+        source_path = self._resolve_initial_weights_path(Path(raw_path).expanduser())
+        checkpoint = torch.load(source_path, map_location="cpu", weights_only=False)
+        if not isinstance(checkpoint, dict):
+            raise ValueError(
+                f"Initial CRNN weights are not a checkpoint dictionary: {source_path}"
+            )
+        checkpoint_classes = checkpoint.get("classes")
+        if list(checkpoint_classes or []) != class_names:
+            raise ValueError(
+                "Initial CRNN weights classes do not match target classes: "
+                f"{checkpoint_classes!r} != {class_names!r}"
+            )
+        preprocessing = checkpoint.get("preprocessing") or {}
+        if isinstance(preprocessing, dict) and int(preprocessing.get("nMels", n_mels)) != n_mels:
+            raise ValueError(
+                "Initial CRNN weights nMels does not match target preprocessing: "
+                f"{preprocessing.get('nMels')} != {n_mels}"
+            )
+        state_dict = checkpoint.get("model_state_dict")
+        if not isinstance(state_dict, dict):
+            raise ValueError(f"Initial CRNN weights are missing model_state_dict: {source_path}")
+        model.load_state_dict(state_dict, strict=True)
+        return {
+            "kind": "warm_start",
+            "sourcePath": str(source_path.resolve()),
+            "classes": list(class_names),
+        }
+
+    @staticmethod
+    def _resolve_initial_weights_path(path: Path) -> Path:
+        if path.suffix.lower() != ".json":
+            if not path.exists():
+                raise FileNotFoundError(f"Initial CRNN weights not found: {path}")
+            return path
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        raw_weights_path = manifest.get("weightsPath")
+        if not isinstance(raw_weights_path, str) or not raw_weights_path.strip():
+            raise ValueError(f"Initial CRNN manifest is missing weightsPath: {path}")
+        weights_path = Path(raw_weights_path)
+        if not weights_path.is_absolute():
+            weights_path = path.parent / weights_path
+        if not weights_path.exists():
+            raise FileNotFoundError(f"Initial CRNN weights not found: {weights_path}")
+        return weights_path
 
     def _build_dataset(
         self,

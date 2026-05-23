@@ -81,6 +81,26 @@ class RulerBlock:
             painter.setPen(QColor(self.style.label_hex))
             painter.drawText(int(x) + 4, int(rect.top()) + 12, label)
 
+        playback_start_x = timeline_x_for_time(
+            presentation.playback_start,
+            scroll_x=presentation.scroll_x,
+            pixels_per_second=pps,
+            content_start_x=layout.header_width,
+        )
+        if layout.header_width <= playback_start_x <= rect.right():
+            marker = QColor("#9ca3af")
+            marker.setAlpha(155)
+            pen = QPen(marker, 1)
+            pen.setStyle(Qt.PenStyle.DashLine)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawLine(
+                int(playback_start_x),
+                int(rect.top()),
+                int(playback_start_x),
+                int(rect.bottom()) - 1,
+            )
+
         playhead_x = timeline_x_for_time(
             presentation.playhead,
             scroll_x=presentation.scroll_x,

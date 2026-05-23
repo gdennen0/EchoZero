@@ -2,6 +2,7 @@ from tests.ui.timeline_shell_support import (
     test_contract_add_event_layer_action_calls_runtime,
     test_contract_add_section_layer_action_calls_runtime,
     test_contract_add_song_action_calls_runtime,
+    test_contract_export_song_package_action_calls_runtime,
     test_contract_add_song_legacy_alias_still_calls_runtime,
     test_contract_add_song_version_action_calls_runtime,
     test_contract_classify_pipeline_action_prompts_for_model_and_calls_runtime,

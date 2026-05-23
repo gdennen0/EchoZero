@@ -2564,6 +2564,61 @@ def test_trigger_take_action_overwrite_main_replaces_events_from_source_take():
     assert timeline.selection.selected_take_id == main_take.id
 
 
+def test_trigger_take_action_overwrite_main_clears_prior_fix_review_events():
+    orchestrator, timeline, layer, main_take, alt_take = _build_orchestrator_and_timeline()
+    main_take.events.append(
+        _event(
+            "main_fix",
+            "take_main",
+            3.0,
+            metadata={
+                "review": {
+                    "promotion_state": "promoted",
+                    "review_state": "corrected",
+                    "decision_kind": "missed_event_added",
+                }
+            },
+        )
+    )
+    alt_take.events = [
+        _event(
+            "alt_model",
+            "take_alt",
+            1.25,
+            metadata={
+                "review": {
+                    "promotion_state": "promoted",
+                    "review_state": "signed_off",
+                    "decision_kind": "verified",
+                },
+                "detection": {"promotion_state": "promoted"},
+            },
+        ),
+        _event(
+            "alt_fix",
+            "take_alt",
+            2.25,
+            metadata={
+                "review": {
+                    "promotion_state": "promoted",
+                    "review_state": "corrected",
+                    "decision_kind": "missed_event_added",
+                }
+            },
+        ),
+    ]
+    alt_take.events[1].origin = "manual_added"
+
+    orchestrator.handle(
+        timeline,
+        TriggerTakeAction(layer_id=layer.id, take_id=alt_take.id, action_id="overwrite_main"),
+    )
+
+    assert [event.parent_event_id for event in main_take.events] == ["alt_model"]
+    assert main_take.events[0].metadata == {"detection": {"promotion_state": "promoted"}}
+    assert timeline.selection.selected_take_id == main_take.id
+
+
 def test_trigger_take_action_merge_main_appends_sorted_events():
     orchestrator, timeline, layer, main_take, alt_take = _build_orchestrator_and_timeline()
 

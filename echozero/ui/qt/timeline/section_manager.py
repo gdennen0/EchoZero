@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 )
 
 from echozero.application.presentation.models import TimelinePresentation
+from echozero.application.shared.cue_numbers import cue_number_text
 from echozero.application.shared.ids import SectionCueId
 
 
@@ -101,8 +102,8 @@ class SectionManagerDialog(QDialog):
         root.addLayout(row, 1)
 
         self._table = QTableWidget(self)
-        self._table.setColumnCount(4)
-        self._table.setHorizontalHeaderLabels(["Name", "Start", "Color", "Notes"])
+        self._table.setColumnCount(5)
+        self._table.setHorizontalHeaderLabels(["Cue", "Name", "Start", "Color", "Notes"])
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
@@ -137,6 +138,10 @@ class SectionManagerDialog(QDialog):
         self._delete_button = QPushButton("Delete Section", self)
         self._delete_button.clicked.connect(self._on_delete_section)
         side.addWidget(self._delete_button)
+
+        self._renumber_button = QPushButton("Renumber Cues", self)
+        self._renumber_button.clicked.connect(self._on_renumber_cues)
+        side.addWidget(self._renumber_button)
 
         side.addSpacing(10)
 
@@ -268,6 +273,10 @@ class SectionManagerDialog(QDialog):
         next_index = max(0, anchor_index)
         self._refresh_table(select_row=next_index)
 
+    def _on_renumber_cues(self) -> None:
+        self._rows = self._renumbered_rows(self._rows)
+        self._refresh_table(select_row=self._selected_row_index())
+
     def _on_row_selection_changed(self) -> None:
         selected_rows = self._selected_row_indexes()
         if not selected_rows:
@@ -370,16 +379,22 @@ class SectionManagerDialog(QDialog):
         notes = current.notes
 
         if column == 0:
-            name = raw_value or "Section"
+            cue_ref = raw_value or None
         elif column == 1:
+            name = raw_value or "Section"
+            cue_ref = current.cue_ref
+        elif column == 2:
             try:
                 start = max(0.0, float(raw_value))
             except ValueError:
                 start = float(current.start)
-        elif column == 2:
-            color = raw_value or None
+            cue_ref = current.cue_ref
         elif column == 3:
+            color = raw_value or None
+            cue_ref = current.cue_ref
+        elif column == 4:
             notes = raw_value or None
+            cue_ref = current.cue_ref
         else:
             return
 
@@ -387,12 +402,12 @@ class SectionManagerDialog(QDialog):
             cue_id=current.cue_id,
             start=start,
             name=name,
-            cue_ref=current.cue_ref,
+            cue_ref=cue_ref,
             color=color,
             notes=notes,
             payload_ref=current.payload_ref,
         )
-        if column == 1:
+        if column == 2:
             self._rows = self._ordered_rows_by_time(self._rows)
         self._refresh_table(select_row=row_index)
 
@@ -407,6 +422,7 @@ class SectionManagerDialog(QDialog):
             self._table.setRowCount(len(self._rows))
             for row_index, row in enumerate(self._rows):
                 values = (
+                    row.cue_ref or "",
                     row.name,
                     f"{float(row.start):.3f}",
                     row.color or "",
@@ -414,7 +430,7 @@ class SectionManagerDialog(QDialog):
                 )
                 for column, value in enumerate(values):
                     item = QTableWidgetItem(value)
-                    if column == 1:
+                    if column == 2:
                         item.setTextAlignment(
                             int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                         )
@@ -449,6 +465,7 @@ class SectionManagerDialog(QDialog):
         self._delete_button.setEnabled(enabled)
         self._add_before_button.setEnabled(enabled)
         self._add_after_button.setEnabled(enabled)
+        self._renumber_button.setEnabled(bool(self._rows))
 
     def _selected_row_index(self) -> int | None:
         selected_rows = self._selected_row_indexes()
@@ -543,3 +560,21 @@ class SectionManagerDialog(QDialog):
                 )
             )
         return ordered
+
+    @staticmethod
+    def _renumbered_rows(rows: list[SectionCueDraft]) -> list[SectionCueDraft]:
+        ordered_rows = SectionManagerDialog._ordered_rows_by_time(rows)
+        renumbered: list[SectionCueDraft] = []
+        for index, row in enumerate(ordered_rows, start=1):
+            renumbered.append(
+                SectionCueDraft(
+                    cue_id=row.cue_id,
+                    start=float(row.start),
+                    name=row.name,
+                    cue_ref=cue_number_text(index) or str(index),
+                    color=row.color,
+                    notes=row.notes,
+                    payload_ref=row.payload_ref,
+                )
+            )
+        return renumbered

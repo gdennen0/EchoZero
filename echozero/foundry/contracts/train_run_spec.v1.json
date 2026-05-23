@@ -9,7 +9,9 @@
     "model": {
       "type": "object",
       "properties": {
-        "type": { "enum": ["baseline_sgd", "cnn", "crnn"] }
+        "type": { "enum": ["baseline_sgd", "cnn", "crnn"] },
+        "initialWeightsPath": { "type": "string" },
+        "initialModelPath": { "type": "string" }
       }
     },
     "data": {
@@ -34,12 +36,16 @@
         "learningRate": { "type": "number", "exclusiveMinimum": 0 },
         "seed": { "type": "integer" },
         "trainerProfile": { "enum": ["baseline_v1", "stronger_v1"] },
-        "optimizer": { "enum": ["sgd_constant", "sgd_optimal"] },
+        "optimizer": { "enum": ["sgd_constant", "sgd_optimal", "adam", "adamw"] },
         "regularizationAlpha": { "type": "number", "exclusiveMinimum": 0 },
         "averageWeights": { "type": "boolean" },
         "earlyStoppingPatience": { "type": "integer", "minimum": 1 },
         "minEpochs": { "type": "integer", "minimum": 1 },
         "classWeighting": { "enum": ["none", "balanced"] },
+        "classWeights": {
+          "type": "object",
+          "additionalProperties": { "type": "number", "exclusiveMinimum": 0 }
+        },
         "rebalanceStrategy": { "enum": ["none", "oversample"] },
         "augmentTrain": { "type": "boolean" },
         "augmentNoiseStd": { "type": "number", "minimum": 0 },

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -207,6 +208,139 @@ def test_dataset_ingest_rejects_folders_with_only_invalid_audio(tmp_path: Path):
         app.datasets.ingest_from_folder(dataset.id, dataset_dir)
 
 
+def test_shared_review_sample_folder_ingest_uses_stable_ids_and_class_folders(
+    tmp_path: Path,
+) -> None:
+    dataset_dir = tmp_path / "review_samples"
+    write_percussion_dataset(dataset_dir, sample_count=2)
+    (dataset_dir / "manifest.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "clip_path": "kick/k1.wav",
+                        "class_label": "kick",
+                        "decision_kind": "rejected",
+                        "review_outcome": "incorrect",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "clip_path": "kick/k2.wav",
+                        "class_label": "kick",
+                        "decision_kind": "verified",
+                        "review_outcome": "correct",
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    service = DatasetService(tmp_path)
+    first = service.ingest_shared_review_sample_folders(
+        dataset_dir,
+        dataset_name="Noah Kahan Shared Review Samples",
+        labels=("kick", "snare"),
+    )
+    second = service.ingest_shared_review_sample_folders(
+        dataset_dir,
+        dataset_name="Noah Kahan Shared Review Samples",
+        labels=("kick", "snare"),
+    )
+
+    assert first.id == second.id
+    assert first.class_map == ["kick", "snare"]
+    assert first.stats["class_counts"] == {"kick": 2, "snare": 2}
+    assert [sample.sample_id for sample in first.samples] == [
+        sample.sample_id for sample in second.samples
+    ]
+    assert {sample.source_provenance["kind"] for sample in first.samples} == {
+        "shared_review_samples"
+    }
+    polarity_by_path = {
+        sample.source_provenance["relative_path"]: sample.source_provenance.get(
+            "review_polarity"
+        )
+        for sample in first.samples
+    }
+    assert polarity_by_path["kick/k1.wav"] == "negative"
+    assert polarity_by_path["kick/k2.wav"] == "positive"
+    assert first.manifest["class_folders_are_source_of_truth"] is True
+    assert first.manifest["manifest_jsonl"]["used_as_source_of_truth"] is False
+    assert first.manifest["manifest_metadata_policy"]["used_for_review_polarity"] is True
+    assert first.stats["manifest_polarity_counts"] == {"negative": 1, "positive": 1}
+    dataset = service.get_dataset(first.dataset_id)
+    assert dataset is not None
+    assert dataset.source_kind == "shared_review_samples"
+
+    derived = service.derive_binary_dataset_version(first.id, positive_label="kick")
+    label_by_path = {
+        sample.source_provenance["relative_path"]: sample.label
+        for sample in derived.samples
+        if sample.source_provenance["relative_path"].startswith("kick/")
+    }
+    assert label_by_path["kick/k1.wav"] == "other"
+    assert label_by_path["kick/k2.wav"] == "kick"
+
+
+def test_shared_review_sample_folder_ingest_supports_canonical_role_folders(
+    tmp_path: Path,
+) -> None:
+    dataset_dir = tmp_path / "review_samples"
+    write_percussion_dataset(dataset_dir / "positive", sample_count=1)
+    write_percussion_dataset(dataset_dir / "negative", sample_count=1)
+    (dataset_dir / "manifest.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "clip_path": "positive/kick/k1.wav",
+                        "class_label": "kick",
+                        "training_role": "positive",
+                        "target_label": "kick",
+                        "decision_kind": "verified",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "clip_path": "negative/kick/k1.wav",
+                        "class_label": "kick",
+                        "training_role": "negative",
+                        "target_label": "other",
+                        "decision_kind": "rejected",
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    service = DatasetService(tmp_path)
+    version = service.ingest_shared_review_sample_folders(
+        dataset_dir,
+        dataset_name="Canonical Shared Review Samples",
+        labels=("kick", "snare"),
+    )
+
+    assert version.stats["class_counts"] == {"kick": 2, "snare": 2}
+    polarity_by_path = {
+        sample.source_provenance["relative_path"]: sample.source_provenance.get(
+            "review_polarity"
+        )
+        for sample in version.samples
+    }
+    assert polarity_by_path["positive/kick/k1.wav"] == "positive"
+    assert polarity_by_path["negative/kick/k1.wav"] == "negative"
+    assert polarity_by_path["positive/snare/s1.wav"] == "positive"
+    assert polarity_by_path["negative/snare/s1.wav"] == "negative"
+    assert {
+        sample.source_provenance["review_sample_layout"] for sample in version.samples
+    } == {"canonical_role_folders"}
+
+
 def test_dataset_service_derives_binary_version_from_review_dataset_samples(tmp_path: Path):
     service = DatasetService(tmp_path)
     dataset = service.create_dataset(
@@ -371,6 +505,87 @@ def test_dataset_service_derives_binary_version_using_review_polarity(tmp_path: 
         "sm_kick_positive": "kick",
         "sm_snare_positive": "other",
     }
+
+
+def test_dataset_service_drops_conflicting_binary_content_groups(tmp_path: Path):
+    service = DatasetService(tmp_path)
+    dataset = service.create_dataset(
+        "Review Samples",
+        source_kind="project_review_export",
+        metadata={"project_ref": "project:fixture"},
+    )
+    samples = [
+        DatasetSample(
+            sample_id="sm_same_negative",
+            audio_ref="same-negative.wav",
+            label="kick",
+            content_hash="hash-same",
+            source_provenance={"review_polarity": "negative"},
+            group_id="content:hash-same",
+            curation_state=CurationState.ACCEPTED,
+        ),
+        DatasetSample(
+            sample_id="sm_same_positive",
+            audio_ref="same-positive.wav",
+            label="kick",
+            content_hash="hash-same",
+            source_provenance={"review_polarity": "positive"},
+            group_id="content:hash-same",
+            curation_state=CurationState.ACCEPTED,
+        ),
+        DatasetSample(
+            sample_id="sm_clean_positive",
+            audio_ref="clean-positive.wav",
+            label="kick",
+            content_hash="hash-clean-positive",
+            source_provenance={"review_polarity": "positive"},
+            group_id="content:hash-clean-positive",
+            curation_state=CurationState.ACCEPTED,
+        ),
+        DatasetSample(
+            sample_id="sm_clean_negative",
+            audio_ref="clean-negative.wav",
+            label="snare",
+            content_hash="hash-clean-negative",
+            source_provenance={"review_polarity": "positive"},
+            group_id="content:hash-clean-negative",
+            curation_state=CurationState.ACCEPTED,
+        ),
+    ]
+    source_version = DatasetVersion(
+        id="dsv_conflict",
+        dataset_id=dataset.id,
+        version=1,
+        manifest_hash=DatasetService.compute_manifest_hash(samples),
+        sample_rate=22050,
+        audio_standard="mono_wav_pcm16",
+        class_map=["kick", "snare"],
+        samples=samples,
+        taxonomy={"schema": "foundry.taxonomy.v1"},
+        label_policy={"schema": "foundry.label_policy.v1", "classification_mode": "multiclass"},
+        manifest={
+            "schema": "foundry.project_review_dataset_manifest.v1",
+            "deterministic_order": [sample.sample_id for sample in samples],
+            "content_groups": {
+                "hash-same": ["sm_same_negative", "sm_same_positive"],
+                "hash-clean-positive": ["sm_clean_positive"],
+                "hash-clean-negative": ["sm_clean_negative"],
+            },
+        },
+        stats={"sample_count": len(samples)},
+        created_at=datetime.now(UTC),
+    )
+    DatasetVersionRepository(tmp_path).save(source_version)
+
+    derived = service.derive_binary_dataset_version(source_version.id, positive_label="kick")
+
+    assert {sample.sample_id for sample in derived.samples} == {
+        "sm_clean_positive",
+        "sm_clean_negative",
+    }
+    assert derived.manifest["derivation"]["excluded_conflicting_content_groups"][
+        "sample_count"
+    ] == 2
 
 
 def test_dataset_service_derives_grouped_binary_version_from_multiple_positive_labels(

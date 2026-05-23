@@ -18,7 +18,7 @@ from tests.ui.app_shell_runtime_flow_support import (
     test_app_shell_runtime_preserves_layer_order_above_source_audio_across_song_switch,
     test_app_shell_runtime_preserves_source_layer_order_across_song_switch,
     test_app_shell_runtime_preserves_source_layer_order_across_save_and_open,
-    test_app_shell_runtime_select_song_stops_active_playback_before_rebuild,
+    test_app_shell_runtime_select_song_preserves_active_playback_after_rebuild,
     test_app_shell_runtime_select_song_switches_loaded_timeline,
     test_app_shell_runtime_uses_canonical_timeline_application,
     test_app_shell_widget_contract_preserves_reordered_layer_order_across_song_switch,

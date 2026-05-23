@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import cast
 
-from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QVBoxLayout
+from PyQt6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QLabel, QVBoxLayout
 
 from echozero.application.settings import AppSettingsService
 from echozero.application.presentation.inspector_contract import InspectorAction
@@ -69,6 +69,13 @@ class _ManualPushRoutePopupResult:
     ma3_channel_no: int | None = None
     sequence_action: MA3TrackSequenceAction | None = None
     apply_mode: MA3PushApplyMode | None = None
+    skip_cue_1: bool = False
+
+
+@dataclass(slots=True)
+class _SavedRoutePushDecision:
+    apply_mode: MA3PushApplyMode | str
+    skip_cue_1: bool = False
 
 
 _SAVED_ROUTE_REROUTE = "reroute"
@@ -381,6 +388,7 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
             explicit_channel_no=popup_result.ma3_channel_no,
             explicit_sequence_action=popup_result.sequence_action,
             explicit_apply_mode=popup_result.apply_mode,
+            explicit_skip_cue_1=popup_result.skip_cue_1,
         )
 
     def _dispatch_ma3_push(
@@ -396,6 +404,7 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
         explicit_channel_no: int | None = None,
         explicit_sequence_action: MA3TrackSequenceAction | None = None,
         explicit_apply_mode: MA3PushApplyMode | None = None,
+        explicit_skip_cue_1: bool = False,
     ) -> bool:
         host = cast(_TransferActionHost, self)
         presentation = host._get_presentation()
@@ -417,6 +426,7 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
         ma3_channel_no = explicit_channel_no
         sequence_action: MA3TrackSequenceAction | None = explicit_sequence_action
         apply_mode: MA3PushApplyMode | None = explicit_apply_mode
+        skip_cue_1 = bool(explicit_skip_cue_1)
         if require_saved_route and (prompt_for_saved_route or not layer.sync_target_label):
             routed = self._choose_and_save_ma3_route(
                 action_title=action_title,
@@ -426,7 +436,7 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
             )
             if routed is None:
                 return True
-            target_track, ma3_channel_no, sequence_action, apply_mode, layer = routed
+            target_track, ma3_channel_no, sequence_action, apply_mode, layer, skip_cue_1 = routed
         elif require_saved_route:
             target_track = self._find_ma3_track_by_coord(
                 layer.sync_target_label,
@@ -441,6 +451,10 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
             )
             if selected_apply_mode is None:
                 return True
+            selected_skip_cue_1 = False
+            if isinstance(selected_apply_mode, _SavedRoutePushDecision):
+                selected_skip_cue_1 = selected_apply_mode.skip_cue_1
+                selected_apply_mode = selected_apply_mode.apply_mode
             if selected_apply_mode == _SAVED_ROUTE_REROUTE:
                 routed = self._choose_and_save_ma3_route(
                     action_title=action_title,
@@ -450,9 +464,10 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
                 )
                 if routed is None:
                     return True
-                target_track, ma3_channel_no, sequence_action, apply_mode, layer = routed
+                target_track, ma3_channel_no, sequence_action, apply_mode, layer, skip_cue_1 = routed
             else:
                 apply_mode = selected_apply_mode
+                skip_cue_1 = selected_skip_cue_1
         elif not require_saved_route:
             target_mode = MA3PushTargetMode.DIFFERENT_TRACK_ONCE
             if target_track is None:
@@ -480,6 +495,7 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
                 ma3_channel_no = popup_result.ma3_channel_no
                 sequence_action = popup_result.sequence_action
                 apply_mode = popup_result.apply_mode or apply_mode
+                skip_cue_1 = popup_result.skip_cue_1
 
         if target_mode is MA3PushTargetMode.SAVED_ROUTE and target_track is None:
             target_track = self._find_ma3_track_by_coord(
@@ -581,6 +597,7 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
                 ),
                 selected_event_ids=selected_ids,
                 sequence_action=sequence_action,
+                skip_cue_1=skip_cue_1,
             )
         )
         return True
@@ -611,16 +628,21 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
             for option in cue_options
             if cue_number_text(option.cue_number) is not None
         }
+        ordered_layer_events = sorted(
+            layer.events,
+            key=lambda item: (float(item.start), str(item.event_id)),
+        )
+        internal_numbers = {
+            event.event_id: index for index, event in enumerate(ordered_layer_events, start=1)
+        }
         desired_cue_numbers: list[str] = []
-        for index, event in enumerate(
-            sorted(target_events, key=lambda item: (float(item.start), str(item.event_id))),
-            start=1,
+        for event in sorted(
+            target_events,
+            key=lambda item: (float(item.start), str(item.event_id)),
         ):
-            cue_number = event.cue_number
+            cue_number = cue_number_from_ref_text(event.cue_ref)
             if cue_number is None:
-                cue_number = cue_number_from_ref_text(event.cue_ref)
-            if cue_number is None:
-                cue_number = index
+                cue_number = internal_numbers.get(event.event_id)
             cue_no_text = cue_number_text(cue_number)
             if cue_no_text is None or cue_no_text not in available_cue_numbers:
                 return True
@@ -640,6 +662,7 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
         MA3TrackSequenceAction | None,
         MA3PushApplyMode | None,
         LayerPresentation,
+        bool,
     ] | None:
         host = cast(_TransferActionHost, self)
         popup_result = self._coerce_route_popup_result(
@@ -683,6 +706,7 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
             sequence_action,
             resolved_apply_mode,
             refreshed_layer,
+            popup_result.skip_cue_1,
         )
 
     def _confirm_send_to_saved_ma3_route(
@@ -690,7 +714,7 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
         *,
         layer: LayerPresentation,
         target_track: ManualPushTrackOptionPresentation | None,
-    ) -> MA3PushApplyMode | str | None:
+    ) -> MA3PushApplyMode | str | _SavedRoutePushDecision | None:
         host = cast(_TransferActionHost, self)
         target_label = (
             f"{target_track.name} ({target_track.coord})"
@@ -712,6 +736,9 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
         )
         label.setWordWrap(True)
         layout.addWidget(label)
+        skip_cue_1_check = QCheckBox("Skip cue 1 for timecode", dialog)
+        skip_cue_1_check.setVisible(layer.kind is LayerKind.SECTION)
+        layout.addWidget(skip_cue_1_check)
         buttons = QDialogButtonBox(dialog)
         merge_button = buttons.addButton("Merge", QDialogButtonBox.ButtonRole.AcceptRole)
         overwrite_button = buttons.addButton(
@@ -741,6 +768,11 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
             return None
         value = chosen["value"]
         if value in {MA3PushApplyMode.MERGE, MA3PushApplyMode.OVERWRITE, _SAVED_ROUTE_REROUTE}:
+            if layer.kind is LayerKind.SECTION and value != _SAVED_ROUTE_REROUTE:
+                return _SavedRoutePushDecision(
+                    apply_mode=cast(MA3PushApplyMode | str, value),
+                    skip_cue_1=bool(skip_cue_1_check.isChecked()),
+                )
             return cast(MA3PushApplyMode | str, value)
         return None
 
@@ -925,7 +957,8 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
         dialog.configure_sheet(
             show_sequence_controls=include_sequence_picker,
             show_apply_mode_controls=include_apply_mode_picker,
-            show_channel_controls=True,
+            show_channel_controls=False,
+            show_skip_cue_1_controls=layer is not None and layer.kind is LayerKind.SECTION,
             default_channel_no=reference_channel_no,
             default_apply_mode=resolved_default_apply_mode.value,
         )
@@ -1154,6 +1187,7 @@ class TimelineWidgetMA3PushActionMixin(TimelineWidgetTransferWorkspaceMixin):
             ma3_channel_no=dialog.selected_channel_no(),
             sequence_action=sequence_action,
             apply_mode=apply_mode,
+            skip_cue_1=dialog.skip_cue_1(),
         )
 
     @staticmethod

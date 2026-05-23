@@ -132,11 +132,13 @@ def test_song_browser_single_song_context_menu_is_grouped(monkeypatch):
             "Select Song",
             "Rename Song...",
             "Add Version...",
+            "Import Song Package...",
+            "Export Song Package...",
             "Move Up",
             "Move Down",
             "Delete Song",
         ]
-        assert _separator_indexes(menu) == [1, 4, 7]
+        assert _separator_indexes(menu) == [1, 6, 9]
         assert menu.actions()[-1].property("destructive") is True
     finally:
         panel.close()
@@ -182,6 +184,7 @@ def test_song_browser_empty_area_context_menu_keeps_add_first(monkeypatch):
 
         menu = captured["menu"]
         assert _menu_labels(menu)[0] == "Add Song"
+        assert "Import Song Package..." in _menu_labels(menu)
         assert "Delete Selected Songs" in _menu_labels(menu)
         assert menu.actions()[-1].property("destructive") is True
     finally:
@@ -200,8 +203,12 @@ def test_song_browser_version_context_menu_is_grouped(monkeypatch):
         panel._open_version_context_menu(panel._version_list.visualItemRect(item).center())
 
         menu = captured["menu"]
-        assert _menu_labels(menu) == ["Switch to Version", "Delete Version"]
-        assert _separator_indexes(menu) == [1]
+        assert _menu_labels(menu) == [
+            "Switch to Version",
+            "Export Song Package...",
+            "Delete Version",
+        ]
+        assert _separator_indexes(menu) == [2]
         assert menu.actions()[-1].property("destructive") is True
     finally:
         panel.close()

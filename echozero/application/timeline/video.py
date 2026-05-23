@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from echozero.application.presentation.models import TimelinePresentation
+from echozero.application.timeline.video_placement import VideoPlacement
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,25 +20,38 @@ class VideoTimelineMapping:
     video_path: str
     start_seconds: float
     duration_seconds: float
+    trim_start_seconds: float = 0.0
+    source_duration_seconds: float | None = None
     loop_enabled: bool = False
+    media_available: bool = True
+    unavailable_reason: str = ""
 
     def media_seconds_for_song_time(self, song_seconds: float) -> float:
         """Return the media position for a song timeline position."""
 
         elapsed_seconds = float(song_seconds) - self.start_seconds
         if elapsed_seconds <= 0.0 or self.duration_seconds <= 0.0:
-            return 0.0
+            return max(0.0, self.trim_start_seconds)
         if self.loop_enabled:
-            return elapsed_seconds % self.duration_seconds
-        return min(self.duration_seconds, elapsed_seconds)
+            cycle_seconds = self.loop_cycle_seconds
+            if cycle_seconds <= 0.0:
+                return max(0.0, self.trim_start_seconds)
+            return self.trim_start_seconds + (elapsed_seconds % cycle_seconds)
+        return self.trim_start_seconds + min(self.duration_seconds, elapsed_seconds)
 
     def contains_song_time(self, song_seconds: float) -> bool:
         """Return whether the song timeline position is inside the video range."""
 
         media_seconds = float(song_seconds) - self.start_seconds
-        if self.loop_enabled:
-            return media_seconds >= 0.0 and self.duration_seconds > 0.0
         return 0.0 <= media_seconds <= self.duration_seconds
+
+    @property
+    def loop_cycle_seconds(self) -> float:
+        """Return the source-media length used by loop playback."""
+
+        if self.source_duration_seconds is None:
+            return max(0.0, self.duration_seconds)
+        return max(0.0, float(self.source_duration_seconds) - self.trim_start_seconds)
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,12 +107,34 @@ def video_mapping_from_presentation(
         if not video_path:
             continue
         path = Path(video_path)
-        if not path.exists():
-            continue
+        media_available = path.exists()
         return VideoTimelineMapping(
             video_path=str(path),
             start_seconds=float(getattr(layer, "video_start_seconds", 0.0)),
-            duration_seconds=max(0.0, float(getattr(layer, "video_duration_seconds", 0.0))),
+            duration_seconds=_visible_duration_seconds(layer),
+            trim_start_seconds=max(
+                0.0,
+                float(getattr(layer, "video_trim_start_seconds", 0.0)),
+            ),
+            source_duration_seconds=max(
+                0.0,
+                float(getattr(layer, "video_duration_seconds", 0.0)),
+            ),
             loop_enabled=bool(getattr(layer, "video_loop_enabled", False)),
+            media_available=media_available,
+            unavailable_reason="" if media_available else f"Missing video file: {path}",
         )
     return None
+
+
+def _visible_duration_seconds(layer: object) -> float:
+    placement = VideoPlacement(
+        start_seconds=float(getattr(layer, "video_start_seconds", 0.0)),
+        trim_start_seconds=float(getattr(layer, "video_trim_start_seconds", 0.0)),
+        visible_duration_seconds=float(
+            getattr(layer, "video_visible_duration_seconds", 0.0)
+        ),
+        source_duration_seconds=float(getattr(layer, "video_duration_seconds", 0.0)),
+        loop_enabled=bool(getattr(layer, "video_loop_enabled", False)),
+    )
+    return placement.normalized().visible_duration_seconds

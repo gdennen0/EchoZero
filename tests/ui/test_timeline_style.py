@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDialogButtonBox,
     QDoubleSpinBox,
+    QFrame,
     QGridLayout,
     QInputDialog,
     QLabel,
@@ -62,7 +63,12 @@ from echozero.ui.qt.timeline.style import (
     fixture_color,
     fixture_take_action_label,
 )
-from echozero.ui.qt.timeline.widget import ObjectInfoPanel, TimelineEditorModeBar, TimelineWidget
+from echozero.ui.qt.timeline.widget import (
+    ObjectInfoPanel,
+    TimelineCanvas,
+    TimelineEditorModeBar,
+    TimelineWidget,
+)
 from echozero.ui.style.qt import ensure_qt_theme_installed
 from echozero.ui.style.qt.qss import build_echozero_app_qss
 from tests.ui.timeline_shell_shared_support import _song_switching_presentation
@@ -103,6 +109,32 @@ def test_ruler_paints_bottom_divider_through_header_gap_and_split_seam():
     assert image.pixelColor(8, image.height() - 1) == divider
     assert image.pixelColor(71, 10) == split
     app.processEvents()
+
+
+def test_timeline_canvas_does_not_paint_second_playhead_head():
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(build_demo_app().presentation(), playhead=1.0)
+    canvas = TimelineCanvas(presentation)
+    try:
+        canvas.resize(900, 360)
+        image = QImage(canvas.size(), QImage.Format.Format_ARGB32)
+        image.fill(QColor("#00000000"))
+        canvas.render(image)
+
+        playhead_x = int(
+            canvas._header_width
+            + (presentation.playhead * presentation.pixels_per_second)
+            - presentation.scroll_x
+        )
+        head_test_y = int(canvas._top_padding) - 4
+
+        assert image.pixelColor(playhead_x, head_test_y) == QColor(TIMELINE_STYLE.playhead.color_hex)
+        assert image.pixelColor(playhead_x - 6, head_test_y) != QColor(
+            TIMELINE_STYLE.playhead.color_hex
+        )
+    finally:
+        canvas.close()
+        app.processEvents()
 
 
 def test_object_info_panel_layout_comes_from_style_module():
@@ -1399,6 +1431,7 @@ def test_timeline_editor_mode_bar_groups_tools_and_syncs_state():
         )
 
         assert bar.objectName() == "timelineEditorModeBar"
+        assert bar.findChild(QFrame, "timelineEditorToolbarContainer") is not None
         assert bar.findChild(QWidget, "timelineEditorModeGroup") is not None
         assert bar.findChild(QWidget, "timelineEditorAssistGroup") is not None
         assert bar.findChild(QWidget, "timelineEditorShellGroup") is not None

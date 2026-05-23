@@ -45,20 +45,28 @@ class DemoTransportService(TransportService):
         return self._session.transport_state
 
     def play(self) -> TransportState:
+        if not self._session.transport_state.is_playing:
+            self._session.transport_state.playhead = (
+                self._session.transport_state.playback_start_seconds
+            )
         self._session.transport_state.is_playing = True
         return self._session.transport_state
 
     def pause(self) -> TransportState:
         self._session.transport_state.is_playing = False
+        self._session.transport_state.playhead = (
+            self._session.transport_state.playback_start_seconds
+        )
         return self._session.transport_state
 
     def stop(self) -> TransportState:
         self._session.transport_state.is_playing = False
         self._session.transport_state.playhead = 0.0
+        self._session.transport_state.playback_start = 0.0
         return self._session.transport_state
 
     def seek(self, position: float) -> TransportState:
-        self._session.transport_state.playhead = max(0.0, position)
+        self._session.transport_state.set_playback_start(position)
         return self._session.transport_state
 
     def set_loop(self, loop_region, enabled: bool = True) -> TransportState:

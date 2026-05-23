@@ -260,10 +260,11 @@ class AppSettingsService:
         """Resolve saved audio preferences into one runtime config."""
 
         audio = self._preferences.audio_output
+        resolved_channels = self.resolve_audio_output_channel_count()
         return AudioOutputRuntimeConfig(
             output_device=self._runtime_output_device(audio.output_device),
             sample_rate=audio.sample_rate,
-            channels=audio.output_channels,
+            channels=resolved_channels,
             master_output_bus=audio.master_output_bus,
             stream_latency=(
                 None

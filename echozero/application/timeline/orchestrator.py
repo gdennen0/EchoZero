@@ -127,6 +127,7 @@ from echozero.application.timeline.intents import (
     SetLayerOutputBus,
     SetLayerSolo,
     SetFollowCursorEnabled,
+    SetPlaybackStart,
     SetLayerLiveSyncPauseReason,
     SetLayerLiveSyncState,
     SetPullImportMode,
@@ -459,6 +460,13 @@ class TimelineOrchestratorOwner(
 
         elif isinstance(intent, Seek):
             self.transport_service.seek(intent.position)
+
+        elif isinstance(intent, SetPlaybackStart):
+            session = self.session_service.get_session()
+            session.transport_state.set_playback_home(
+                intent.position,
+                move_playhead=bool(session.transport_state.is_playing),
+            )
 
         elif isinstance(intent, SetFollowCursorEnabled):
             session = self.session_service.get_session()

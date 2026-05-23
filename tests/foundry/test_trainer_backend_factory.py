@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 pytest.importorskip("torch")
+np = pytest.importorskip("numpy")
 
 from echozero.foundry.services import (
     BaselineTrainer,
@@ -68,6 +69,25 @@ def test_resolve_crnn_backend(tmp_path):
 
     resolved = factory.resolve({"model": {"type": "crnn"}}, baseline_backend=baseline)
     assert isinstance(resolved, CrnnTrainer)
+
+
+def test_crnn_trainer_resolves_explicit_and_balanced_class_weights(tmp_path):
+    trainer = CrnnTrainer(tmp_path)
+
+    explicit = trainer._resolve_class_weights(
+        {"classWeights": {"kick": 1.0, "other": 3.0}},
+        class_names=["kick", "other"],
+        train_labels=np.asarray([0, 1, 1], dtype=np.int64),
+    )
+    assert explicit.tolist() == [1.0, 3.0]
+
+    balanced = trainer._resolve_class_weights(
+        {"classWeighting": "balanced"},
+        class_names=["kick", "other"],
+        train_labels=np.asarray([0, 1, 1, 1], dtype=np.int64),
+    )
+    assert balanced[0] == pytest.approx(2.0)
+    assert balanced[1] == pytest.approx(2.0 / 3.0)
 
 
 def test_resolve_supports_registered_custom_backend(tmp_path):

@@ -1199,7 +1199,7 @@ def test_app_shell_runtime_select_song_restores_song_version_viewport():
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
-def test_app_shell_runtime_select_song_stops_active_playback_before_rebuild():
+def test_app_shell_runtime_select_song_preserves_active_playback_after_rebuild():
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(working_dir_root=temp_root / "working")
 
@@ -1223,7 +1223,8 @@ def test_app_shell_runtime_select_song_stops_active_playback_before_rebuild():
 
         assert runtime_audio.stop_calls == 1
         assert runtime_audio.build_calls == 1
-        assert runtime_audio.is_playing() is False
+        assert runtime_audio.play_calls == 1
+        assert runtime_audio.is_playing() is True
         assert str(runtime.session.active_song_id) == song_1_id
     finally:
         runtime.shutdown()

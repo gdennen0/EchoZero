@@ -34,6 +34,13 @@ def _event_start_seconds(event: object) -> float:
         return 0.0
 
 
+def _event_end_seconds(event: object) -> float:
+    try:
+        return float(getattr(event, "end", _event_start_seconds(event)))
+    except (TypeError, ValueError):
+        return _event_start_seconds(event)
+
+
 def _event_is_muted(event: object) -> bool:
     return bool(getattr(event, "muted", False))
 
@@ -73,6 +80,32 @@ def _shape_event_slice_for_click_suppression(
         shaped[:fade_samples, :] *= ramp_in[:, None]
         shaped[-fade_samples:, :] *= ramp_out[:, None]
     return shaped
+
+
+def _uses_timeline_aligned_source(
+    source: np.ndarray,
+    *,
+    sample_rate: int,
+    events: list[object],
+) -> bool:
+    if sample_rate <= 0 or source.size == 0:
+        return False
+    source_frames = int(source.shape[0])
+    event_starts = [
+        max(0, int(round(_event_start_seconds(event) * sample_rate))) for event in events
+    ]
+    if not event_starts or max(event_starts) <= 0:
+        return False
+    source_seconds = source_frames / float(sample_rate)
+    latest_event_seconds = max(event_starts) / float(sample_rate)
+    return source_seconds >= latest_event_seconds + 2.0
+
+
+def _event_slice_length_samples(event: object, *, sample_rate: int) -> int:
+    duration_seconds = max(0.0, _event_end_seconds(event) - _event_start_seconds(event))
+    if duration_seconds <= 0.0:
+        duration_seconds = 0.75
+    return max(1, int(round(duration_seconds * sample_rate)))
 
 
 @dataclass(slots=True)
@@ -162,6 +195,11 @@ class PlaybackTrackBuilder:
         stale_keys = [key for key in self._buffer_cache if key not in keep_keys]
         for stale_key in stale_keys:
             self._buffer_cache.pop(stale_key, None)
+
+    def clear_cache(self) -> None:
+        """Drop every decoded source buffer owned by this builder."""
+
+        self._buffer_cache.clear()
 
     def load_source_buffer(self, cache_key: str, source_ref: str) -> tuple[np.ndarray, int]:
         """Load one decoded buffer through the planner cache."""
@@ -280,34 +318,14 @@ class PlaybackTrackBuilder:
         has_soloed_layers = any(
             bool(getattr(layer, "soloed", False)) for layer in layer_candidates
         )
-        selected_layer_id = (
-            str(presentation.selected_layer_id)
-            if presentation.selected_layer_id is not None
-            else None
-        )
-        selected_take_id = (
-            str(presentation.selected_take_id)
-            if presentation.selected_take_id is not None
-            else None
-        )
         tracks: list[PlaybackTrack] = []
         seen_track_ids: set[str] = set()
         for layer in layer_candidates:
-            layer_id = str(getattr(layer, "layer_id"))
-            if layer_id == selected_layer_id and selected_take_id is not None:
-                playback_track = self._track_for_target(
-                    presentation,
-                    layer_id=layer_id,
-                    take_id=selected_take_id,
-                    resolve_audio=resolve_audio,
-                    playback_output_channels=playback_output_channels,
-                )
-            else:
-                playback_track = self._track_from_layer(
-                    layer,
-                    resolve_audio=resolve_audio,
-                    playback_output_channels=playback_output_channels,
-                )
+            playback_track = self._track_from_layer(
+                layer,
+                resolve_audio=resolve_audio,
+                playback_output_channels=playback_output_channels,
+            )
             if playback_track is None or playback_track.track_id in seen_track_ids:
                 continue
             layer_soloed = bool(getattr(layer, "soloed", False))
@@ -317,36 +335,6 @@ class PlaybackTrackBuilder:
             tracks.append(playback_track)
             seen_track_ids.add(playback_track.track_id)
         return tracks
-
-    def _track_for_target(
-        self,
-        presentation: TimelinePresentation,
-        *,
-        layer_id: str,
-        take_id: str | None,
-        resolve_audio: bool,
-        playback_output_channels: int,
-    ) -> PlaybackTrack | None:
-        for layer in presentation.layers:
-            if str(layer.layer_id) != layer_id:
-                continue
-            if take_id is not None:
-                for take in layer.takes:
-                    if str(take.take_id) == take_id:
-                        playback_track = self._track_from_take(
-                            layer,
-                            take,
-                            resolve_audio=resolve_audio,
-                            playback_output_channels=playback_output_channels,
-                        )
-                        if playback_track is not None:
-                            return playback_track
-            return self._track_from_layer(
-                layer,
-                resolve_audio=resolve_audio,
-                playback_output_channels=playback_output_channels,
-            )
-        return None
 
     def _track_from_layer(
         self,
@@ -387,51 +375,6 @@ class PlaybackTrackBuilder:
             muted=bool(getattr(layer, "muted", False)),
             playback_source_ref=self._event_source_ref(layer),
             events=list(getattr(layer, "events")),
-            resolve_audio=resolve_audio,
-        )
-
-    def _track_from_take(
-        self,
-        layer: object,
-        take: object,
-        *,
-        resolve_audio: bool,
-        playback_output_channels: int,
-    ) -> PlaybackTrack | None:
-        layer_id = str(getattr(layer, "layer_id"))
-        take_id = str(getattr(take, "take_id"))
-        source_audio_path = self._audio_source_ref(take)
-        if source_audio_path and self._is_continuous_audio_layer(layer):
-            return PlaybackTrack(
-                track_id=f"{layer_id}:{take_id}",
-                source_layer_id=getattr(layer, "layer_id"),
-                source_take_id=getattr(take, "take_id"),
-                name=f"{getattr(layer, 'title')} · {getattr(take, 'name')}",
-                gain_db=float(getattr(layer, "gain_db", 0.0)),
-                output_bus=sanitize_output_bus_for_channels(
-                    getattr(layer, "output_bus", None),
-                    playback_output_channels=playback_output_channels,
-                ),
-                muted=bool(getattr(layer, "muted", False)),
-                source_key=f"audio:{source_audio_path}",
-                cache_keys=(f"audio:{source_audio_path}",),
-                source_ref=str(source_audio_path),
-            )
-        if not self._is_event_track_source(take):
-            return None
-        return self._build_event_track(
-            track_id=f"{layer_id}:{take_id}",
-            source_layer_id=getattr(layer, "layer_id"),
-            source_take_id=getattr(take, "take_id"),
-            title=f"{getattr(layer, 'title')} · {getattr(take, 'name')}",
-            gain_db=float(getattr(layer, "gain_db", 0.0)),
-            output_bus=sanitize_output_bus_for_channels(
-                getattr(layer, "output_bus", None),
-                playback_output_channels=playback_output_channels,
-            ),
-            muted=bool(getattr(layer, "muted", False)),
-            playback_source_ref=self._event_source_ref(take, fallback_layer=layer),
-            events=list(getattr(take, "events")),
             resolve_audio=resolve_audio,
         )
 
@@ -563,6 +506,16 @@ class PlaybackTrackBuilder:
         ]
         if not active_events:
             return np.zeros(0, dtype=np.float32)
+        if _uses_timeline_aligned_source(
+            event_buffer,
+            sample_rate=sample_rate,
+            events=active_events,
+        ):
+            return PlaybackTrackBuilder._render_timeline_aligned_event_buffer(
+                event_buffer,
+                sample_rate,
+                events=active_events,
+            )
         start_samples = [
             max(0, int(round(_event_start_seconds(event) * sample_rate)))
             for event in active_events
@@ -579,6 +532,44 @@ class PlaybackTrackBuilder:
         for start_sample in start_samples:
             end_sample = start_sample + int(shaped_event_buffer.shape[0])
             rendered[start_sample:end_sample] += shaped_event_buffer
+        peak = float(np.max(np.abs(rendered))) if rendered.size > 0 else 0.0
+        if peak > 1.0:
+            rendered *= np.float32(0.98 / peak)
+        return rendered
+
+    @staticmethod
+    def _render_timeline_aligned_event_buffer(
+        event_buffer: np.ndarray,
+        sample_rate: int,
+        *,
+        events: list[object],
+    ) -> np.ndarray:
+        event_spans: list[tuple[int, np.ndarray]] = []
+        source_frames = int(event_buffer.shape[0])
+        for event in events:
+            start_sample = max(0, int(round(_event_start_seconds(event) * sample_rate)))
+            if start_sample >= source_frames:
+                continue
+            requested_length = _event_slice_length_samples(event, sample_rate=sample_rate)
+            end_sample = min(source_frames, start_sample + requested_length)
+            if end_sample <= start_sample:
+                continue
+            event_slice = _shape_event_slice_for_click_suppression(
+                event_buffer[start_sample:end_sample],
+                sample_rate=sample_rate,
+            )
+            event_spans.append((start_sample, event_slice))
+        if not event_spans:
+            return np.zeros(0, dtype=np.float32)
+
+        total_samples = max(start + int(event_slice.shape[0]) for start, event_slice in event_spans)
+        if event_buffer.ndim == 1:
+            rendered = np.zeros(total_samples, dtype=np.float32)
+        else:
+            rendered = np.zeros((total_samples, event_buffer.shape[1]), dtype=np.float32)
+        for start_sample, event_slice in event_spans:
+            end_sample = start_sample + int(event_slice.shape[0])
+            rendered[start_sample:end_sample] += event_slice
         peak = float(np.max(np.abs(rendered))) if rendered.size > 0 else 0.0
         if peak > 1.0:
             rendered *= np.float32(0.98 / peak)

@@ -33,6 +33,9 @@ def build_layer_signature(
                 idx == 0,
                 take.name,
                 take.source_ref,
+                _source_ref_signature(take.source_content_ref),
+                str(take.content_id) if take.content_id is not None else None,
+                str(take.revision_id) if take.revision_id is not None else None,
                 _events_signature(take.events),
             )
             for idx, take in enumerate(layer.takes)
@@ -66,6 +69,12 @@ def build_layer_signature(
                 float(layer.mixer.gain_db),
                 float(layer.mixer.pan),
                 layer.mixer.output_bus,
+                str(layer.playback.mode),
+                bool(layer.playback.enabled),
+                layer.playback.armed_source_ref,
+                _source_ref_signature(layer.source_content_ref),
+                str(layer.main_content_id) if layer.main_content_id is not None else None,
+                str(layer.main_revision_id) if layer.main_revision_id is not None else None,
                 str(layer.sync.mode),
                 bool(layer.sync.connected),
                 layer.sync.target_ref,
@@ -78,7 +87,9 @@ def build_layer_signature(
                 getattr(layer, "reference_kind", None),
                 getattr(layer, "video_path", None),
                 float(getattr(layer, "video_start_seconds", 0.0)),
+                float(getattr(layer, "video_trim_start_seconds", 0.0)),
                 float(getattr(layer, "video_duration_seconds", 0.0)),
+                float(getattr(layer, "video_visible_duration_seconds", 0.0)),
                 bool(getattr(layer, "video_loop_enabled", False)),
                 take_sigs,
             )
@@ -214,4 +225,16 @@ def _events_signature(events: list[Event]) -> AssemblerSignature:
             )
             for event in events
         ),
+    )
+
+
+def _source_ref_signature(source_ref: object | None) -> AssemblerSignature | None:
+    if source_ref is None:
+        return None
+    return (
+        getattr(source_ref, "kind", None),
+        getattr(source_ref, "locator", None),
+        getattr(source_ref, "content_id", None),
+        getattr(source_ref, "revision_id", None),
+        getattr(source_ref, "metadata", None),
     )

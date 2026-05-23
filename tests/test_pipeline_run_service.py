@@ -6,6 +6,7 @@ import time
 import pytest
 
 from echozero.application.session.models import Session
+from echozero.application.operations import OperationKind, OperationLane, OperationStatus
 from echozero.application.progress import OperationProgressUpdate
 from echozero.application.timeline.operation_progress_service import (
     OperationProgressService,
@@ -169,6 +170,12 @@ def test_pipeline_run_service_request_run_returns_immediately_and_completes():
 
         assert final_state.status == "completed"
         assert final_state.output_layer_ids == ("layer_output",)
+        operation_state = service.get_operation_state(run_id)
+        assert operation_state is not None
+        assert operation_state.kind is OperationKind.PIPELINE
+        assert operation_state.lane is OperationLane.PREPARE
+        assert operation_state.status is OperationStatus.APPLIED
+        assert operation_state.subject.layer_id == "layer_source"
         assert persisted_calls and persisted_calls[-1][1] == "layer_source"
         notification = service.consume_updates_since(0)
         assert notification is not None
@@ -292,8 +299,52 @@ def test_pipeline_run_service_failed_runs_remain_observable():
         assert visible is not None
         assert visible.status == "failed"
         assert "boom" in (visible.error or "")
+        visible_state = service.visible_operation_state_for(
+            action_id="timeline.extract_stems",
+            object_id="layer_source",
+            object_type="layer",
+        )
+        assert visible_state is not None
+        assert visible_state.status is OperationStatus.FAILED
+        assert "boom" in (visible_state.error or "")
         notification = service.consume_updates_since(0)
         assert notification is not None
         assert notification.refresh_presentation is False
+    finally:
+        service.shutdown()
+
+
+def test_pipeline_run_service_exposes_shared_operation_snapshot():
+    persisted_calls: list[tuple[object, object]] = []
+    analysis_service = _BlockingOrchestrator()
+    service, _session = _build_service(
+        analysis_service=analysis_service,
+        persisted_calls=persisted_calls,
+    )
+
+    try:
+        run_id = service.request_operation(
+            "timeline.extract_stems",
+            object_id="layer_source",
+            object_type="layer",
+        )
+        assert _wait_until(lambda: analysis_service.started.is_set())
+
+        active_snapshot = service.operation_snapshot()
+
+        assert active_snapshot.revision > 0
+        assert [state.operation_id for state in active_snapshot.active_operations] == [run_id]
+        assert active_snapshot.active_operations[0].status in {
+            OperationStatus.PREPARING,
+            OperationStatus.RUNNING,
+        }
+
+        analysis_service.release.set()
+        service.wait_for_operation(run_id, timeout=5.0)
+        final_snapshot = service.operation_snapshot()
+
+        assert final_snapshot.active_operations == ()
+        assert final_snapshot.recent_final_operations[0].operation_id == run_id
+        assert final_snapshot.recent_final_operations[0].status is OperationStatus.APPLIED
     finally:
         service.shutdown()

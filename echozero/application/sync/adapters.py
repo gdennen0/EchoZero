@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any, Protocol
 
+from echozero.application.operations import (
+    OperationState,
+    operation_state_from_ma3_operation_snapshot,
+)
 from echozero.application.shared.enums import SyncMode
 from echozero.application.sync.ma3_push_service import (
     MA3CatalogService,
@@ -641,7 +645,11 @@ class MA3SyncAdapter(SyncService):
     ) -> list[dict[str, object]]:
         return [
             sequence_snapshot_payload(item)
-            for item in self._catalog.list_sequences(start_no=start_no, end_no=end_no)
+            for item in self._catalog.list_sequences(
+                start_no=start_no,
+                end_no=end_no,
+                refresh=True,
+            )
         ]
 
     def list_sequence_cues(self, *, sequence_no: int) -> list[dict[str, object]]:
@@ -929,6 +937,12 @@ class MA3SyncAdapter(SyncService):
         if snapshot is None:
             return None
         return _operation_payload(snapshot)
+
+    def get_operation_state(self, operation_id: str) -> OperationState | None:
+        snapshot = self._operations.get(operation_id)
+        if snapshot is None:
+            return None
+        return operation_state_from_ma3_operation_snapshot(snapshot)
 
     def cancel_operation(self, operation_id: str) -> bool:
         return self._operations.cancel(operation_id)

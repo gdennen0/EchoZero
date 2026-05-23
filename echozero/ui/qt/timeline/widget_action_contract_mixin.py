@@ -62,6 +62,7 @@ from echozero.foundry.services.selection_model_improvement_service import (
     ImproveModelTrainingRequest,
 )
 from echozero.persistence.audio import detect_ltc_channel, scan_audio_metadata
+from echozero.persistence.song_package import inspect_song_package
 from echozero.ui.qt.progress_overlay import (
     begin_operation_progress_overlay,
     finish_operation_progress_overlay,
@@ -71,6 +72,7 @@ from echozero.ui.qt.timeline.layer_routing_dialog import LayerRoutingSettingsDia
 from echozero.output_routing import canonical_layer_output_bus
 
 _AUDIO_FILE_DIALOG_FILTER = "Audio Files (*.wav *.mp3 *.flac *.aiff *.aif *.ogg);;All Files (*)"
+_SONG_PACKAGE_FILE_DIALOG_FILTER = "EchoZero Song Packages (*.ezsong);;All Files (*)"
 _IMPORT_SMPTE_AS_IS_LABEL = "Import As-Is (No LTC Extraction)"
 
 
@@ -175,6 +177,23 @@ class _DeleteSongVersionRuntimeShell(_TimelineRuntimeShell, Protocol):
         self,
         song_version_id: str,
     ) -> TimelinePresentation | None: ...
+
+
+class _SongPackageRuntimeShell(_TimelineRuntimeShell, Protocol):
+    def export_active_song_package(
+        self,
+        path: str | Path,
+        *,
+        song_version_id: str | None = None,
+    ) -> object: ...
+
+    def import_song_package(
+        self,
+        path: str | Path,
+        *,
+        target_song_id: str | None = None,
+        activate_import: bool = False,
+    ) -> object: ...
 
 
 class _MA3TimecodeRuntimeShell(_TimelineRuntimeShell, Protocol):
@@ -501,13 +520,6 @@ class TimelineWidgetContractActionMixin:
                 )
                 return
             selected_event_refs = list(host._get_presentation().resolved_selected_event_refs())
-            if not selected_event_refs:
-                host._message_box.warning(
-                    host._widget,
-                    "Improve Model From Selection",
-                    "Select one or more reviewed events first.",
-                )
-                return
             try:
                 summary = runtime.summarize_improve_model_selection(selected_event_refs)
             except Exception as exc:
@@ -517,37 +529,47 @@ class TimelineWidgetContractActionMixin:
                     str(exc),
                 )
                 return
+            if int(getattr(summary, "reviewed_event_count", 0) or 0) <= 0:
+                host._message_box.warning(
+                    host._widget,
+                    "Improve Models",
+                    "The selection does not contain Events with source audio for model evolution.",
+                )
+                return
             from echozero.ui.qt.improve_model_dialog import ImproveModelDialog
 
             dialog = ImproveModelDialog(summary, parent=host._widget)
             if dialog.exec() != dialog.DialogCode.Accepted:
                 return
-            try:
-                result = runtime.train_improved_model_from_selection(
-                    dialog.result_payload().request
+            payload = dialog.result_payload()
+            if not payload.request.labels:
+                host._message_box.warning(
+                    host._widget,
+                    "Improve Models",
+                    "Choose at least one target model.",
                 )
+                return
+            try:
+                result = runtime.train_improved_model_from_selection(payload.request)
             except Exception as exc:
                 host._message_box.warning(
                     host._widget,
-                    "Improve Model From Selection",
+                    "Improve Models",
                     str(exc),
                 )
                 return
-            comparison_note = (
-                "Compared against the selected base model."
-                if getattr(result, "compared_to_base_model", False)
-                else "No base-model comparison was recorded for this V1 run."
-            )
+            run_ids = tuple(getattr(result, "run_ids", ()) or ())
+            run_text = "\n".join(f"- {run_id}" for run_id in run_ids) or f"- {result.run_id}"
             host._message_box.information(
                 host._widget,
-                "Improve Model From Selection",
+                "Improve Models",
                 (
-                    f"Candidate run complete for '{result.target_label}'.\n\n"
-                    f"Run: {result.run_id}\n"
-                    f"Artifact: {result.artifact_id}\n"
-                    f"Anchors: {result.anchor_sample_count}\n"
-                    f"Related: {result.related_sample_count}\n\n"
-                    f"{comparison_note}"
+                    f"Candidate runs are ready for {result.target_identity}.\n\n"
+                    f"Dataset: {getattr(result, 'dataset_version_id', '')}\n"
+                    f"Profile: {getattr(result, 'profile_name', 'beefy')}\n"
+                    f"Examples: {result.anchor_sample_count}\n"
+                    f"Negatives: {result.related_sample_count}\n\n"
+                    f"{run_text}"
                 ),
             )
             return
@@ -652,20 +674,26 @@ class TimelineWidgetContractActionMixin:
         if action_id == "song.version.delete":
             self._run_delete_song_version_action(params)
             return
+        if action_id == "song.package.export":
+            self._run_export_song_package_action(params)
+            return
+        if action_id == "song.package.import":
+            self._run_import_song_package_action()
+            return
         if action_id == "song.version.set_ma3_timecode_pool":
             self._run_set_song_version_ma3_timecode_pool_action(params)
             return
         if action_id in {"video.import", "video.replace"}:
-            self._run_import_or_replace_video_action()
+            self._run_import_or_replace_video_action(params)
             return
         if action_id == "video.remove":
-            self._run_remove_video_action()
+            self._run_remove_video_action(params)
             return
         if action_id == "video.open_window":
             self._run_open_video_window_action()
             return
         if action_id == "video.reset_offset":
-            self._run_reset_video_offset_action()
+            self._run_reset_video_offset_action(params)
             return
         if action_id == "video.set_loop_enabled":
             self._run_set_video_loop_enabled_action(params)
@@ -991,15 +1019,15 @@ class TimelineWidgetContractActionMixin:
         )
         return options
 
-    def _run_import_or_replace_video_action(self) -> None:
+    def _run_import_or_replace_video_action(self, params: dict[str, object]) -> None:
         host = cast(_ContractActionHost, self)
         runtime = host._resolve_runtime_shell()
-        importer = getattr(runtime, "import_or_replace_song_video", None)
+        importer = getattr(runtime, "import_or_replace_video_layer", None)
         if runtime is None or not callable(importer):
             host._message_box.warning(
                 host._widget,
                 "Video Reference",
-                "This runtime does not support song video references.",
+                "This runtime does not support video layers.",
             )
             return
         path, _selected_filter = host._file_dialog.getOpenFileName(
@@ -1010,17 +1038,24 @@ class TimelineWidgetContractActionMixin:
         )
         if not path:
             return
-        updated = importer(Path(path))
+        layer_id = params.get("layer_id")
+        updated = importer(
+            Path(path),
+            layer_id=str(layer_id) if isinstance(layer_id, str) and layer_id.strip() else None,
+        )
         if updated is not None:
             host._set_presentation(updated)
 
-    def _run_remove_video_action(self) -> None:
+    def _run_remove_video_action(self, params: dict[str, object]) -> None:
         host = cast(_ContractActionHost, self)
         runtime = host._resolve_runtime_shell()
-        remover = getattr(runtime, "remove_active_song_video", None)
+        remover = getattr(runtime, "remove_video_layer", None)
         if runtime is None or not callable(remover):
             return
-        updated = remover()
+        layer_id = params.get("layer_id")
+        if not isinstance(layer_id, str) or not layer_id.strip():
+            return
+        updated = remover(layer_id)
         if updated is not None:
             host._set_presentation(updated)
 
@@ -1031,23 +1066,47 @@ class TimelineWidgetContractActionMixin:
         if callable(opener):
             opener()
 
-    def _run_reset_video_offset_action(self) -> None:
+    def _run_reset_video_offset_action(self, params: dict[str, object]) -> None:
         host = cast(_ContractActionHost, self)
         runtime = host._resolve_runtime_shell()
-        setter = getattr(runtime, "set_active_song_video_start_seconds", None)
+        setter = getattr(runtime, "set_video_layer_placement", None)
         if not callable(setter):
             return
-        updated = setter(0.0)
+        layer_id = params.get("layer_id")
+        if not isinstance(layer_id, str) or not layer_id.strip():
+            return
+        layer = self._resolve_presentation_layer(layer_id)
+        updated = setter(
+            layer_id,
+            start_seconds=0.0,
+            trim_start_seconds=float(getattr(layer, "video_trim_start_seconds", 0.0)),
+            visible_duration_seconds=float(
+                getattr(layer, "video_visible_duration_seconds", 0.0)
+            ),
+            loop_enabled=bool(getattr(layer, "video_loop_enabled", False)),
+        )
         if updated is not None:
             host._set_presentation(updated)
 
     def _run_set_video_loop_enabled_action(self, params: dict[str, object]) -> None:
         host = cast(_ContractActionHost, self)
         runtime = host._resolve_runtime_shell()
-        setter = getattr(runtime, "set_active_song_video_loop_enabled", None)
+        setter = getattr(runtime, "set_video_layer_placement", None)
         if not callable(setter):
             return
-        updated = setter(bool(params.get("enabled", False)))
+        layer_id = params.get("layer_id")
+        if not isinstance(layer_id, str) or not layer_id.strip():
+            return
+        layer = self._resolve_presentation_layer(layer_id)
+        updated = setter(
+            layer_id,
+            start_seconds=float(getattr(layer, "video_start_seconds", 0.0)),
+            trim_start_seconds=float(getattr(layer, "video_trim_start_seconds", 0.0)),
+            visible_duration_seconds=float(
+                getattr(layer, "video_visible_duration_seconds", 0.0)
+            ),
+            loop_enabled=bool(params.get("enabled", False)),
+        )
         if updated is not None:
             host._set_presentation(updated)
 
@@ -1488,6 +1547,175 @@ class TimelineWidgetContractActionMixin:
     def delete_song_version(self, song_version_id: str) -> None:
         self._run_delete_song_version_action({"song_version_id": song_version_id})
 
+    def _run_export_song_package_action(self, params: dict[str, object]) -> None:
+        host = cast(_ContractActionHost, self)
+        runtime = cast(_SongPackageRuntimeShell | None, host._resolve_runtime_shell())
+        if runtime is None or not callable(getattr(runtime, "export_active_song_package", None)):
+            host._message_box.warning(
+                host._widget,
+                "Export Song Package",
+                "This runtime does not support song package export.",
+            )
+            return
+        song_version_id = params.get("song_version_id")
+        if not isinstance(song_version_id, str) or not song_version_id.strip():
+            song_version_id = host._get_presentation().active_song_version_id
+        if not isinstance(song_version_id, str) or not song_version_id.strip():
+            host._message_box.warning(
+                host._widget,
+                "Export Song Package",
+                "Select a song version before exporting.",
+            )
+            return
+        title = _safe_package_filename(
+            self._song_package_filename_stem(song_version_id.strip())
+        )
+        selected, _selected_filter = host._file_dialog.getSaveFileName(
+            host._widget,
+            "Export Song Package",
+            f"{title}.ezsong",
+            _SONG_PACKAGE_FILE_DIALOG_FILTER,
+        )
+        if not selected:
+            return
+        export_path = Path(selected)
+        if export_path.suffix.lower() != ".ezsong":
+            export_path = export_path.with_suffix(".ezsong")
+        try:
+            manifest = runtime.export_active_song_package(
+                export_path,
+                song_version_id=song_version_id.strip(),
+            )
+        except Exception as exc:
+            host._message_box.warning(host._widget, "Export Song Package", str(exc))
+            return
+        package_title = getattr(manifest, "title", "Song")
+        host._message_box.information(
+            host._widget,
+            "Export Song Package",
+            f"Exported '{package_title}' to {export_path}.",
+        )
+
+    def export_song_package(self, song_version_id: str) -> None:
+        self._run_export_song_package_action({"song_version_id": song_version_id})
+
+    def _run_import_song_package_action(self, preselected_song_id: str | None = None) -> None:
+        host = cast(_ContractActionHost, self)
+        runtime = cast(_SongPackageRuntimeShell | None, host._resolve_runtime_shell())
+        if runtime is None or not callable(getattr(runtime, "import_song_package", None)):
+            host._message_box.warning(
+                host._widget,
+                "Import Song Package",
+                "This runtime does not support song package import.",
+            )
+            return
+        selected, _selected_filter = host._file_dialog.getOpenFileName(
+            host._widget,
+            "Import Song Package",
+            "",
+            _SONG_PACKAGE_FILE_DIALOG_FILTER,
+        )
+        if not selected:
+            return
+        package_path = Path(selected)
+        try:
+            manifest = inspect_song_package(package_path)
+        except Exception as exc:
+            host._message_box.warning(host._widget, "Import Song Package", str(exc))
+            return
+        target_song_id = self._prompt_for_song_package_target(
+            title=manifest.title,
+            version_label=manifest.version_label,
+            duration_seconds=manifest.duration_seconds,
+            package_id=manifest.package_id,
+            preselected_song_id=preselected_song_id,
+        )
+        if target_song_id == "__cancel__":
+            return
+        activate_import = True
+        if target_song_id is not None:
+            activate_import = (
+                host._message_box.question(
+                    host._widget,
+                    "Import Song Package",
+                    "Activate the imported version after import?",
+                    host._message_box.StandardButton.Yes
+                    | host._message_box.StandardButton.No,
+                    host._message_box.StandardButton.No,
+                )
+                == host._message_box.StandardButton.Yes
+            )
+        try:
+            result = runtime.import_song_package(
+                package_path,
+                target_song_id=target_song_id,
+                activate_import=activate_import,
+            )
+        except Exception as exc:
+            host._message_box.warning(host._widget, "Import Song Package", str(exc))
+            return
+        host._set_presentation(runtime.presentation())
+        imported_version_id = getattr(result, "song_version_id", "")
+        host._message_box.information(
+            host._widget,
+            "Import Song Package",
+            f"Imported '{manifest.title}' as version {imported_version_id}.",
+        )
+
+    def import_song_package(self, preselected_song_id: str | None = None) -> None:
+        self._run_import_song_package_action(preselected_song_id)
+
+    def _prompt_for_song_package_target(
+        self,
+        *,
+        title: str,
+        version_label: str,
+        duration_seconds: float,
+        package_id: str,
+        preselected_song_id: str | None = None,
+    ) -> str | None:
+        host = cast(_ContractActionHost, self)
+        presentation = host._get_presentation()
+        options = [f"Create New Song: {title}"]
+        songs = list(presentation.available_songs)
+        options.extend(f"Add Version To: {self._song_option_label(song)}" for song in songs)
+        current_index = 0
+        if preselected_song_id is not None:
+            for index, song in enumerate(songs, start=1):
+                if song.song_id == preselected_song_id:
+                    current_index = index
+                    break
+        prompt = (
+            f"{title} / {version_label} / {duration_seconds:.1f}s\n"
+            f"Package: {package_id}\n"
+            "Import as a snapshot version. Destination"
+        )
+        selected, accepted = host._input_dialog.getItem(
+            host._widget,
+            "Import Song Package",
+            prompt,
+            options,
+            current_index,
+            False,
+        )
+        if not accepted:
+            return "__cancel__"
+        if selected == options[0]:
+            return None
+        for song, label in zip(songs, options[1:]):
+            if selected == label:
+                return song.song_id
+        return "__cancel__"
+
+    def _song_package_filename_stem(self, song_version_id: str) -> str:
+        host = cast(_ContractActionHost, self)
+        presentation = host._get_presentation()
+        for song in presentation.available_songs:
+            for version in getattr(song, "versions", ()) or ():
+                if getattr(version, "song_version_id", "") == song_version_id:
+                    return f"{song.title} {getattr(version, 'label', '')}".strip()
+        return presentation.active_song_title or "song"
+
     def _run_add_layer_action(self, kind: LayerKind, *, title: str | None = None) -> None:
         host = cast(_ContractActionHost, self)
         runtime = cast(_AddLayerRuntimeShell | None, host._resolve_runtime_shell())
@@ -1708,6 +1936,13 @@ class TimelineWidgetContractActionMixin:
             if str(layer.layer_id) == layer_id:
                 return layer.title
         return "Selected Layer"
+
+    def _resolve_presentation_layer(self, layer_id: str):
+        host = cast(_ContractActionHost, self)
+        for layer in host._get_presentation().layers:
+            if str(layer.layer_id) == layer_id:
+                return layer
+        raise ValueError(f"Layer not found: {layer_id}")
 
     def _resolve_selected_layer_id(self) -> str | None:
         host = cast(_ContractActionHost, self)
@@ -2355,6 +2590,12 @@ class TimelineWidgetContractActionMixin:
 
 def _is_imported_song_layer(layer: object) -> bool:
     return is_imported_song_layer(layer)
+
+
+def _safe_package_filename(value: str) -> str:
+    normalized = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in value)
+    stripped = normalized.strip("_")
+    return stripped or "song"
 
 
 def _find_presentation_event(presentation: TimelinePresentation, event_ref: object):

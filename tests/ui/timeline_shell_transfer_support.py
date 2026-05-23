@@ -1899,6 +1899,56 @@ def test_manual_push_route_popup_refresh_button_dispatches_track_refresh(monkeyp
         app.processEvents()
 
 
+def test_manual_push_route_popup_hides_channel_picker(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    base = replace(
+        _ma3_push_selection_presentation(),
+        selected_layer_id=LayerId("layer_kick"),
+        layers=[
+            replace(
+                _ma3_push_selection_presentation().layers[0],
+                is_selected=True,
+                sync_target_label="tc1_tg2_tr3",
+                sync_target_channel_no=7,
+            )
+        ],
+    )
+    harness = _ManualPushHarness(base)
+    widget = TimelineWidget(harness.presentation(), on_intent=harness.dispatch)
+    observed: dict[str, object] = {}
+
+    def _inspect_then_cancel(dialog) -> bool:
+        observed["channel_label_hidden"] = dialog._channel_label.isHidden()
+        observed["channel_spin_hidden"] = dialog._channel_spin.isHidden()
+        observed["selected_channel_no"] = dialog.selected_channel_no()
+        observed["summary"] = dialog._summary.text()
+        return False
+
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget_action_ma3_push_mixin.ManualPushRouteDialog.exec",
+        _inspect_then_cancel,
+    )
+    try:
+        result = widget._action_router._open_manual_push_route_popup(
+            title="Route Layer to MA3 Track",
+            prompt="MA3 track",
+            reference_track_coord="tc1_tg2_tr3",
+            reference_channel_no=7,
+            include_sequence_picker=True,
+        )
+
+        assert result is None
+        assert observed == {
+            "channel_label_hidden": True,
+            "channel_spin_hidden": True,
+            "selected_channel_no": None,
+            "summary": "Target: TR? Track 3 · tc1_tg2_tr3 · Bass · 8 events",
+        }
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_manual_push_route_dialog_disables_write_mode_for_new_or_empty_track():
     app = QApplication.instance() or QApplication([])
     dialog = ManualPushRouteDialog(title="Send to MA3", prompt="MA3 track")
@@ -1989,7 +2039,14 @@ def test_manual_push_route_sequence_creation_prefers_selected_track_name_for_hit
                 event_count=0,
             )
         ],
-        available_sequences=[],
+        available_sequences=[
+            ManualPushSequenceOptionPresentation(number=15, name="Lead Stack")
+        ],
+        current_song_sequence_range=ManualPushSequenceRangePresentation(
+            start=12,
+            end=111,
+            song_label="Song A",
+        ),
         target_track_coord="tc1_tg2_tr9",
     )
     dialog.set_flow(flow, preferred_track_coord="tc1_tg2_tr9")
@@ -2006,6 +2063,10 @@ def test_manual_push_route_sequence_creation_prefers_selected_track_name_for_hit
         )
 
         assert isinstance(sequence_action, CreateMA3Sequence)
+        assert (
+            sequence_action.creation_mode
+            is MA3SequenceCreationMode.CURRENT_SONG_RANGE
+        )
         assert sequence_action.preferred_name == "Laser Hits"
     finally:
         dialog.close()

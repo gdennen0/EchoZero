@@ -326,10 +326,42 @@ def test_app_settings_service_resolve_audio_output_config_converts_runtime_types
 
     assert config.output_device == 7
     assert config.sample_rate == 48000
-    assert config.channels == 2
+    assert config.channels == 8
     assert config.stream_latency == "low"
     assert config.stream_blocksize == 512
     assert config.prime_output_buffers_using_stream_callback is False
+
+
+def test_app_settings_service_runtime_config_refreshes_system_default_channels() -> None:
+    device_channels = {"value": 2}
+
+    def _current_device_options() -> tuple[SettingsOption, ...]:
+        return (
+            SettingsOption(
+                value="",
+                label="System Default",
+                metadata={"max_output_channels": device_channels["value"]},
+            ),
+        )
+
+    service = AppSettingsService(
+        _MemoryStore(
+            AppPreferences(
+                audio_output=AudioOutputPreferences(
+                    output_device=None,
+                    output_channels=2,
+                )
+            )
+        ),
+        audio_device_options_provider=_current_device_options,
+    )
+
+    assert service.resolve_audio_output_config().channels == 2
+
+    device_channels["value"] = 4
+
+    assert service.resolve_audio_output_channel_count() == 4
+    assert service.resolve_audio_output_config().channels == 4
 
 
 def test_app_settings_service_resolve_ma3_osc_runtime_config_merges_launch_overrides() -> None:

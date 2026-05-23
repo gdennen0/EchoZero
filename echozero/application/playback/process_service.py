@@ -8,16 +8,22 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from collections import deque
 from dataclasses import dataclass
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 
 from echozero.application.playback.engine_selection import (
     RuntimeAudioEngine,
     build_runtime_audio_engine,
 )
 from echozero.application.playback.models import PlaybackState
+from echozero.application.playback.coordination import (
+    TransportCommand,
+    TransportCommandAction,
+)
+from echozero.application.playback.process_coordinator import PlaybackProcessCoordinator
 from echozero.application.playback.process_shared import (
     PLAYBACK_IPC_COMMAND_PATH,
     PLAYBACK_IPC_HEALTH_PATH,
@@ -96,23 +102,41 @@ class PlaybackProcessService:
         self._rt_event_queue: deque[dict[str, object]] = deque(maxlen=2048)
 
         self._controller = self._build_controller()
+        self._coordinator = PlaybackProcessCoordinator(
+            lambda: self._controller,
+            publish_event=self._push_rt_event,
+        )
         self._events_hub = PlaybackEventsHub(host=host, port=ws_port)
+        self._control_lock = threading.RLock()
+        self._http_thread: threading.Thread | None = None
         self._http_server = self._build_http_server()
-        self._http_server.timeout = 0.1
+        self._http_server.timeout = 0.05
 
     def run(self) -> int:
         self._events_hub.start()
         self._publish_event(
             "service-started", {"pid": self.pid, "ws_url": self._events_hub.ws_url}
         )
+        self._http_thread = threading.Thread(
+            target=self._http_server.serve_forever,
+            kwargs={"poll_interval": 0.05},
+            name="ez-playback-ipc",
+            daemon=True,
+        )
+        self._http_thread.start()
         try:
             while not self._shutdown_requested:
-                self._http_server.handle_request()
-                self._tick()
+                with self._control_lock:
+                    self._tick()
+                time.sleep(0.02)
         finally:
             self._shutdown_requested = True
+            self._http_server.shutdown()
+            if self._http_thread is not None:
+                self._http_thread.join(timeout=1.0)
             self._events_hub.shutdown()
             self._http_server.server_close()
+            self._coordinator.shutdown()
             self._controller.shutdown()
         return 0
 
@@ -138,7 +162,8 @@ class PlaybackProcessService:
         started = time.perf_counter()
         result: dict[str, object]
         try:
-            result = self._dispatch(operation, params)
+            with self._control_lock:
+                result = self._dispatch(operation, params)
             self._telemetry.last_ipc_error = None
         except Exception as exc:
             self._telemetry.last_ipc_error = f"{type(exc).__name__}: {exc}"
@@ -187,11 +212,9 @@ class PlaybackProcessService:
             projection = self._require_projection(params)
             self._latest_projection = projection
             self._controller.sync_structure_state(projection)
-            self._telemetry.structural_generation = int(
-                getattr(self._controller, "_latest_requested_generation", 0)
-            )
+            self._telemetry.structural_generation = int(self._telemetry.structural_generation) + 1
             self._push_rt_event(
-                "structure-enqueued",
+                "structure-synced",
                 {
                     "generation": int(self._telemetry.structural_generation),
                     "reason": "sync_structure_state",
@@ -202,7 +225,7 @@ class PlaybackProcessService:
         if operation == "sync_mix_state":
             projection = self._require_projection(params)
             self._latest_projection = projection
-            self._controller.sync_mix_state(projection)
+            _ = self._coordinator.enqueue_mix_sync(projection)
             self._push_rt_event("mix-enqueued", {"reason": "sync_mix_state"})
             return {}
 
@@ -210,27 +233,35 @@ class PlaybackProcessService:
             self._controller.drain_pending_structure_sync()
             return {}
 
+        if operation == "clear_playback_graph":
+            reason = str(params.get("reason", "") or "clear-playback-graph")
+            self._latest_projection = None
+            self._controller.clear_playback_graph(reason=reason)
+            self._push_rt_event("playback-graph-cleared", {"reason": reason})
+            return {"reason": reason}
+
         if operation == "record_coalesced_structural_edits":
             count = int(params.get("count", 1) or 1)
             self._controller.record_coalesced_structural_edits(count)
             return {"count": count}
 
         if operation == "play":
-            self._controller.play()
-            return {}
+            return self._enqueue_transport_action(TransportCommandAction.PLAY)
 
         if operation == "pause":
-            self._controller.pause()
-            return {}
+            return self._enqueue_transport_action(TransportCommandAction.PAUSE)
 
         if operation == "stop":
-            self._controller.stop()
-            return {}
+            return self._enqueue_transport_action(TransportCommandAction.STOP)
 
         if operation == "seek":
             position = float(params.get("position_seconds", 0.0) or 0.0)
             was_playing = bool(self._controller.is_playing())
-            self._controller.seek(position)
+            result = self._enqueue_transport_action(
+                TransportCommandAction.SEEK,
+                position_seconds=position,
+                command_id=str(params.get("seek_id", "") or ""),
+            )
             self._push_rt_event(
                 "seek-enqueued",
                 {
@@ -242,7 +273,7 @@ class PlaybackProcessService:
                 self._adaptive_profile_suspend_until_monotonic = (
                     time.perf_counter() + self._ADAPTIVE_PROFILE_SUSPEND_AFTER_RUNNING_SEEK_SECONDS
                 )
-            return {"position_seconds": position}
+            return {**result, "position_seconds": position}
 
         if operation == "preview_clip":
             source_ref = str(params.get("source_ref", "") or "")
@@ -265,10 +296,8 @@ class PlaybackProcessService:
             projection = self._require_projection(params)
             generation = int(params.get("generation", 0) or 0)
             self._latest_projection = projection
-            self._controller.sync_structure_state(projection)
-            resolved_generation = int(
-                getattr(self._controller, "_latest_requested_generation", 0) or 0
-            )
+            work = self._coordinator.enqueue_structure_sync(projection)
+            resolved_generation = int(work.generation)
             if generation <= 0:
                 generation = resolved_generation
             self._telemetry.structural_generation = int(resolved_generation)
@@ -281,7 +310,7 @@ class PlaybackProcessService:
         if operation == "enqueue_mix":
             projection = self._require_projection(params)
             self._latest_projection = projection
-            self._controller.sync_mix_state(projection)
+            _ = self._coordinator.enqueue_mix_sync(projection)
             self._push_rt_event("mix-enqueued", {"reason": "enqueue_mix"})
             return {}
 
@@ -291,7 +320,11 @@ class PlaybackProcessService:
             position_seconds = float(target_samples) / float(
                 max(1, self._controller.engine.sample_rate)
             )
-            self._controller.seek(position_seconds)
+            self._enqueue_transport_action(
+                TransportCommandAction.SCRUB_COMMIT,
+                position_seconds=position_seconds,
+                command_id=seek_id,
+            )
             self._push_rt_event(
                 "seek-enqueued",
                 {
@@ -431,13 +464,45 @@ class PlaybackProcessService:
         diagnostics.last_latency_profile_reason = self._telemetry.last_latency_profile_reason
         diagnostics.device_reinit_count = int(self._device_reinit_count)
         diagnostics.last_device_reinit_reason = self._last_device_reinit_reason
-        diagnostics.rt_command_queue_depth = int(len(self._rt_event_queue))
+        diagnostics.rt_command_queue_depth = int(self._coordinator.transport_queue_depth)
 
     def _tick(self) -> None:
+        self._coordinator.drain_pending_transport_commands()
         self._apply_pending_profile_if_safe()
-        self._controller.drain_pending_structure_sync()
+        self._coordinator.drain_pending_structure_sync()
+        self._publish_timing_snapshot()
         self._emit_reason_update_if_changed()
         self._sample_glitch_and_adapt_profile()
+
+    def _publish_timing_snapshot(self) -> None:
+        snapshot = self._controller.latest_timing_snapshot()
+        self._publish_event(
+            "timing-snapshot",
+            {
+                "snapshot": encode_timing_snapshot(snapshot),
+                "structural_generation": int(self._telemetry.structural_generation),
+            },
+        )
+
+    def _enqueue_transport_action(
+        self,
+        action: TransportCommandAction,
+        *,
+        position_seconds: float | None = None,
+        command_id: str = "",
+    ) -> dict[str, object]:
+        self._coordinator.enqueue_transport_command(
+            TransportCommand(
+                action=action,
+                command_id=command_id,
+                position_seconds=position_seconds,
+                source="playback-ipc",
+            )
+        )
+        return {
+            "accepted": True,
+            "queue_depth": int(self._coordinator.transport_queue_depth),
+        }
 
     def _apply_pending_profile_if_safe(self) -> None:
         if self._pending_profile_index is None:
@@ -523,24 +588,33 @@ class PlaybackProcessService:
                 },
             )
             return
+        previous_index = int(self._profile_index)
+        previous_latency_profile = str(self._telemetry.latency_profile)
+        previous_controller = self._controller
+        projection = self._latest_projection
+        current_time = float(previous_controller.current_time_seconds())
+        was_playing = bool(previous_controller.is_playing())
         self._profile_index = max(0, min(next_index, len(self._LATENCY_PROFILE_SPECS) - 1))
         if hasattr(self, "_telemetry"):
             self._telemetry.latency_profile = self._latency_profile_name()
+        try:
+            next_controller = self._build_controller()
+            if projection is not None:
+                next_controller.sync_structure_state(projection)
+                if current_time > 0.0:
+                    next_controller.seek(current_time)
+                if was_playing:
+                    next_controller.play()
+        except Exception:
+            self._profile_index = previous_index
+            self._telemetry.latency_profile = previous_latency_profile
+            raise
+        previous_controller.shutdown()
+        self._controller = next_controller
         self._telemetry.latency_profile_switch_count += 1
         self._telemetry.last_latency_profile_reason = reason
-        projection = self._latest_projection
-        current_time = float(self._controller.current_time_seconds())
-        was_playing = bool(self._controller.is_playing())
-        self._controller.shutdown()
-        self._controller = self._build_controller()
         self._device_reinit_count += 1
         self._last_device_reinit_reason = "latency-profile-change"
-        if projection is not None:
-            self._controller.sync_structure_state(projection)
-            if current_time > 0.0:
-                self._controller.seek(current_time)
-            if was_playing:
-                self._controller.play()
         self._publish_event(
             "latency-profile-switched",
             {
@@ -622,14 +696,19 @@ class PlaybackProcessService:
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
-                self.send_header("Connection", "keep-alive")
+                self.send_header("Connection", "close")
                 self.end_headers()
                 self.wfile.write(body)
+                self.close_connection = True
 
             def log_message(self, format: str, *args) -> None:  # noqa: A003
                 return None
 
-        return HTTPServer((self._host, self._port), Handler)
+        class PlaybackHttpServer(ThreadingHTTPServer):
+            daemon_threads = True
+            allow_reuse_address = True
+
+        return PlaybackHttpServer((self._host, self._port), Handler)
 
     def _build_controller(self) -> PlaybackController:
         profile = self._LATENCY_PROFILE_SPECS[self._profile_index]
@@ -714,16 +793,21 @@ class PlaybackProcessService:
     def _reconfigure_device(self, device_spec: dict[str, object]) -> None:
         current = self._base_audio_config or AudioOutputRuntimeConfig()
         reason = self._classify_device_reconfigure_reason(device_spec)
-        self._base_audio_config = AudioOutputRuntimeConfig(
+        previous_config = self._base_audio_config
+        next_config = AudioOutputRuntimeConfig(
             output_device=device_spec.get("output_device", current.output_device),
             sample_rate=(
                 int(device_spec["sample_rate"])
-                if device_spec.get("sample_rate") is not None
+                if "sample_rate" in device_spec and device_spec.get("sample_rate") is not None
+                else None
+                if "sample_rate" in device_spec
                 else current.sample_rate
             ),
             channels=(
                 int(device_spec["channels"])
-                if device_spec.get("channels") is not None
+                if "channels" in device_spec and device_spec.get("channels") is not None
+                else None
+                if "channels" in device_spec
                 else current.channels
             ),
             master_output_bus=str(
@@ -733,7 +817,10 @@ class PlaybackProcessService:
             stream_latency=device_spec.get("stream_latency", current.stream_latency),
             stream_blocksize=(
                 int(device_spec["stream_blocksize"])
-                if device_spec.get("stream_blocksize") is not None
+                if "stream_blocksize" in device_spec
+                and device_spec.get("stream_blocksize") is not None
+                else None
+                if "stream_blocksize" in device_spec
                 else current.stream_blocksize
             ),
             prime_output_buffers_using_stream_callback=bool(
@@ -743,21 +830,37 @@ class PlaybackProcessService:
                 )
             ),
         )
-        if hasattr(self, "_telemetry"):
-            self._telemetry.latency_profile = self._latency_profile_name()
         projection = self._latest_projection
         current_time = float(self._controller.current_time_seconds())
         was_playing = bool(self._controller.is_playing())
-        self._controller.shutdown()
-        self._controller = self._build_controller()
+        previous_controller = self._controller
+        self._base_audio_config = next_config
+        try:
+            next_controller = self._build_controller()
+        except Exception:
+            self._base_audio_config = previous_config
+            raise
+        if hasattr(self, "_telemetry"):
+            self._telemetry.latency_profile = self._latency_profile_name()
+        try:
+            if projection is not None:
+                next_controller.sync_structure_state(projection)
+                if current_time > 0.0:
+                    next_controller.seek(current_time)
+                if was_playing:
+                    next_controller.play()
+        except Exception:
+            try:
+                next_controller.shutdown()
+            finally:
+                self._base_audio_config = previous_config
+                if hasattr(self, "_telemetry"):
+                    self._telemetry.latency_profile = self._latency_profile_name()
+            raise
+        previous_controller.shutdown()
+        self._controller = next_controller
         self._device_reinit_count += 1
         self._last_device_reinit_reason = reason
-        if projection is not None:
-            self._controller.sync_structure_state(projection)
-            if current_time > 0.0:
-                self._controller.seek(current_time)
-            if was_playing:
-                self._controller.play()
 
     @staticmethod
     def _classify_device_reconfigure_reason(device_spec: dict[str, object]) -> str:

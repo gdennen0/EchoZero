@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from echozero.application.operations import OperationKind, OperationLane, OperationStatus
 from echozero.application.shared.enums import SyncMode
 from echozero.application.sync.adapters import InMemorySyncService, MA3SyncAdapter
 from echozero.application.sync.models import SyncState
@@ -262,6 +263,39 @@ def test_ma3_sync_adapter_exposes_bridge_sequence_snapshots_and_current_song_ran
         "start": 12,
         "end": 111,
     }
+
+
+def test_ma3_sync_adapter_sequence_lookup_bypasses_stale_catalog_cache():
+    class _ChangingSequenceBridge(_Bridge):
+        def __init__(self):
+            super().__init__()
+            self.calls = 0
+
+        def list_sequences(self, *, start_no=None, end_no=None):
+            self.calls += 1
+            sequences = [
+                {"number": 215, "name": "Song Kick"},
+            ]
+            if self.calls > 1:
+                sequences.append({"number": 217, "name": "Fresh Executor Sequence"})
+            if start_no is not None:
+                sequences = [item for item in sequences if item["number"] >= start_no]
+            if end_no is not None:
+                sequences = [item for item in sequences if item["number"] <= end_no]
+            return sequences
+
+        def get_current_song_sequence_range(self):
+            return {"song_label": "Song Kick", "start": 215, "end": 314}
+
+    bridge = _ChangingSequenceBridge()
+    service = MA3SyncAdapter(bridge)
+
+    first_sequences = service.list_sequences(start_no=215, end_no=314)
+    refreshed_sequences = service.list_sequences(start_no=215, end_no=314)
+
+    assert [sequence["number"] for sequence in first_sequences] == [215]
+    assert [sequence["number"] for sequence in refreshed_sequences] == [215, 217]
+    assert bridge.calls == 2
 
 
 def test_ma3_sync_adapter_assigns_creates_and_prepares_track_sequences():
@@ -1084,3 +1118,25 @@ def test_ma3_sync_adapter_refresh_push_track_options_forwards_timecode_and_track
         {"timecode_no": 2, "track_group_no": 4},
         {"timecode_no": 2, "track_group_no": None},
     ]
+
+
+def test_ma3_sync_adapter_exposes_additive_operation_state_without_changing_payload():
+    service = MA3SyncAdapter(_Bridge())
+    operation_id = service._operations.start(
+        kind="ma3.push",
+        message="Sending",
+        callback=lambda: {"saved_route": "tc1_tg2_tr3"},
+    )
+    snapshot = service._operations.wait(operation_id, timeout=5.0)
+    assert snapshot.status == "success"
+
+    legacy_payload = service.get_operation(operation_id)
+    operation_state = service.get_operation_state(operation_id)
+
+    assert legacy_payload is not None
+    assert legacy_payload["status"] == "success"
+    assert operation_state is not None
+    assert operation_state.kind is OperationKind.SYNC
+    assert operation_state.lane is OperationLane.SYNC
+    assert operation_state.status is OperationStatus.APPLIED
+    assert operation_state.diagnostics["legacy_status"] == "success"

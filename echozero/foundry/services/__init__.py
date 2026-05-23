@@ -19,9 +19,12 @@ if TYPE_CHECKING:
         normalize_source_provenance,
     )
     from .review_pipeline_controller import ReviewPipelineController
+    from .review_sample_doctor_service import ReviewSampleDoctorService
     from .review_signal_service import ReviewSignalService
     from .runtime_bundle_install_service import RuntimeBundleInstallService
     from .sample_library_service import SampleLibraryService
+    from .shared_review_specialized_model_service import SharedReviewSpecializedModelService
+    from echozero.foundry.model_evolution import ModelEvolutionService
     from .run_notification_service import RunNotificationService
     from .run_spec_validator import RunSpecValidator
     from .run_telemetry_service import RunTelemetryService
@@ -47,9 +50,12 @@ __all__ = [
     "build_review_commit_context",
     "normalize_source_provenance",
     "ReviewPipelineController",
+    "ReviewSampleDoctorService",
     "ReviewSignalService",
     "RuntimeBundleInstallService",
     "SampleLibraryService",
+    "SharedReviewSpecializedModelService",
+    "ModelEvolutionService",
     "RunNotificationService",
     "RunSpecValidator",
     "RunTelemetryService",
@@ -100,6 +106,10 @@ _LAZY_EXPORTS = {
         "echozero.foundry.services.review_pipeline_controller",
         "ReviewPipelineController",
     ),
+    "ReviewSampleDoctorService": (
+        "echozero.foundry.services.review_sample_doctor_service",
+        "ReviewSampleDoctorService",
+    ),
     "ReviewSignalService": (
         "echozero.foundry.services.review_signal_service",
         "ReviewSignalService",
@@ -111,6 +121,14 @@ _LAZY_EXPORTS = {
     "SampleLibraryService": (
         "echozero.foundry.services.sample_library_service",
         "SampleLibraryService",
+    ),
+    "SharedReviewSpecializedModelService": (
+        "echozero.foundry.services.shared_review_specialized_model_service",
+        "SharedReviewSpecializedModelService",
+    ),
+    "ModelEvolutionService": (
+        "echozero.foundry.model_evolution",
+        "ModelEvolutionService",
     ),
     "RunNotificationService": (
         "echozero.foundry.services.run_notification_service",

@@ -1,7 +1,7 @@
 from tests.ui.runtime_audio_support import (
     test_audio_engine_paused_mute_does_not_leak_previous_tail_on_play,
     test_runtime_controller_audio_diagnostics_capture_writes_bundle,
-    test_runtime_controller_defaults_to_v2_backend_for_audio_layers,
+    test_runtime_controller_defaults_to_stable_backend_for_audio_layers,
     test_demo_dispatch_routes_mix_update_intents_to_runtime_audio,
     test_demo_dispatch_routes_transport_intents_into_runtime_audio,
     test_demo_dispatch_selection_does_not_reroute_runtime_audio,
@@ -19,10 +19,10 @@ from tests.ui.runtime_audio_support import (
     test_runtime_controller_recomputes_routing_after_device_channel_changes,
     test_runtime_controller_reconfigure_device_rebuilds_and_restores_playback_state,
     test_runtime_controller_route_change_applies_immediately_during_mix_sync,
-    test_runtime_controller_routes_active_take_when_multichannel_mode_is_enabled,
+    test_runtime_controller_ignores_selected_take_when_multichannel_mode_is_enabled,
     test_runtime_controller_snapshot_state_reports_backend_session_and_target,
     test_runtime_controller_snapshot_exposes_preview_audio_runtime_sensor_events,
     test_runtime_controller_switches_playback_target_without_stopping_transport,
     test_runtime_controller_updates_mix_state_while_playing,
-    test_runtime_controller_uses_selected_take_audio_for_monitored_layer,
+    test_runtime_controller_uses_main_audio_for_selected_take_without_audition,
 )

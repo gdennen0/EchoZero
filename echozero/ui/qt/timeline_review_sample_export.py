@@ -13,6 +13,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from echozero.foundry.domain.review import ReviewDecisionKind, ReviewSignal
+from echozero.foundry.review_samples import (
+    review_sample_label_dir,
+    review_sample_target_label,
+    review_sample_training_role,
+)
 from echozero.foundry.services.review_audio_clip_service import ReviewAudioClipService
 from echozero.foundry.services.review_event_state import normalize_review_label
 
@@ -36,7 +41,12 @@ def export_timeline_review_sample(
 
     normalized_class = normalize_review_label(class_label)
     export_root = _default_review_export_root()
-    class_dir = export_root / _safe_segment(normalized_class)
+    training_role = review_sample_training_role(decision_kind)
+    class_dir = review_sample_label_dir(
+        export_root,
+        class_label=normalized_class,
+        training_role=training_role,
+    )
     source_audio = Path(source_audio_path).expanduser()
     if not source_audio.exists():
         return {
@@ -45,6 +55,11 @@ def export_timeline_review_sample(
             "source_audio_path": str(source_audio),
         }
 
+    sample_start, sample_end, window_policy = _review_sample_window(
+        class_label=normalized_class,
+        start_seconds=float(start_seconds),
+        end_seconds=float(end_seconds),
+    )
     clip_path = (clip_service or ReviewAudioClipService()).materialize_event_clip(
         source_audio_path=source_audio,
         clip_cache_dir=class_dir,
@@ -54,16 +69,18 @@ def export_timeline_review_sample(
             decision_kind=decision_kind,
             class_label=normalized_class,
         ),
-        start_seconds=float(start_seconds),
-        end_seconds=float(end_seconds),
+        start_seconds=sample_start,
+        end_seconds=sample_end,
     )
     if clip_path is None:
         return {
             "status": "skipped",
             "reason": "clip_materialization_failed",
             "source_audio_path": str(source_audio),
-            "start_seconds": float(start_seconds),
-            "end_seconds": float(end_seconds),
+            "event_start_seconds": float(start_seconds),
+            "event_end_seconds": float(end_seconds),
+            "start_seconds": sample_start,
+            "end_seconds": sample_end,
         }
 
     source_manifest_path = _portable_manifest_path(source_audio, export_root=export_root)
@@ -74,12 +91,28 @@ def export_timeline_review_sample(
         "item_id": signal.item_id,
         "event_id": str(event_id),
         "class_label": normalized_class,
+        "training_role": training_role.value,
+        "target_label": review_sample_target_label(
+            class_label=normalized_class,
+            training_role=training_role,
+        ),
         "decision_kind": decision_kind.value,
         "review_outcome": signal.review_outcome.value,
         "source_audio_path": source_manifest_path,
         "clip_path": clip_manifest_path,
-        "start_seconds": float(start_seconds),
-        "end_seconds": float(end_seconds),
+        "event_start_seconds": float(start_seconds),
+        "event_end_seconds": float(end_seconds),
+        "event_duration_seconds": max(0.0, float(end_seconds) - float(start_seconds)),
+        "start_seconds": sample_start,
+        "end_seconds": sample_end,
+        "sample_duration_seconds": max(0.0, sample_end - sample_start),
+        "sample_window_policy": window_policy,
+        "export_contract": {
+            "schema": "echozero.review_sample_export.v2",
+            "layout": "<root>/<training_role>/<class_label>/<clip>.wav",
+            "training_role_values": ["positive", "negative"],
+            "negative_target_label": "other",
+        },
     }
     _append_manifest_line(export_root / "manifest.jsonl", manifest_row)
     return {
@@ -87,6 +120,11 @@ def export_timeline_review_sample(
         "class_label": normalized_class,
         "clip_path": str(clip_path.resolve()),
         "manifest_path": str((export_root / "manifest.jsonl").resolve()),
+        "event_start_seconds": float(start_seconds),
+        "event_end_seconds": float(end_seconds),
+        "start_seconds": sample_start,
+        "end_seconds": sample_end,
+        "sample_window_policy": window_policy,
     }
 
 
@@ -145,6 +183,27 @@ def _default_review_export_root() -> Path:
     return (Path.home() / ".echozero" / "data" / "tmp" / "review_samples").resolve()
 
 
+def _review_sample_window(
+    *,
+    class_label: str,
+    start_seconds: float,
+    end_seconds: float,
+) -> tuple[float, float, dict[str, object]]:
+    event_start = max(0.0, float(start_seconds))
+    event_end = max(event_start, float(end_seconds))
+    return (
+        event_start,
+        event_end,
+        {
+            "schema": "echozero.review_sample_window.v1",
+            "kind": "event_span",
+            "anchor": "event_bounds",
+            "class_label": normalize_review_label(class_label),
+            "duration_seconds": max(0.0, event_end - event_start),
+        },
+    )
+
+
 def _portable_manifest_path(path: Path, *, export_root: Path) -> str:
     """Return a manifest-safe path that does not require absolute machine paths."""
 
@@ -155,13 +214,6 @@ def _portable_manifest_path(path: Path, *, export_root: Path) -> str:
         return candidate.relative_to(export_root).as_posix()
     except ValueError:
         return candidate.name
-
-
-def _safe_segment(value: str) -> str:
-    text = str(value).strip() or "event"
-    safe = "".join(character if character.isalnum() else "_" for character in text)
-    safe = safe.strip("_")
-    return safe or "event"
 
 
 def _clip_stem(

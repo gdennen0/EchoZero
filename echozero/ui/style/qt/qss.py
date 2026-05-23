@@ -4,6 +4,7 @@ from pathlib import Path
 
 from echozero.ui.FEEL import (
     TIMELINE_EDITOR_BUTTON_MIN_HEIGHT_PX,
+    TIMELINE_LAUNCHER_LOGO_CONTAINER_HEIGHT_PX,
     TIMELINE_LAUNCHER_SUBMENU_ARROW_RIGHT_PADDING_PX,
     TIMELINE_LAUNCHER_SUBMENU_ARROW_SIZE_PX,
 )
@@ -314,6 +315,11 @@ def build_timeline_editor_bar_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             background: {tokens.panel_bg};
             border-bottom: {scales.border_width}px solid {tokens.panel_border};
         }}
+        {root} QFrame#timelineEditorToolbarContainer {{
+            background: #27262a;
+            border: {scales.border_width}px solid #4b474f;
+            border-radius: {scales.button_radius}px;
+        }}
         {root} QWidget#timelineEditorModeGroup,
         {root} QWidget#timelineEditorAssistGroup,
         {root} QWidget#timelineEditorShellGroup {{
@@ -340,24 +346,24 @@ def build_timeline_editor_bar_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         {root} QPushButton#timelineEditorFixSelectButton,
         {root} QPushButton#timelineEditorFixPromoteButton,
         {root} QPushButton#timelineEditorFixDemotedNavButton {{
-            background: {tokens.control_bg};
-            border: {scales.border_width}px solid {tokens.control_border};
+            background: #242328;
+            border: {scales.border_width}px solid #5d5962;
             border-radius: {scales.button_radius}px;
-            color: {tokens.control_text};
+            color: #ded8d2;
             padding: 0;
-            min-height: 22px;
-            max-height: 22px;
-            min-width: 28px;
-            max-width: 28px;
+            min-height: 18px;
+            max-height: 18px;
+            min-width: 26px;
+            max-width: 26px;
             font-weight: 700;
             font-size: 10px;
         }}
         {root} QPushButton[timelineModeButton='true']:checked,
         {root} QPushButton#timelineEditorSnapButton:checked,
         {root} QPushButton#timelineEditorFixDemotedNavButton:checked {{
-            background: {tokens.control_bg_active};
-            border-color: {tokens.control_border_active};
-            color: {tokens.text_primary};
+            background: #333138;
+            border-color: #8a848f;
+            color: #f3eee8;
         }}
         {root} QPushButton[timelineModeButton='true']:disabled,
         {root} QPushButton#timelineEditorSnapButton:disabled,
@@ -372,9 +378,9 @@ def build_timeline_editor_bar_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         {root} QPushButton#timelineEditorFixSelectButton:disabled,
         {root} QPushButton#timelineEditorFixPromoteButton:disabled,
         {root} QPushButton#timelineEditorFixDemotedNavButton:disabled {{
-            color: {tokens.control_text_disabled};
-            border-color: {tokens.panel_border};
-            background: {tokens.control_bg_disabled};
+            color: #77727a;
+            border-color: #3b383f;
+            background: #1c1b1f;
         }}
         {root} QPushButton[timelineModeButton='true']:focus,
         {root} QPushButton#timelineEditorSnapButton:focus,
@@ -389,7 +395,7 @@ def build_timeline_editor_bar_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         {root} QPushButton#timelineEditorFixSelectButton:focus,
         {root} QPushButton#timelineEditorFixPromoteButton:focus,
         {root} QPushButton#timelineEditorFixDemotedNavButton:focus {{
-            border-color: {tokens.control_border_active};
+            border-color: #a9a0ad;
         }}
         {root}[compact='true'] QPushButton[timelineModeButton='true'],
         {root}[compact='true'] QPushButton#timelineEditorGridButton,
@@ -401,13 +407,15 @@ def build_timeline_editor_bar_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         {root}[compact='true'] QPushButton#timelineEditorAddAtPlayheadButton,
         {root}[compact='true'] QPushButton#timelineEditorFixSelectButton,
         {root}[compact='true'] QPushButton#timelineEditorFixDemotedNavButton {{
-            min-width: 28px;
-            padding-left: {max(4, scales.field_padding_h - 4)}px;
-            padding-right: {max(4, scales.field_padding_h - 4)}px;
+            min-width: 24px;
+            max-width: 24px;
+            padding: 0;
             font-size: 9px;
         }}
         {root}[compact='true'] QPushButton#timelineEditorSnapButton {{
-            min-width: 32px;
+            min-width: 24px;
+            max-width: 24px;
+            padding: 0;
             font-size: 9px;
         }}
     """
@@ -1211,14 +1219,15 @@ def build_echozero_shell_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
             background: {tokens.panel_bg};
             border-bottom: {scales.border_width}px solid {tokens.panel_border};
             color: {tokens.text_primary};
+            font-size: 13px;
             padding: 0 4px;
             margin: 0;
-            min-height: 22px;
+            min-height: {TIMELINE_LAUNCHER_LOGO_CONTAINER_HEIGHT_PX}px;
         }}
         QMenuBar#timelineLauncherMenuBar::item {{
             background: transparent;
             color: {tokens.text_secondary};
-            padding: 1px 6px;
+            padding: 3px 8px;
             margin: 0 1px;
             border-radius: {max(1, scales.button_radius - 1)}px;
         }}
@@ -1232,7 +1241,7 @@ def build_echozero_shell_qss(tokens: ShellTokens = SHELL_TOKENS) -> str:
         }}
         QLabel#timelineLauncherMenuLogo {{
             background: transparent;
-            padding: 0 5px;
+            padding: 0 7px;
         }}
         QMenu {{
             background: {tokens.panel_bg};

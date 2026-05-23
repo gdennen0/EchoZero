@@ -310,7 +310,7 @@ class TestAudioEngine:
         assert config.resolved_output_device_name == "Studio Interface"
         assert config.hardware_resolution_reason == "system-default"
 
-    def test_sounddevice_backend_resolve_output_config_keeps_requested_fallback_on_query_failure(
+    def test_sounddevice_backend_resolve_output_config_falls_back_to_default_when_selected_missing(
         self,
     ) -> None:
         from echozero.audio.sounddevice_backend import SounddeviceBackend
@@ -320,7 +320,22 @@ class TestAudioEngine:
 
             @staticmethod
             def query_devices(index):
-                raise RuntimeError(f"missing device {index}")
+                if index == 99:
+                    raise RuntimeError(f"missing device {index}")
+                assert index == 1
+                return {
+                    "name": "Built-in Output",
+                    "default_samplerate": 48000.0,
+                    "max_output_channels": 2,
+                }
+
+            @staticmethod
+            def check_output_settings(*, device, channels, dtype, samplerate):
+                assert device == 1
+                assert dtype == "float32"
+                if int(channels) == 2 and int(samplerate) == 48000:
+                    return
+                raise ValueError("unsupported format")
 
         backend = SounddeviceBackend(sounddevice_module=_FakeSoundDevice())
         config = backend.resolve_output_config(
@@ -333,12 +348,111 @@ class TestAudioEngine:
             prime_output_buffers_using_stream_callback=True,
         )
 
-        assert config.sample_rate == 96000
-        assert config.channels == 6
-        assert config.resolved_output_device == 99
-        assert config.hardware_resolution_reason == "fallback-query-failed"
-        assert config.sample_rate_resolution_reason == "requested"
-        assert config.channel_resolution_reason == "requested"
+        assert config.sample_rate == 48000
+        assert config.channels == 2
+        assert config.requested_output_device == 99
+        assert config.output_device == 99
+        assert config.resolved_output_device == 1
+        assert config.hardware_resolution_reason == "selected-device-unavailable->system-default"
+        assert config.sample_rate_resolution_reason == "fallback-unsupported:96000->48000"
+        assert config.channel_resolution_reason == "clamped-to-device-max:6->2"
+
+    def test_sounddevice_backend_opens_resolved_device_after_selected_device_fallback(
+        self,
+    ) -> None:
+        from echozero.audio.sounddevice_backend import SounddeviceBackend
+
+        opened: list[dict[str, object]] = []
+
+        class _FakeSoundDevice:
+            default = type("_Default", (), {"device": [0, 1]})()
+
+            @staticmethod
+            def query_devices(index):
+                if index == 99:
+                    raise RuntimeError(f"missing device {index}")
+                assert index == 1
+                return {
+                    "name": "Built-in Output",
+                    "default_samplerate": 48000.0,
+                    "max_output_channels": 2,
+                }
+
+            @staticmethod
+            def check_output_settings(*, device, channels, dtype, samplerate):
+                assert device == 1
+                assert dtype == "float32"
+                if int(channels) == 2 and int(samplerate) == 48000:
+                    return
+                raise ValueError("unsupported format")
+
+            @staticmethod
+            def OutputStream(**kwargs):
+                opened.append(dict(kwargs))
+                return fake_stream_factory(**kwargs)
+
+        backend = SounddeviceBackend(sounddevice_module=_FakeSoundDevice())
+        config = backend.resolve_output_config(
+            sample_rate=96000,
+            channels=6,
+            buffer_size=256,
+            output_device=99,
+            stream_blocksize=None,
+            stream_latency=None,
+            prime_output_buffers_using_stream_callback=True,
+        )
+
+        _ = backend.open_output_stream(lambda *_args: None, config)
+
+        assert opened[0]["device"] == 1
+
+    def test_sounddevice_backend_opens_resolved_system_default_device(
+        self,
+    ) -> None:
+        from echozero.audio.sounddevice_backend import SounddeviceBackend
+
+        opened: list[dict[str, object]] = []
+
+        class _FakeSoundDevice:
+            default = type("_Default", (), {"device": [0, 1]})()
+
+            @staticmethod
+            def query_devices(index):
+                assert index == 1
+                return {
+                    "name": "Built-in Output",
+                    "default_samplerate": 48000.0,
+                    "max_output_channels": 2,
+                }
+
+            @staticmethod
+            def check_output_settings(*, device, channels, dtype, samplerate):
+                assert device == 1
+                assert dtype == "float32"
+                if int(channels) == 2 and int(samplerate) == 48000:
+                    return
+                raise ValueError("unsupported format")
+
+            @staticmethod
+            def OutputStream(**kwargs):
+                opened.append(dict(kwargs))
+                return fake_stream_factory(**kwargs)
+
+        backend = SounddeviceBackend(sounddevice_module=_FakeSoundDevice())
+        config = backend.resolve_output_config(
+            sample_rate=None,
+            channels=None,
+            buffer_size=256,
+            output_device=None,
+            stream_blocksize=None,
+            stream_latency=None,
+            prime_output_buffers_using_stream_callback=True,
+        )
+
+        _ = backend.open_output_stream(lambda *_args: None, config)
+
+        assert config.resolved_output_device == 1
+        assert opened[0]["device"] == 1
 
     def test_resolve_stream_defaults_keeps_aggressive_injected_stream_behavior(self) -> None:
         blocksize, latency, prime_output = _resolve_stream_defaults(

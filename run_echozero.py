@@ -132,9 +132,22 @@ def _build_automation_bridge_server(*, runtime, widget, launcher, app, port: int
     )
 
 
+def _shutdown_launcher_surface(surface) -> None:
+    """Shut down the launcher surface while keeping a visible close progress dialog."""
+    begin_shutdown_dialog = getattr(surface.controller, "begin_shutdown_dialog", None)
+    finish_shutdown_dialog = getattr(surface.controller, "finish_shutdown_dialog", None)
+    if callable(begin_shutdown_dialog):
+        begin_shutdown_dialog()
+    try:
+        surface.runtime.shutdown()
+    finally:
+        if callable(finish_shutdown_dialog):
+            finish_shutdown_dialog()
+
+
 def main(argv: list[str] | None = None) -> int:
     raw_args = list(argv) if argv is not None else sys.argv[1:]
-    if raw_args and raw_args[0] == "--echozero-playback-service":
+    if raw_args and raw_args[0] == "--playback-service":
         # PyTorch's distributed import path can call socket.getfqdn(), which may block
         # on reverse DNS in packaged macOS app helpers before the health server starts.
         # The playback service does not need FQDN resolution, so keep helper startup local
@@ -142,9 +155,7 @@ def main(argv: list[str] | None = None) -> int:
         import socket
 
         socket.getfqdn = lambda name="": name or socket.gethostname()
-        from echozero.application.playback.process_service_entry import main as service_main
-
-        return service_main(raw_args[1:])
+        return _run_playback_service(raw_args[1:])
 
     _configure_qt_ffmpeg_video_defaults()
     _ensure_qt_launch_symbols()
@@ -296,7 +307,7 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         if bridge is not None:
             bridge.stop()
-        surface.runtime.shutdown()
+        _shutdown_launcher_surface(surface)
 
 
 if __name__ == "__main__":

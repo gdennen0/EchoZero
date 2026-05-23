@@ -21,6 +21,7 @@ from echozero.application.shared.cue_numbers import cue_number_from_ref_text, cu
 from echozero.application.shared.enums import LayerKind, PlaybackMode
 from echozero.application.shared.layer_kinds import is_event_like_layer_kind
 from echozero.application.shared.ids import LayerId, TakeId
+from echozero.application.timeline.video_placement import VideoPlacement
 from echozero.perf import timed
 from echozero.ui.FEEL import (
     EVENT_MIN_HIT_WIDTH_PX,
@@ -42,7 +43,7 @@ from echozero.ui.FEEL import (
 )
 from echozero.ui.qt.timeline.blocks.event_lane import EventLanePresentation
 from echozero.ui.qt.timeline.blocks.layouts import MainRowLayout, TakeRowLayout
-from echozero.ui.qt.timeline.blocks.ruler import playhead_head_polygon, timeline_x_for_time
+from echozero.ui.qt.timeline.blocks.ruler import timeline_x_for_time
 from echozero.ui.qt.timeline.blocks.waveform_lane import WaveformLanePresentation
 from echozero.ui.qt.timeline.note_contour_overlay import (
     build_note_contour_path,
@@ -139,6 +140,7 @@ class _TimelineCanvasPaintMixin:
             with timed("timeline.paint.layers"):
                 self._draw_layers(painter)
             self._draw_header_content_divider(painter)
+            self._draw_playback_start_marker(painter)
             with timed("timeline.paint.playhead"):
                 self._draw_playhead(painter)
             self._draw_interaction_overlays(painter)
@@ -584,7 +586,18 @@ class _TimelineCanvasPaintMixin:
         dimmed: bool,
     ) -> None:
         start = float(layer.video_start_seconds)
-        duration = max(0.0, float(layer.video_duration_seconds))
+        trim_start = max(0.0, float(layer.video_trim_start_seconds))
+        source_duration = max(0.0, float(layer.video_duration_seconds))
+        placement = VideoPlacement(
+            start_seconds=start,
+            trim_start_seconds=trim_start,
+            visible_duration_seconds=float(layer.video_visible_duration_seconds),
+            source_duration_seconds=source_duration,
+            loop_enabled=bool(layer.video_loop_enabled),
+        ).normalized()
+        start = placement.start_seconds
+        trim_start = placement.trim_start_seconds
+        duration = placement.visible_duration_seconds
         pps = max(1.0, float(self.presentation.pixels_per_second))
         content_left = float(self._header_width)
         content_right = float(max(self._header_width + 1, self.width()))
@@ -619,17 +632,82 @@ class _TimelineCanvasPaintMixin:
                 source_audio_path=layer.source_audio_path,
                 unavailable_reason="Video audio unavailable",
                 repaint_target=self,
-                time_offset_seconds=start,
+                time_offset_seconds=start - trim_start,
             ),
         )
+        if not visible_rect.isEmpty():
+            self._draw_video_loop_affordances(
+                painter,
+                rect=visible_rect,
+                placement=placement,
+                color=outline,
+                dimmed=dimmed,
+            )
         painter.restore()
         self._video_clip_rects.append(
             (
                 visible_rect if not visible_rect.isEmpty() else clip_rect,
                 layer.layer_id,
                 start,
+                trim_start,
+                duration,
+                source_duration,
+                bool(layer.video_loop_enabled),
             )
         )
+
+    def _draw_video_loop_affordances(
+        self: Any,
+        painter: QPainter,
+        *,
+        rect: QRectF,
+        placement: VideoPlacement,
+        color: QColor,
+        dimmed: bool,
+    ) -> None:
+        if rect.width() < 18.0 or rect.height() < 14.0:
+            return
+        icon_color = QColor(color)
+        icon_color.setAlpha(170 if placement.loop_enabled and not dimmed else 96)
+        painter.save()
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(icon_color, 1))
+        self._draw_video_loop_icon(painter, rect.left() + 5.0, rect.top() + 4.0)
+        self._draw_video_loop_icon(painter, rect.right() - 15.0, rect.top() + 4.0)
+        if placement.loop_enabled:
+            self._draw_video_loop_repeats(painter, rect=rect, placement=placement)
+        painter.restore()
+
+    def _draw_video_loop_icon(self: Any, painter: QPainter, x: float, y: float) -> None:
+        icon_rect = QRectF(float(x), float(y), 10.0, 8.0)
+        painter.drawArc(icon_rect, 40 * 16, 285 * 16)
+        painter.drawLine(int(x + 8), int(y + 1), int(x + 10), int(y + 1))
+        painter.drawLine(int(x + 8), int(y + 1), int(x + 9), int(y + 3))
+
+    def _draw_video_loop_repeats(
+        self: Any,
+        painter: QPainter,
+        *,
+        rect: QRectF,
+        placement: VideoPlacement,
+    ) -> None:
+        cycle_seconds = placement.loop_cycle_seconds
+        if cycle_seconds <= 0.0 or placement.visible_duration_seconds <= cycle_seconds:
+            return
+        pps = max(1.0, float(self.presentation.pixels_per_second))
+        seam_color = QColor(EVENT_SELECTION_COLOR)
+        seam_color.setAlpha(95)
+        painter.setPen(QPen(seam_color, 1, Qt.PenStyle.DashLine))
+        seam_offset = cycle_seconds * pps
+        x = float(rect.left()) + seam_offset
+        while x < float(rect.right()) - 2.0:
+            painter.drawLine(
+                int(round(x)),
+                int(rect.top() + 3),
+                int(round(x)),
+                int(rect.bottom() - 3),
+            )
+            x += seam_offset
 
     def _is_take_options_open(self: Any, layer_id: LayerId, take_id: TakeId) -> bool:
         return (layer_id, take_id) in self._open_take_options
@@ -1032,14 +1110,27 @@ class _TimelineCanvasPaintMixin:
             QPen(QColor(self._style.playhead.color_hex), self._style.playhead.line_width_px)
         )
         painter.drawLine(int(x), 0, int(x), self.height())
-        painter.setBrush(QColor(self._style.playhead.color_hex))
-        painter.setPen(
-            QPen(
-                QColor(self._style.playhead.color_hex),
-                self._style.playhead.head_outline_width_px,
-            )
+
+    def _draw_playback_start_marker(self: Any, painter: QPainter) -> None:
+        x = timeline_x_for_time(
+            self.presentation.playback_start,
+            scroll_x=self.presentation.scroll_x,
+            pixels_per_second=self.presentation.pixels_per_second,
+            content_start_x=self._header_width,
         )
-        painter.drawPolygon(playhead_head_polygon(x, float(self._top_padding)))
+        if x < self._header_width or x > self.width():
+            return
+
+        marker = QColor("#9ca3af")
+        marker.setAlpha(135)
+        painter.save()
+        try:
+            pen = QPen(marker, 1)
+            pen.setStyle(Qt.PenStyle.DashLine)
+            painter.setPen(pen)
+            painter.drawLine(int(x), 0, int(x), self.height())
+        finally:
+            painter.restore()
 
     def _draw_header_content_divider(self: Any, painter: QPainter) -> None:
         divider_left = int(max(0, self._header_width - 1))
@@ -1117,6 +1208,57 @@ class _TimelineCanvasPaintMixin:
             painter.setPen(QPen(QColor(EVENT_SELECTION_COLOR), 1, Qt.PenStyle.DashLine))
             painter.setBrush(preview_color)
             painter.drawRoundedRect(self._preview_event_rect, 3.0, 3.0)
+            painter.restore()
+
+        if self._video_drag_candidate is not None:
+            start = self._move_drag_preview_time
+            if start is None:
+                start = float(self._video_drag_candidate["anchor_start_seconds"])
+            duration = max(
+                0.05,
+                float(self._video_drag_candidate["anchor_visible_duration_seconds"]),
+            )
+            if self._video_drag_preview_values is not None:
+                start, _trim_start, duration, _loop_enabled = self._video_drag_preview_values
+            x = timeline_x_for_time(
+                float(start),
+                scroll_x=self.presentation.scroll_x,
+                pixels_per_second=self.presentation.pixels_per_second,
+                content_start_x=self._header_width,
+            )
+            width = max(2.0, float(duration) * max(1.0, self.presentation.pixels_per_second))
+            preview_rect = QRectF(
+                x,
+                float(self._video_drag_candidate["rect_top"]),
+                width,
+                float(self._video_drag_candidate["rect_height"]),
+            )
+            preview_color = QColor(EVENT_SELECTION_COLOR)
+            preview_color.setAlpha(40)
+            painter.save()
+            painter.setPen(QPen(QColor(EVENT_SELECTION_COLOR), 1, Qt.PenStyle.DashLine))
+            painter.setBrush(preview_color)
+            painter.drawRoundedRect(preview_rect, 3.0, 3.0)
+            if self._video_drag_preview_values is not None:
+                _start, trim_start, preview_duration, loop_enabled = (
+                    self._video_drag_preview_values
+                )
+                if loop_enabled:
+                    self._draw_video_loop_affordances(
+                        painter,
+                        rect=preview_rect,
+                        placement=VideoPlacement(
+                            start_seconds=float(start),
+                            trim_start_seconds=float(trim_start),
+                            visible_duration_seconds=float(preview_duration),
+                            source_duration_seconds=float(
+                                self._video_drag_candidate["source_duration_seconds"]
+                            ),
+                            loop_enabled=True,
+                        ).normalized(),
+                        color=QColor(EVENT_SELECTION_COLOR),
+                        dimmed=False,
+                    )
             painter.restore()
 
         if self._marquee_rect is not None:

@@ -170,7 +170,7 @@ def batch_context_actions(
         actions.append(
             InspectorAction(
                 action_id="selection.improve_model_from_selection",
-                label="Improve Model From Selection...",
+                label="Improve Models...",
                 group="batch",
             )
         )

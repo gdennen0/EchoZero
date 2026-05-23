@@ -483,7 +483,9 @@ class LayerPresentation:
     reference_kind: str | None = None
     video_path: str | None = None
     video_start_seconds: float = 0.0
+    video_trim_start_seconds: float = 0.0
     video_duration_seconds: float = 0.0
+    video_visible_duration_seconds: float = 0.0
     video_loop_enabled: bool = False
     status: LayerStatusPresentation = field(default_factory=LayerStatusPresentation)
     sync_target_channel_no: int | None = None
@@ -522,6 +524,7 @@ class TimelinePresentation:
     bpm_confidence: float | None = None
     beat_anchor_seconds: float | None = None
     playhead: float = 0.0
+    playback_start: float = 0.0
     is_playing: bool = False
     loop_region: TimeRange | None = None
     follow_mode: FollowMode = FollowMode.CENTER

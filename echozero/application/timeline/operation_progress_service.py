@@ -13,6 +13,13 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
+from echozero.application.operations import (
+    OperationSnapshot,
+    OperationState,
+    is_active_status,
+    is_final_status,
+    operation_state_from_progress_state,
+)
 from echozero.application.progress import (
     ACTIVE_OPERATION_PROGRESS_STATUSES,
     OperationProgressStatus,
@@ -216,6 +223,14 @@ class OperationProgressService:
         with self._lock:
             return self.session.operation_progress_by_id.get(operation_id)
 
+    def get_operation_state(self, operation_id: str) -> OperationState | None:
+        """Return one operation translated into the shared operation contract."""
+
+        state = self.get_operation(operation_id)
+        if state is None:
+            return None
+        return operation_state_from_progress_state(state)
+
     def visible_operation_for(
         self,
         *,
@@ -253,6 +268,55 @@ class OperationProgressService:
         if latest.status in ACTIVE_OPERATION_PROGRESS_STATUSES or latest.status == "failed":
             return latest
         return None
+
+    def visible_operation_state_for(
+        self,
+        *,
+        action_id: str,
+        object_id: object | None,
+        object_type: str | None,
+        song_id: object | None = None,
+        song_version_id: object | None = None,
+    ) -> OperationState | None:
+        """Return the visible operation using the shared operation contract."""
+
+        state = self.visible_operation_for(
+            action_id=action_id,
+            object_id=object_id,
+            object_type=object_type,
+            song_id=song_id,
+            song_version_id=song_version_id,
+        )
+        if state is None:
+            return None
+        return operation_state_from_progress_state(state)
+
+    def operation_snapshot(self, *, recent_limit: int = 8) -> OperationSnapshot:
+        """Return active and recent final operations in the shared contract."""
+
+        limit = max(0, int(recent_limit))
+        with self._lock:
+            revision = int(self._revision)
+            states = [
+                operation_state_from_progress_state(state)
+                for state in self.session.operation_progress_by_id.values()
+            ]
+        active = tuple(
+            sorted(
+                (state for state in states if is_active_status(state.status)),
+                key=lambda state: state.started_at,
+            )
+        )
+        finals = sorted(
+            (state for state in states if is_final_status(state.status)),
+            key=lambda state: state.finished_at or state.updated_at,
+            reverse=True,
+        )
+        return OperationSnapshot(
+            revision=revision,
+            active_operations=active,
+            recent_final_operations=tuple(finals[:limit] if limit else ()),
+        )
 
     def consume_updates_since(
         self,

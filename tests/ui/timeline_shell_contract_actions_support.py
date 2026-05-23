@@ -48,6 +48,59 @@ def test_contract_add_song_action_calls_runtime(monkeypatch):
         app.processEvents()
 
 
+def test_contract_export_song_package_action_calls_runtime(monkeypatch, tmp_path):
+    app = QApplication.instance() or QApplication([])
+
+    class _Manifest:
+        title = "Alpha Song"
+
+    class _Runtime:
+        def __init__(self):
+            self.calls: list[tuple[Path, str | None]] = []
+            self._presentation = _song_switching_presentation()
+            self.runtime_audio = None
+
+        def presentation(self):
+            return self._presentation
+
+        def dispatch(self, intent):
+            return self._presentation
+
+        def export_active_song_package(
+            self,
+            path: str | Path,
+            *,
+            song_version_id: str | None = None,
+        ):
+            self.calls.append((Path(path), song_version_id))
+            return _Manifest()
+
+    runtime = _Runtime()
+    export_path = tmp_path / "alpha.ezsong"
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QFileDialog.getSaveFileName",
+        lambda *args, **kwargs: (str(export_path), "EchoZero Song Packages"),
+    )
+    monkeypatch.setattr(
+        "echozero.ui.qt.timeline.widget.QMessageBox.information",
+        lambda *args, **kwargs: None,
+    )
+    widget = TimelineWidget(runtime.presentation(), on_intent=runtime.dispatch)
+    try:
+        widget._trigger_contract_action(
+            InspectorAction(
+                action_id="song.package.export",
+                label="Export",
+                params={"song_version_id": "song_version_original"},
+            )
+        )
+
+        assert runtime.calls == [(export_path, "song_version_original")]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_contract_add_song_action_passes_import_pipeline_kwargs_when_runtime_supports_them(
     monkeypatch,
 ):

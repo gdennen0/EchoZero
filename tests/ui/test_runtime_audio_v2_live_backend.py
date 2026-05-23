@@ -94,15 +94,15 @@ def test_runtime_audio_engine_selection_keeps_v1_fallback() -> None:
         engine.shutdown()
 
 
-def test_runtime_audio_engine_selection_defaults_to_v2() -> None:
+def test_runtime_audio_engine_selection_defaults_to_stable_v1() -> None:
     engine = build_runtime_audio_engine(
         channels=2,
         stream_factory=_fake_stream_factory,
     )
 
     try:
-        assert selected_audio_engine_backend() == "v2"
-        assert isinstance(engine, V2LiveAudioEngine)
+        assert selected_audio_engine_backend() == "v1"
+        assert isinstance(engine, AudioEngine)
     finally:
         engine.shutdown()
 
@@ -125,7 +125,7 @@ def test_runtime_audio_controller_selects_v2_backend_for_live_callback_flow() ->
     presentation = _audio_presentation()
 
     try:
-        controller.build_for_presentation(presentation)
+        controller.sync_structure_state(presentation)
         controller.play()
 
         assert streams and streams[-1].started is True
@@ -142,7 +142,7 @@ def test_runtime_audio_controller_selects_v2_backend_for_live_callback_flow() ->
             presentation,
             layers=[replace(presentation.layers[0], muted=True)],
         )
-        controller.apply_mix_state(muted)
+        controller.sync_mix_state(muted)
 
         _ramp_down = np.zeros((256, 2), dtype=np.float32)
         streams[-1].callback(_ramp_down, 256, None, None)
@@ -337,7 +337,7 @@ def test_v2_env_selected_controller_reconfigure_device_preserves_v2_backend(
 
     try:
         assert isinstance(controller.engine, V2LiveAudioEngine)
-        controller.build_for_presentation(presentation)
+        controller.sync_structure_state(presentation)
         controller.play()
         controller.seek(0.01)
 

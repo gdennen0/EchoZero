@@ -77,6 +77,8 @@ class SongBrowserPanel(QWidget):
     song_version_selected = pyqtSignal(str)
     add_song_requested = pyqtSignal()
     add_song_version_requested = pyqtSignal(str)
+    import_song_package_requested = pyqtSignal(object)
+    export_song_package_requested = pyqtSignal(str)
     rename_song_requested = pyqtSignal(str)
     move_song_up_requested = pyqtSignal(str)
     move_song_down_requested = pyqtSignal(str)
@@ -769,6 +771,11 @@ class SongBrowserPanel(QWidget):
 
         if item is None:
             _add_context_action(menu, "Add Song", lambda: self.add_song_requested.emit())
+            _add_context_action(
+                menu,
+                "Import Song Package...",
+                lambda: self.import_song_package_requested.emit(None),
+            )
             if selected_song_ids:
                 menu.addSeparator()
                 _add_context_action(
@@ -817,6 +824,18 @@ class SongBrowserPanel(QWidget):
             "Add Version...",
             lambda: self.add_song_version_requested.emit(song_id),
         )
+        _add_context_action(
+            menu,
+            "Import Song Package...",
+            lambda: self.import_song_package_requested.emit(song_id),
+        )
+        active_version_id = self._active_version_id_for_song(song_id)
+        if active_version_id is not None:
+            _add_context_action(
+                menu,
+                "Export Song Package...",
+                lambda: self.export_song_package_requested.emit(active_version_id),
+            )
         menu.addSeparator()
         _add_context_action(
             menu,
@@ -851,6 +870,11 @@ class SongBrowserPanel(QWidget):
                     "Add Version...",
                     self._emit_add_version_for_active_song,
                 )
+            _add_context_action(
+                menu,
+                "Import Song Package...",
+                lambda: self.import_song_package_requested.emit(None),
+            )
             menu.exec(viewport.mapToGlobal(point))
             return
 
@@ -863,6 +887,11 @@ class SongBrowserPanel(QWidget):
             "Switch to Version",
             lambda: self.song_version_selected.emit(version_id),
         )
+        _add_context_action(
+            menu,
+            "Export Song Package...",
+            lambda: self.export_song_package_requested.emit(version_id),
+        )
         menu.addSeparator()
         _add_context_action(
             menu,
@@ -871,6 +900,12 @@ class SongBrowserPanel(QWidget):
             destructive=True,
         )
         menu.exec(viewport.mapToGlobal(point))
+
+    def _active_version_id_for_song(self, song_id: str) -> str | None:
+        for song in self._presentation.available_songs:
+            if song.song_id == song_id and song.active_version_id:
+                return song.active_version_id
+        return None
 
     @staticmethod
     def _song_version_label(

@@ -119,7 +119,7 @@ class AppFlowHarness:
             previous_runtime_audio.shutdown()
         self.runtime.runtime_audio = runtime_audio
         self.widget._runtime_audio = runtime_audio
-        runtime_audio.build_for_presentation(self.presentation())
+        runtime_audio.sync_structure_state(self.presentation())
         self.flush_runtime_audio_sync()
 
     def advance_playback(self, *, frames: int = 256, iterations: int = 1) -> None:

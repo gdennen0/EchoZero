@@ -18,6 +18,7 @@ _SYNTHETIC_MIX_KEYS = {"enabled", "ratio", "cap"}
 _SUPPORTED_TRAINER_PROFILES = {"baseline_v1", "stronger_v1"}
 _SUPPORTED_OPTIMIZERS = {"sgd_constant", "sgd_optimal"}
 _PROMOTION_KEYS = {"gate_policy", "reference_run_id", "reference_artifact_id"}
+_MODEL_KEYS = {"type", "initialWeightsPath", "initialModelPath"}
 _GATE_POLICY_KEYS = {
     "macro_f1_floor",
     "max_regression_vs_reference",
@@ -43,9 +44,22 @@ class RunSpecValidator:
         if model is not None:
             if not isinstance(model, dict):
                 raise ValueError("run_spec.model must be an object")
+            unknown_model_keys = sorted(set(model.keys()) - _MODEL_KEYS)
+            if unknown_model_keys:
+                raise ValueError(
+                    "run_spec.model contains unsupported keys: " + ", ".join(unknown_model_keys)
+                )
             model_type = str(model.get("type", "baseline_sgd")).lower()
             if model_type not in {"baseline_sgd", "cnn", "crnn"}:
                 raise ValueError("run_spec.model.type must be one of: baseline_sgd, cnn, crnn")
+            for path_key in ("initialWeightsPath", "initialModelPath"):
+                raw_path = model.get(path_key)
+                if raw_path is None:
+                    continue
+                if model_type != "crnn":
+                    raise ValueError(f"run_spec.model.{path_key} is only supported for crnn")
+                if not isinstance(raw_path, str) or not raw_path.strip():
+                    raise ValueError(f"run_spec.model.{path_key} must be a non-empty string")
 
         data = run_spec.get("data")
         if not isinstance(data, dict):
@@ -154,6 +168,22 @@ class RunSpecValidator:
         class_weighting = str(training.get("classWeighting", "none")).lower()
         if class_weighting not in {"none", "balanced"}:
             raise ValueError("run_spec.training.classWeighting must be one of: none, balanced")
+        class_weights = training.get("classWeights")
+        if class_weights is not None:
+            if not isinstance(class_weights, dict):
+                raise ValueError("run_spec.training.classWeights must be an object")
+            for class_name, weight in class_weights.items():
+                if not isinstance(class_name, str) or not class_name.strip():
+                    raise ValueError(
+                        "run_spec.training.classWeights keys must be non-empty class labels"
+                    )
+                if str(class_name).strip() not in dataset_version.class_map:
+                    raise ValueError(
+                        "run_spec.training.classWeights contains unknown class label: "
+                        f"{class_name}"
+                    )
+                if float(weight) <= 0:
+                    raise ValueError("run_spec.training.classWeights values must be > 0")
         rebalance_strategy = str(training.get("rebalanceStrategy", "none")).lower()
         if rebalance_strategy not in {"none", "oversample"}:
             raise ValueError(

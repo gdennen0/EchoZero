@@ -28,6 +28,12 @@ from echozero.foundry.review_server_controller import ReviewServerController
 from echozero.persistence.audio import AudioImportOptions
 from echozero.persistence.entities import SongRecord, SongVersionRecord
 from echozero.persistence.session import ProjectStorage
+from echozero.persistence.song_package import (
+    SongPackageImportResult,
+    export_song_package,
+    import_song_package,
+    inspect_song_package,
+)
 from echozero.ui.qt.app_shell_project_timeline import (
     apply_timeline_presentation_overlay,
     build_project_native_baseline_timeline,
@@ -56,6 +62,7 @@ class ProjectLifecycleShell(Protocol):
     _sync_bridge: MA3SyncBridge | None
     _sync_service_override: SyncService | None
     _app_settings_service: AppSettingsService | None
+    _runtime_audio_sync_payload: object | None
     project_path: Path | None
     project_storage: ProjectStorage
 
@@ -75,9 +82,15 @@ class ProjectLifecycleShell(Protocol):
 
     def _select_active_source_layer(self) -> None: ...
 
+    def _flush_deferred_storage_sync(self) -> None: ...
+
+    def flush_deferred_review_persistence(self) -> None: ...
+
     def _sync_runtime_audio_from_presentation(
         self, presentation: TimelinePresentation
     ) -> None: ...
+
+    def _sync_video_playback_from_presentation(self) -> None: ...
 
     def run_object_action(
         self,
@@ -92,6 +105,7 @@ class ProjectLifecycleShell(Protocol):
 def new_project(shell: ProjectLifecycleShell, name: str = "EchoZero Project") -> None:
     working_dir_root = shell.project_storage.working_dir.parent
     clear_project_review_runtime_bridge(shell)
+    _clear_runtime_audio_for_project_switch(shell)
     project_storage = ProjectStorage.create_new(
         name=name,
         working_dir_root=working_dir_root,
@@ -128,6 +142,7 @@ def open_project(shell: ProjectLifecycleShell, path: str | Path) -> None:
     working_dir_root = shell.project_storage.working_dir.parent
     prior_presentation = shell.presentation()
     clear_project_review_runtime_bridge(shell)
+    _clear_runtime_audio_for_project_switch(shell)
     if _paths_match(shell.project_path, target_path):
         shell._pipeline_runs.shutdown()
         shell.project_storage.close()
@@ -162,6 +177,7 @@ def recover_project(shell: ProjectLifecycleShell, path: str | Path) -> None:
     working_dir_root = shell.project_storage.working_dir.parent
     prior_presentation = shell.presentation()
     clear_project_review_runtime_bridge(shell)
+    _clear_runtime_audio_for_project_switch(shell)
     if _paths_match(shell.project_path, target_path):
         shell._pipeline_runs.shutdown()
         shell.project_storage.close()
@@ -223,6 +239,71 @@ def add_song_from_path(
     shell._is_dirty = True
     shell._clear_history()
     return shell.presentation()
+
+
+def export_active_song_package(
+    shell: ProjectLifecycleShell,
+    path: str | Path,
+    *,
+    song_version_id: str | SongVersionId | None = None,
+):
+    """Export the selected or active song version as a .ezsong package."""
+
+    resolved_version_id = (
+        str(song_version_id)
+        if song_version_id is not None
+        else (
+            str(shell.session.active_song_version_id)
+            if shell.session.active_song_version_id is not None
+            else ""
+        )
+    )
+    if not resolved_version_id:
+        raise ValueError("Select a song version before exporting a song package.")
+    shell._flush_deferred_storage_sync()
+    shell.flush_deferred_review_persistence()
+    return export_song_package(shell.project_storage, resolved_version_id, Path(path))
+
+
+def import_song_package_into_project(
+    shell: ProjectLifecycleShell,
+    path: str | Path,
+    *,
+    target_song_id: str | SongId | None = None,
+    activate_import: bool = False,
+) -> SongPackageImportResult:
+    """Import a .ezsong package and refresh the app presentation."""
+
+    manifest = inspect_song_package(Path(path))
+    result = import_song_package(
+        shell.project_storage,
+        Path(path),
+        target_song_id=None if target_song_id is None else str(target_song_id),
+        activate_import=activate_import,
+    )
+    active_song_id: SongId | None
+    active_version_id: SongVersionId | None
+    if result.created_song or result.activated:
+        active_song_id = SongId(result.song_id)
+        active_version_id = SongVersionId(result.song_version_id)
+    else:
+        active_song_id = shell.session.active_song_id
+        active_version_id = shell.session.active_song_version_id
+    refresh_from_storage(
+        shell,
+        active_song_id=active_song_id,
+        active_song_version_id=active_version_id,
+    )
+    shell._is_dirty = True
+    shell._clear_history()
+    logger.info(
+        "Imported song package '%s' (%s) as song=%s version=%s",
+        manifest.title,
+        manifest.package_id,
+        result.song_id,
+        result.song_version_id,
+    )
+    return result
 
 
 def _apply_app_pipeline_defaults_to_new_song(
@@ -304,6 +385,7 @@ def select_song(
         presentation,
         stopped_playback=stopped_playback,
     )
+    shell._sync_video_playback_from_presentation()
     return presentation
 
 
@@ -375,6 +457,7 @@ def switch_song_version(
         presentation,
         stopped_playback=stopped_playback,
     )
+    shell._sync_video_playback_from_presentation()
     return presentation
 
 
@@ -391,10 +474,37 @@ def _stop_runtime_audio_for_song_switch(shell: ProjectLifecycleShell) -> bool:
         return False
     if not was_playing:
         return False
+    current_time_seconds = getattr(runtime_audio, "current_time_seconds", None)
+    if callable(current_time_seconds):
+        try:
+            shell.session.transport_state.playhead = max(0.0, float(current_time_seconds()))
+        except Exception:
+            pass
     stop = getattr(runtime_audio, "stop", None)
     if callable(stop):
         stop()
     return True
+
+
+def _clear_runtime_audio_for_project_switch(shell: ProjectLifecycleShell) -> None:
+    """Prevent stale project audio from surviving a project/runtime context swap."""
+
+    runtime_audio = shell.runtime_audio
+    setattr(shell, "_runtime_audio_sync_payload", None)
+    if runtime_audio is None:
+        return
+    stop = getattr(runtime_audio, "stop", None)
+    if callable(stop):
+        try:
+            stop()
+        except Exception:
+            pass
+    clear_graph = getattr(runtime_audio, "clear_playback_graph", None)
+    if callable(clear_graph):
+        try:
+            clear_graph(reason="project-switch")
+        except Exception:
+            pass
 
 
 def _sync_runtime_audio_after_song_switch(
@@ -411,17 +521,20 @@ def _sync_runtime_audio_after_song_switch(
     sync_structure_state = getattr(runtime_audio, "sync_structure_state", None)
     if callable(sync_structure_state):
         sync_structure_state(presentation)
-    else:
-        sync_presentation = getattr(runtime_audio, "sync_presentation", None)
-        if callable(sync_presentation):
-            sync_presentation(presentation)
-        else:
-            build_for_presentation = getattr(runtime_audio, "build_for_presentation", None)
-            if callable(build_for_presentation):
-                build_for_presentation(presentation)
+    elif runtime_audio is not None:
+        raise RuntimeError("Runtime audio backend does not implement sync_structure_state.")
     snapshot_state = getattr(runtime_audio, "snapshot_state", None)
     if callable(snapshot_state):
         shell.session.playback_state = snapshot_state(presentation)
+    playhead = max(0.0, float(shell.session.transport_state.playhead))
+    if playhead > 0.0:
+        seek = getattr(runtime_audio, "seek", None)
+        if callable(seek):
+            seek(playhead)
+    play = getattr(runtime_audio, "play", None)
+    if callable(play):
+        play()
+        shell.session.transport_state.is_playing = True
 
 
 def add_song_version(
@@ -771,8 +884,13 @@ def _replace_project_runtime(
         runtime_audio=runtime_audio,
     )
     shell._last_pipeline_run_revision = 0
+    setattr(shell, "_runtime_audio_sync_payload", None)
+    video_controller = getattr(shell, "_video_playback_controller", None)
+    if video_controller is not None:
+        shell._app.runtime_video = video_controller
     shell._build_object_action_services()
     shell._draft_layers = []
+    shell._sync_runtime_audio_from_presentation(shell.presentation())
 
 
 def _install_project_runtime(
@@ -917,6 +1035,13 @@ def _resolve_persist_playhead_seconds(
     runtime_audio = getattr(shell, "runtime_audio", None)
     if runtime_audio is None:
         return fallback_playhead
+    is_playing = getattr(runtime_audio, "is_playing", None)
+    if callable(is_playing):
+        try:
+            if not bool(is_playing()):
+                return fallback_playhead
+        except Exception:
+            return fallback_playhead
     current_time_seconds = getattr(runtime_audio, "current_time_seconds", None)
     if not callable(current_time_seconds):
         return fallback_playhead

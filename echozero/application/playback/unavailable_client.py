@@ -29,19 +29,10 @@ class UnavailablePlaybackClient:
         """Release playback resources."""
         return None
 
-    def sync_presentation(self, presentation: TimelinePresentation) -> None:
-        self.sync_structure_state(presentation)
-
-    def build_for_presentation(self, presentation: TimelinePresentation) -> None:
-        self.sync_structure_state(presentation)
-
     def sync_structure_state(self, presentation: TimelinePresentation) -> None:
         return None
 
     def sync_mix_state(self, presentation: TimelinePresentation) -> None:
-        return None
-
-    def apply_mix_state(self, presentation: TimelinePresentation) -> None:
         return None
 
     def drain_pending_structure_sync(self) -> None:

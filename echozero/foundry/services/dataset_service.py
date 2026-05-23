@@ -17,6 +17,7 @@ from echozero.foundry.domain.review import (
     ReviewSession,
     ReviewSignal,
 )
+from echozero.foundry.review_samples import ReviewSampleTrainingRole
 from echozero.foundry.persistence import DatasetRepository, DatasetVersionRepository
 from echozero.foundry.services.project_review_queue_builder import ProjectReviewQueueBuilder
 from echozero.foundry.services.audio_source_validation import (
@@ -27,6 +28,8 @@ from echozero.foundry.services.audio_source_validation import (
 from echozero.foundry.services.review_audio_clip_service import ReviewAudioClipService
 from echozero.foundry.services.review_event_state import normalize_review_label
 from echozero.foundry.services.split_balance_service import SplitBalanceService
+
+_AUDIO_SAMPLE_SUFFIXES = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aiff"}
 
 
 class DatasetService:
@@ -88,7 +91,7 @@ class DatasetService:
             for file in sorted(class_dir.rglob("*")):
                 if not file.is_file():
                     continue
-                if file.suffix.lower() not in {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aiff"}:
+                if file.suffix.lower() not in _AUDIO_SAMPLE_SUFFIXES:
                     continue
                 rel_path = file.relative_to(base).as_posix()
                 rel = file.resolve().as_posix()
@@ -212,6 +215,214 @@ class DatasetService:
             label_policy=resolved_label_policy,
             manifest=dataset_manifest,
             stats=stats,
+        )
+        return self._versions.save(version)
+
+    def ingest_shared_review_sample_folders(
+        self,
+        root_path: str | Path,
+        *,
+        dataset_name: str,
+        labels: tuple[str, ...] = ("kick", "snare"),
+        sample_rate: int = 22050,
+        audio_standard: str = "mono_wav_pcm16",
+    ) -> DatasetVersion:
+        """Persist shared local review-sample class folders as one deterministic dataset version."""
+        base = Path(root_path).expanduser()
+        if not base.exists() or not base.is_dir():
+            raise ValueError(f"Shared review sample root not found: {base}")
+
+        normalized_labels = self._normalize_ingest_labels(labels)
+        manifest_lookup = self._shared_review_manifest_lookup(base / "manifest.jsonl")
+        samples: list[DatasetSample] = []
+        content_groups: dict[str, list[str]] = {}
+        skipped_sources: list[dict[str, str]] = []
+        skipped_reason_counts: Counter[str] = Counter()
+        manifest_decision_counts: Counter[str] = Counter()
+        manifest_polarity_counts: Counter[str] = Counter()
+        for label in normalized_labels:
+            sample_sources = self._shared_review_sample_sources(base, label)
+            if not sample_sources:
+                raise ValueError(f"Shared review sample class folder not found: {base / label}")
+            for file, layout_role in sample_sources:
+                if not file.is_file() or file.suffix.lower() not in _AUDIO_SAMPLE_SUFFIXES:
+                    continue
+                rel_path = file.relative_to(base).as_posix()
+                resolved_path = file.resolve().as_posix()
+                try:
+                    audio_metadata = self._inspect_audio_source_cached(file)
+                    content_hash = self._content_hash_for_audio(file)
+                except InvalidAudioSourceError as exc:
+                    skipped_reason_counts[exc.code] += 1
+                    skipped_sources.append(
+                        {
+                            "path": resolved_path,
+                            "relative_path": rel_path,
+                            "filename": file.name,
+                            "label_from_path": label,
+                            "reason_code": exc.code,
+                            "reason": str(exc),
+                        }
+                    )
+                    continue
+                except OSError as exc:
+                    skipped_reason_counts["unreadable"] += 1
+                    skipped_sources.append(
+                        {
+                            "path": resolved_path,
+                            "relative_path": rel_path,
+                            "filename": file.name,
+                            "label_from_path": label,
+                            "reason_code": "unreadable",
+                            "reason": f"audio source bytes could not be read: {exc}",
+                        }
+                    )
+                    continue
+
+                sample_id = self._shared_review_sample_id(
+                    relative_path=rel_path,
+                    label=label,
+                    content_hash=content_hash,
+                )
+                manifest_row = manifest_lookup.get(rel_path)
+                review_decision_kind = None
+                review_polarity = None
+                if manifest_row is not None:
+                    review_decision_kind = str(manifest_row.get("decision_kind") or "").strip()
+                    review_polarity = self._shared_review_manifest_polarity(manifest_row)
+                    if review_decision_kind:
+                        manifest_decision_counts[review_decision_kind] += 1
+                    if review_polarity:
+                        manifest_polarity_counts[review_polarity] += 1
+                if review_polarity is None and layout_role is not None:
+                    review_polarity = (
+                        "negative"
+                        if layout_role == ReviewSampleTrainingRole.NEGATIVE.value
+                        else "positive"
+                    )
+                content_groups.setdefault(content_hash, []).append(sample_id)
+                source_provenance = {
+                    "kind": "shared_review_samples",
+                    "path": resolved_path,
+                    "source_root": str(base.resolve().as_posix()),
+                    "relative_path": rel_path,
+                    "filename": file.name,
+                    "label_from_path": label,
+                    "review_sample_layout": (
+                        "canonical_role_folders" if layout_role is not None else "legacy_class_folders"
+                    ),
+                }
+                quality_flags = ["shared_review_samples"]
+                if review_polarity:
+                    source_provenance["review_polarity"] = review_polarity
+                    quality_flags.append(f"review_{review_polarity}")
+                if manifest_row is not None:
+                    source_provenance.update(
+                        {
+                            "review_decision_kind": review_decision_kind,
+                            "review_outcome": manifest_row.get("review_outcome"),
+                            "review_signal_id": manifest_row.get("signal_id"),
+                            "review_item_id": manifest_row.get("item_id"),
+                            "review_event_id": manifest_row.get("event_id"),
+                            "review_event_start_seconds": manifest_row.get(
+                                "event_start_seconds"
+                            ),
+                            "review_event_end_seconds": manifest_row.get(
+                                "event_end_seconds"
+                            ),
+                            "sample_window_policy": manifest_row.get(
+                                "sample_window_policy"
+                            ),
+                        }
+                    )
+                    if review_decision_kind:
+                        quality_flags.append(f"decision_{review_decision_kind}")
+                samples.append(
+                    DatasetSample(
+                        sample_id=sample_id,
+                        audio_ref=resolved_path,
+                        label=label,
+                        duration_ms=audio_metadata.duration_ms,
+                        content_hash=content_hash,
+                        source_provenance=source_provenance,
+                        group_id=f"content:{content_hash}",
+                        is_synthetic=False,
+                        synthetic_provenance={},
+                        quality_flags=quality_flags,
+                        curation_state=CurationState.ACCEPTED,
+                    )
+                )
+
+        if not samples:
+            raise ValueError(f"No valid shared review samples found under: {base}")
+
+        dataset = self._get_or_create_shared_review_sample_dataset(
+            dataset_name=dataset_name,
+            source_root=base,
+            labels=normalized_labels,
+        )
+        existing_versions = self._versions.list_for_dataset(dataset.id)
+        manifest_hash = self.compute_manifest_hash(samples)
+        if existing_versions and existing_versions[-1].manifest_hash == manifest_hash:
+            return existing_versions[-1]
+
+        class_map = sorted({sample.label for sample in samples})
+        manifest_jsonl = self._shared_review_manifest_summary(base / "manifest.jsonl")
+        version = DatasetVersion(
+            id=f"dsv_{uuid4().hex[:12]}",
+            dataset_id=dataset.id,
+            version=(existing_versions[-1].version + 1) if existing_versions else 1,
+            manifest_hash=manifest_hash,
+            sample_rate=sample_rate,
+            audio_standard=audio_standard,
+            class_map=class_map,
+            samples=samples,
+            taxonomy=self._build_review_taxonomy(class_map),
+            label_policy=self._build_review_label_policy(class_map),
+            manifest={
+                "schema": "foundry.shared_review_samples_manifest.v1",
+                "source_kind": "shared_review_samples",
+                "source_ref": str(base.resolve().as_posix()),
+                "labels": list(normalized_labels),
+                "deterministic_order": [sample.sample_id for sample in samples],
+                "content_hash_algorithm": "sha256",
+                "sample_id_algorithm": "sha256(label,relative_path,content_hash)",
+                "content_groups": {
+                    key: sorted(ids) for key, ids in sorted(content_groups.items())
+                },
+                "real_sample_ids": [sample.sample_id for sample in samples],
+                "synthetic_sample_ids": [],
+                "class_folders_are_source_of_truth": True,
+                "manifest_jsonl": manifest_jsonl,
+                "manifest_metadata_policy": {
+                    "used_for_review_polarity": bool(manifest_lookup),
+                    "source_of_audio_truth": "class_folders",
+                    "negative_decision_kinds": ["rejected"],
+                },
+                "skipped_sources": skipped_sources,
+            },
+            stats={
+                "sample_count": len(samples),
+                "real_sample_count": len(samples),
+                "synthetic_sample_count": 0,
+                "class_counts": {
+                    label: sum(1 for sample in samples if sample.label == label)
+                    for label in class_map
+                },
+                "duplicate_content_hashes": sum(
+                    1 for ids in content_groups.values() if len(ids) > 1
+                ),
+                "skipped_invalid_count": len(skipped_sources),
+                "skipped_invalid_by_reason": dict(sorted(skipped_reason_counts.items())),
+                "manifest_matched_count": sum(manifest_polarity_counts.values()),
+                "manifest_decision_counts": dict(sorted(manifest_decision_counts.items())),
+                "manifest_polarity_counts": dict(sorted(manifest_polarity_counts.items())),
+            },
+            lineage={
+                "kind": "shared_review_samples",
+                "source_ref": str(base.resolve().as_posix()),
+                "labels": list(normalized_labels),
+            },
         )
         return self._versions.save(version)
 
@@ -679,6 +890,9 @@ class DatasetService:
             )
             for sample in source_version.samples
         ]
+        derived_samples, conflict_summary = self._drop_conflicting_binary_content_groups(
+            derived_samples
+        )
         derived_labels = {sample.label for sample in derived_samples}
         if normalized_positive not in derived_labels:
             raise ValueError(
@@ -688,6 +902,7 @@ class DatasetService:
             raise ValueError(
                 "Binary dataset derivation requires at least one non-positive sample."
             )
+        accepted_ids = {sample.sample_id for sample in derived_samples}
         manifest_hash = self.compute_manifest_hash(derived_samples)
         next_version = DatasetVersion(
             id=f"dsv_{uuid4().hex[:12]}",
@@ -707,7 +922,7 @@ class DatasetService:
                 negative_label=normalized_negative,
             ),
             manifest={
-                **dict(source_version.manifest),
+                **self._build_curated_manifest(dict(source_version.manifest), accepted_ids),
                 "schema": "foundry.derived_binary_dataset_manifest.v1",
                 "source_dataset_id": source_dataset.id,
                 "source_dataset_version_id": source_version.id,
@@ -716,12 +931,16 @@ class DatasetService:
                     "positive_label": normalized_positive,
                     "positive_source_labels": list(normalized_positive_source_labels),
                     "negative_label": normalized_negative,
+                    "excluded_conflicting_content_groups": conflict_summary,
                 },
             },
-            split_plan=self._copy_source_split_plan(source_version),
+            split_plan=self._filter_split_plan(
+                self._copy_source_split_plan(source_version), accepted_ids
+            ),
             balance_plan=dict(source_version.balance_plan),
             stats=self._binary_dataset_stats(
                 derived_samples,
+                source_samples=source_version.samples,
                 source_version_id=source_version.id,
                 positive_label=normalized_positive,
                 positive_source_labels=normalized_positive_source_labels,
@@ -734,9 +953,54 @@ class DatasetService:
                 "positive_label": normalized_positive,
                 "positive_source_labels": list(normalized_positive_source_labels),
                 "negative_label": normalized_negative,
+                "excluded_conflicting_content_groups": conflict_summary,
             },
         )
         return self._versions.save(next_version)
+
+    @staticmethod
+    def _drop_conflicting_binary_content_groups(
+        samples: list[DatasetSample],
+    ) -> tuple[list[DatasetSample], dict[str, object]]:
+        groups: dict[str, list[DatasetSample]] = {}
+        passthrough: list[DatasetSample] = []
+        for sample in samples:
+            if not sample.content_hash:
+                passthrough.append(sample)
+                continue
+            groups.setdefault(sample.content_hash, []).append(sample)
+
+        accepted_ids = {sample.sample_id for sample in passthrough}
+        excluded_group_count = 0
+        excluded_sample_count = 0
+        excluded_label_counts: Counter[str] = Counter()
+        examples: list[dict[str, object]] = []
+        for content_hash, group_samples in sorted(groups.items()):
+            labels = {sample.label for sample in group_samples}
+            if len(labels) <= 1:
+                accepted_ids.update(sample.sample_id for sample in group_samples)
+                continue
+            excluded_group_count += 1
+            excluded_sample_count += len(group_samples)
+            for sample in group_samples:
+                excluded_label_counts[sample.label] += 1
+            if len(examples) < 10:
+                examples.append(
+                    {
+                        "content_hash": content_hash,
+                        "labels": sorted(labels),
+                        "sample_ids": [sample.sample_id for sample in group_samples[:8]],
+                    }
+                )
+
+        accepted = [sample for sample in samples if sample.sample_id in accepted_ids]
+        return accepted, {
+            "policy": "drop_exact_content_hashes_with_conflicting_binary_labels",
+            "group_count": excluded_group_count,
+            "sample_count": excluded_sample_count,
+            "label_counts": dict(sorted(excluded_label_counts.items())),
+            "examples": examples,
+        }
 
     @staticmethod
     def _filter_split_plan(split_plan: dict, accepted_ids: set[str]) -> dict:
@@ -834,6 +1098,116 @@ class DatasetService:
                 "layer_id": layer_id,
             },
         )
+
+    def _get_or_create_shared_review_sample_dataset(
+        self,
+        *,
+        dataset_name: str,
+        source_root: Path,
+        labels: tuple[str, ...],
+    ) -> Dataset:
+        dataset_key = self._shared_review_dataset_key(source_root=source_root, labels=labels)
+        for dataset in self._datasets.list():
+            if dataset.source_kind != "shared_review_samples":
+                continue
+            if dataset.metadata.get("shared_review_dataset_key") == dataset_key:
+                return dataset
+        return self.create_dataset(
+            dataset_name,
+            source_kind="shared_review_samples",
+            source_ref=str(source_root.resolve().as_posix()),
+            metadata={
+                "schema": "foundry.shared_review_samples_dataset.v1",
+                "shared_review_dataset_key": dataset_key,
+                "labels": list(labels),
+            },
+        )
+
+    @staticmethod
+    def _shared_review_dataset_key(*, source_root: Path, labels: tuple[str, ...]) -> str:
+        joined_labels = ",".join(labels)
+        return f"{source_root.expanduser().resolve().as_posix()}:{joined_labels}"
+
+    @staticmethod
+    def _normalize_ingest_labels(labels: tuple[str, ...]) -> tuple[str, ...]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for raw_label in labels:
+            label = str(raw_label).strip().lower()
+            if not label or label in seen:
+                continue
+            normalized.append(label)
+            seen.add(label)
+        if not normalized:
+            raise ValueError("At least one shared review sample label is required.")
+        return tuple(normalized)
+
+    @staticmethod
+    def _shared_review_sample_id(
+        *,
+        relative_path: str,
+        label: str,
+        content_hash: str,
+    ) -> str:
+        payload = f"{label}\0{relative_path}\0{content_hash}"
+        return f"sm_{hashlib.sha256(payload.encode('utf-8')).hexdigest()[:16]}"
+
+    @staticmethod
+    def _shared_review_sample_sources(
+        base: Path,
+        label: str,
+    ) -> list[tuple[Path, str | None]]:
+        sources: list[tuple[Path, str | None]] = []
+        for role in ReviewSampleTrainingRole:
+            role_dir = base / role.value / label
+            if role_dir.is_dir():
+                sources.extend((path, role.value) for path in sorted(role_dir.rglob("*")))
+        legacy_dir = base / label
+        if legacy_dir.is_dir():
+            sources.extend((path, None) for path in sorted(legacy_dir.rglob("*")))
+        return sources
+
+    @staticmethod
+    def _shared_review_manifest_summary(path: Path) -> dict[str, object] | None:
+        if not path.exists():
+            return None
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        with path.open("r", encoding="utf-8") as handle:
+            line_count = sum(1 for _line in handle)
+        return {
+            "path": str(path.resolve().as_posix()),
+            "sha256": digest,
+            "line_count": line_count,
+            "used_as_source_of_truth": False,
+        }
+
+    @staticmethod
+    def _shared_review_manifest_lookup(path: Path) -> dict[str, dict[str, object]]:
+        if not path.exists():
+            return {}
+        rows_by_clip: dict[str, dict[str, object]] = {}
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(row, dict):
+                    continue
+                clip_path = str(row.get("clip_path") or "").strip()
+                if not clip_path:
+                    continue
+                rows_by_clip[clip_path] = row
+        return rows_by_clip
+
+    @staticmethod
+    def _shared_review_manifest_polarity(row: dict[str, object]) -> str:
+        decision_kind = str(row.get("decision_kind") or "").strip().lower()
+        if decision_kind == ReviewDecisionKind.REJECTED.value:
+            return "negative"
+        return "positive"
 
     def _build_project_review_export_samples(
         self,
@@ -1462,11 +1836,17 @@ class DatasetService:
     def _binary_dataset_stats(
         samples: list[DatasetSample],
         *,
+        source_samples: list[DatasetSample],
         source_version_id: str,
         positive_label: str,
         positive_source_labels: tuple[str, ...],
         negative_label: str,
     ) -> dict[str, object]:
+        negative_source_counts = Counter(
+            source_sample.label.strip().lower()
+            for source_sample in source_samples
+            if source_sample.label.strip().lower() not in positive_source_labels
+        )
         return {
             "sample_count": len(samples),
             "real_sample_count": sum(1 for sample in samples if not sample.is_synthetic),
@@ -1477,6 +1857,7 @@ class DatasetService:
             },
             "source_version_id": source_version_id,
             "positive_source_labels": list(positive_source_labels),
+            "negative_source_counts": dict(sorted(negative_source_counts.items())),
         }
 
     @staticmethod

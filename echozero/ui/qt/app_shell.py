@@ -5,8 +5,11 @@ Connects launcher and app-flow entrypoints to the Stage Zero shell contract.
 
 from __future__ import annotations
 
+import json
+import uuid
 from collections.abc import Callable
 from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TypeVar, cast
 
@@ -15,6 +18,22 @@ from echozero.application.presentation.models import (
     LayerPresentation,
     TimelinePresentation,
 )
+from echozero.application.actions import (
+    ActionCoalescing,
+    ActionCoalescingMode,
+    ActionCommand,
+    ActionGateway,
+    ActionPriority,
+)
+from echozero.application.audio_hardware import (
+    AudioHardwareApplyResult,
+    AudioHardwareCoordinator,
+    AudioHardwareSnapshot,
+    audio_hardware_diagnostics_from_playback_state,
+    requested_audio_hardware_from_runtime_config,
+    resolved_audio_hardware_from_playback_state,
+)
+from echozero.application.operations import OperationKind, OperationLane
 from echozero.application.session.models import Session
 from echozero.application.settings import AppSettingsService, AudioOutputRuntimeConfig
 from echozero.application.shared.enums import SyncMode
@@ -28,6 +47,7 @@ from echozero.application.sync.models import SyncState
 from echozero.application.sync.service import SyncService
 from echozero.application.timeline.app import TimelineApplication
 from echozero.application.timeline.history import UndoHistory
+from echozero.application.timeline.intents import Pause, Play, Seek, Stop, TimelineIntent
 from echozero.application.timeline.models import (
     Layer,
 )
@@ -81,10 +101,16 @@ from echozero.ui.qt.app_shell_project_lifecycle import add_song_version as _add_
 from echozero.ui.qt.app_shell_project_lifecycle import delete_song as _delete_song
 from echozero.ui.qt.app_shell_project_lifecycle import delete_song_version as _delete_song_version
 from echozero.ui.qt.app_shell_project_lifecycle import (
+    export_active_song_package as _export_active_song_package,
+)
+from echozero.ui.qt.app_shell_project_lifecycle import (
     get_project_ma3_push_offset_seconds as _get_project_ma3_push_offset_seconds,
 )
 from echozero.ui.qt.app_shell_project_lifecycle import (
     list_ma3_timecode_pools as _list_ma3_timecode_pools,
+)
+from echozero.ui.qt.app_shell_project_lifecycle import (
+    import_song_package_into_project as _import_song_package_into_project,
 )
 from echozero.ui.qt.app_shell_project_lifecycle import (
     list_song_version_transfer_layers as _list_song_version_transfer_layers,
@@ -222,6 +248,8 @@ class StageZeroRuntimeController(
         self._deferred_storage_layer_ids: set[LayerId] = set()
         self._event_clipboard = []
         self._video_playback_controller = None
+        self._action_gateway = ActionGateway()
+        self._audio_hardware_snapshot = AudioHardwareSnapshot(revision=0)
         self._staged_project_runtime_presentation: TimelinePresentation | None = None
         self._staged_layer_header_width_px: int | None = None
         runtime_state = load_project_runtime_state(project_storage)
@@ -256,8 +284,45 @@ class StageZeroRuntimeController(
         return self._app_settings_service
 
     @property
+    def audio_hardware_snapshot(self) -> AudioHardwareSnapshot:
+        """Return the latest app-visible audio hardware snapshot."""
+
+        return self._audio_hardware_snapshot
+
+    @property
     def is_dirty(self) -> bool:
         return self._is_dirty or self.project_storage.is_dirty()
+
+    def dispatch(self, intent: TimelineIntent) -> TimelinePresentation:
+        """Dispatch one timeline intent through the action gateway compatibility seam."""
+
+        command = self._action_command_for_timeline_intent(intent)
+        accepted = self._action_gateway.accept(command)
+        try:
+            presentation = super().dispatch(intent)
+        except Exception as exc:
+            self._action_gateway.fail(command.command_id, str(exc))
+            raise
+        self._action_gateway.complete(accepted.command_id)
+        return presentation
+
+    @staticmethod
+    def _action_command_for_timeline_intent(intent: TimelineIntent) -> ActionCommand:
+        is_transport = isinstance(intent, (Play, Pause, Stop, Seek))
+        command_type = f"timeline.{intent.__class__.__name__}"
+        coalescing = (
+            ActionCoalescing(ActionCoalescingMode.KEEP_LATEST, "transport.seek")
+            if isinstance(intent, Seek)
+            else ActionCoalescing()
+        )
+        return ActionCommand(
+            command_type=command_type,
+            lane=OperationLane.TRANSPORT if is_transport else OperationLane.APP,
+            priority=ActionPriority.USER_BLOCKING if is_transport else ActionPriority.NORMAL,
+            source="app_shell",
+            coalescing=coalescing,
+            operation_kind=OperationKind.TRANSPORT if is_transport else OperationKind.PIPELINE,
+        )
 
     def is_phone_review_service_enabled(self) -> bool:
         """Return whether project-backed phone review is enabled for this runtime."""
@@ -619,6 +684,28 @@ class StageZeroRuntimeController(
     def delete_song_version(self, song_version_id: str | SongVersionId) -> TimelinePresentation:
         return _delete_song_version(self, song_version_id)
 
+    def export_active_song_package(
+        self,
+        path: str | Path,
+        *,
+        song_version_id: str | SongVersionId | None = None,
+    ):
+        return _export_active_song_package(self, path, song_version_id=song_version_id)
+
+    def import_song_package(
+        self,
+        path: str | Path,
+        *,
+        target_song_id: str | SongId | None = None,
+        activate_import: bool = False,
+    ):
+        return _import_song_package_into_project(
+            self,
+            path,
+            target_song_id=target_song_id,
+            activate_import=activate_import,
+        )
+
     def list_ma3_timecode_pools(self) -> list[tuple[int, str | None]]:
         return _list_ma3_timecode_pools(self)
 
@@ -656,6 +743,138 @@ class StageZeroRuntimeController(
         self._is_dirty = True
         return self.presentation()
 
+    def import_or_replace_video_layer(
+        self,
+        video_path: str | Path,
+        *,
+        layer_id: str | LayerId | None = None,
+    ) -> TimelinePresentation:
+        """Import or replace a version-scoped video reference layer."""
+
+        from echozero.persistence.video import import_video
+
+        active_song_id = self.session.active_song_id
+        active_song_version_id = self.session.active_song_version_id
+        if active_song_id is None or active_song_version_id is None:
+            raise ValueError("Select a song version before importing video.")
+        imported = import_video(Path(video_path), self.project_storage.working_dir)
+        now = datetime.now(timezone.utc).isoformat()
+        requested_layer_id = str(layer_id or "").strip()
+        with self.project_storage.transaction():
+            layer_record = (
+                self.project_storage.layers.get(requested_layer_id)
+                if requested_layer_id
+                else None
+            )
+            if layer_record is None:
+                requested_layer_id = f"layer_video_{uuid.uuid4().hex}"
+                order_row = self.project_storage.db.execute(
+                    'SELECT COALESCE(MAX("order"), 0) FROM layers WHERE song_version_id = ?',
+                    (str(active_song_version_id),),
+                ).fetchone()
+                next_order = int(order_row[0] or 0) + 1
+                self.project_storage.db.execute(
+                    "INSERT INTO layers "
+                    '(id, song_version_id, name, layer_type, color, "order", visible, locked, '
+                    "parent_layer_id, source_pipeline, state_flags_json, provenance_json, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        requested_layer_id,
+                        str(active_song_version_id),
+                        "Video Reference",
+                        "manual",
+                        None,
+                        next_order,
+                        1,
+                        0,
+                        None,
+                        json.dumps({"manual_video": True}),
+                        json.dumps({"manual_kind": "reference", "reference_kind": "video"}),
+                        "{}",
+                        now,
+                    ),
+                )
+                take_id = f"take_video_{uuid.uuid4().hex}"
+                self.project_storage.db.execute(
+                    "INSERT INTO takes "
+                    "(id, layer_id, label, origin, is_main, is_archived, "
+                    "source_json, data_json, created_at, notes) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        take_id,
+                        requested_layer_id,
+                        "Video",
+                        "user",
+                        1,
+                        0,
+                        None,
+                        json.dumps({"type": "EventData", "layers": []}),
+                        now,
+                        "Video reference layer.",
+                    ),
+                )
+                object_id = f"object_{requested_layer_id}"
+                content_id = f"content_{take_id}"
+                self.project_storage.db.execute(
+                    "INSERT INTO timeline_objects "
+                    "(id, song_version_id, name, object_kind, main_content_id, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        object_id,
+                        str(active_song_version_id),
+                        "Video Reference",
+                        "video_clip",
+                        content_id,
+                        now,
+                    ),
+                )
+                self.project_storage.db.execute(
+                    "INSERT INTO object_contents "
+                    "(id, object_id, revision_id, content_kind, payload_json, "
+                    "source_ref_json, analysis_build_json, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        content_id,
+                        object_id,
+                        f"revision_video_{imported.video_hash}",
+                        "video_clip",
+                        json.dumps(
+                            _video_layer_payload_from_imported_video(imported, existing={})
+                        ),
+                        None,
+                        None,
+                        now,
+                    ),
+                )
+            else:
+                object_id = f"object_{requested_layer_id}"
+                object_record = self.project_storage.timeline_objects.get(object_id)
+                if object_record is None:
+                    raise ValueError(f"Video layer object not found: {requested_layer_id}")
+                content = self.project_storage.object_contents.get(object_record.main_content_id)
+                if content is None or content.content_kind != "video_clip":
+                    raise ValueError(f"Layer is not a video reference: {requested_layer_id}")
+                payload = _video_layer_payload_from_imported_video(
+                    imported,
+                    existing=content.payload,
+                )
+                self.project_storage.db.execute(
+                    "UPDATE object_contents SET revision_id = ?, payload_json = ? WHERE id = ?",
+                    (
+                        f"revision_video_{imported.video_hash}",
+                        json.dumps(payload),
+                        content.id,
+                    ),
+                )
+            self.project_storage.dirty_tracker.mark_dirty(str(active_song_id))
+        self._refresh_from_storage(
+            active_song_id=active_song_id,
+            active_song_version_id=active_song_version_id,
+        )
+        self._sync_video_playback_from_presentation()
+        self._is_dirty = True
+        return self.presentation()
+
     def remove_active_song_video(self) -> TimelinePresentation:
         """Remove the active song's video reference."""
 
@@ -664,6 +883,31 @@ class StageZeroRuntimeController(
         if active_song_id is None:
             raise ValueError("Select a song before removing video.")
         self.project_storage.remove_song_video(str(active_song_id))
+        self._refresh_from_storage(
+            active_song_id=active_song_id,
+            active_song_version_id=active_song_version_id,
+        )
+        self._sync_video_playback_from_presentation()
+        self._is_dirty = True
+        return self.presentation()
+
+    def remove_video_layer(self, layer_id: str | LayerId) -> TimelinePresentation:
+        """Remove one version-scoped video reference layer."""
+
+        active_song_id = self.session.active_song_id
+        active_song_version_id = self.session.active_song_version_id
+        resolved_layer_id = str(layer_id).strip()
+        if active_song_id is None or active_song_version_id is None or not resolved_layer_id:
+            raise ValueError("Select a video layer before removing video.")
+        layer_record = self.project_storage.layers.get(resolved_layer_id)
+        if layer_record is None:
+            raise ValueError(f"Video layer not found: {resolved_layer_id}")
+        with self.project_storage.transaction():
+            for take in self.project_storage.takes.list_by_layer(resolved_layer_id):
+                self.project_storage.takes.delete(str(take.id))
+            self.project_storage.timeline_objects.delete(f"object_{resolved_layer_id}")
+            self.project_storage.layers.delete(resolved_layer_id)
+            self.project_storage.dirty_tracker.mark_dirty(str(active_song_id))
         self._refresh_from_storage(
             active_song_id=active_song_id,
             active_song_version_id=active_song_version_id,
@@ -682,6 +926,80 @@ class StageZeroRuntimeController(
         self.project_storage.set_song_video_start_seconds(
             str(active_song_version_id),
             float(offset_seconds),
+        )
+        self._refresh_from_storage(
+            active_song_id=active_song_id,
+            active_song_version_id=active_song_version_id,
+        )
+        self._sync_video_playback_from_presentation()
+        self._is_dirty = True
+        return self.presentation()
+
+    def set_video_layer_placement(
+        self,
+        layer_id: str | LayerId,
+        *,
+        start_seconds: float,
+        trim_start_seconds: float,
+        visible_duration_seconds: float,
+        loop_enabled: bool,
+    ) -> TimelinePresentation:
+        """Persist placement fields on one version-scoped video layer."""
+
+        active_song_id = self.session.active_song_id
+        active_song_version_id = self.session.active_song_version_id
+        resolved_layer_id = str(layer_id).strip()
+        if active_song_id is None or active_song_version_id is None or not resolved_layer_id:
+            raise ValueError("Select a video layer before editing placement.")
+        object_record = self.project_storage.timeline_objects.get(f"object_{resolved_layer_id}")
+        if object_record is None:
+            raise ValueError(f"Video layer object not found: {resolved_layer_id}")
+        content = self.project_storage.object_contents.get(object_record.main_content_id)
+        if content is None or content.content_kind != "video_clip":
+            raise ValueError(f"Layer is not a video reference: {resolved_layer_id}")
+        payload = dict(content.payload)
+        payload.update(
+            {
+                "video_start_seconds": float(start_seconds),
+                "video_trim_start_seconds": float(trim_start_seconds),
+                "video_visible_duration_seconds": float(visible_duration_seconds),
+                "video_loop_enabled": bool(loop_enabled),
+            }
+        )
+        with self.project_storage.transaction():
+            self.project_storage.db.execute(
+                "UPDATE object_contents SET payload_json = ? WHERE id = ?",
+                (json.dumps(payload), content.id),
+            )
+            self.project_storage.dirty_tracker.mark_dirty(str(active_song_id))
+        self._refresh_from_storage(
+            active_song_id=active_song_id,
+            active_song_version_id=active_song_version_id,
+        )
+        self._sync_video_playback_from_presentation()
+        self._is_dirty = True
+        return self.presentation()
+
+    def set_active_song_video_placement(
+        self,
+        *,
+        start_seconds: float,
+        trim_start_seconds: float,
+        visible_duration_seconds: float,
+        loop_enabled: bool,
+    ) -> TimelinePresentation:
+        """Persist the active song version's video trim, length, and loop state."""
+
+        active_song_id = self.session.active_song_id
+        active_song_version_id = self.session.active_song_version_id
+        if active_song_version_id is None:
+            raise ValueError("Select a song version before editing video placement.")
+        self.project_storage.set_song_video_placement(
+            str(active_song_version_id),
+            video_start_seconds=float(start_seconds),
+            video_trim_start_seconds=float(trim_start_seconds),
+            video_visible_duration_seconds=float(visible_duration_seconds),
+            video_loop_enabled=bool(loop_enabled),
         )
         self._refresh_from_storage(
             active_song_id=active_song_id,
@@ -726,6 +1044,8 @@ class StageZeroRuntimeController(
     def update_runtime_video(self, song_seconds: float, is_playing: bool) -> None:
         """Update the video reference surface from the runtime audio clock."""
 
+        if self._video_playback_controller is None:
+            return
         self._app.update_runtime_video(
             song_seconds=float(song_seconds),
             is_playing=bool(is_playing),
@@ -742,6 +1062,18 @@ class StageZeroRuntimeController(
             stop = getattr(self._video_playback_controller, "stop", None)
             if callable(stop):
                 stop()
+        self._video_playback_controller = None
+        if self._app.runtime_video is not None:
+            self._app.runtime_video = None
+
+    def close_video_windows(self) -> None:
+        """Close any app-owned video preview windows."""
+
+        if self._video_playback_controller is None:
+            return
+        close = getattr(self._video_playback_controller, "close", None)
+        if callable(close):
+            close()
         self._video_playback_controller = None
         if self._app.runtime_video is not None:
             self._app.runtime_video = None
@@ -864,10 +1196,7 @@ class StageZeroRuntimeController(
     def shutdown(self) -> None:
         self._flush_deferred_storage_sync()
         self._review_server_controller.stop()
-        if self._video_playback_controller is not None:
-            close = getattr(self._video_playback_controller, "close", None)
-            if callable(close):
-                close()
+        self.close_video_windows()
         clear_project_review_runtime_bridge(self)
         self._deferred_timeline_review_persistence.shutdown()
         _shutdown_runtime(self)
@@ -886,7 +1215,67 @@ class StageZeroRuntimeController(
         self,
         config: AudioOutputRuntimeConfig | None,
     ) -> None:
-        _apply_audio_output_config(self, config)
+        self._apply_audio_output_config_through_gateway(config)
+
+    def _apply_audio_output_config_through_gateway(
+        self,
+        config: AudioOutputRuntimeConfig | None,
+    ) -> None:
+        request = requested_audio_hardware_from_runtime_config(config)
+        command = ActionCommand(
+            command_type="audio.hardware.apply",
+            lane=OperationLane.PREPARE,
+            priority=ActionPriority.USER_BLOCKING,
+            source="app_settings",
+            coalescing=ActionCoalescing(
+                ActionCoalescingMode.KEEP_LATEST,
+                "audio.hardware.apply",
+            ),
+            operation_kind=OperationKind.PLAYBACK,
+            diagnostics={"requested_device_id": request.device_id or "system_default"},
+        )
+        accepted = self._action_gateway.accept(command)
+
+        def apply_request(_request):
+            _apply_audio_output_config(self, config)
+            snapshot_state = getattr(self.runtime_audio, "snapshot_state", None)
+            state = (
+                snapshot_state(self.presentation())
+                if callable(snapshot_state)
+                else self.session.playback_state
+            )
+            resolved = resolved_audio_hardware_from_playback_state(state)
+            if resolved is None:
+                raise RuntimeError("Audio hardware did not report a resolved output stream.")
+            return AudioHardwareApplyResult(
+                resolved=resolved,
+                diagnostics=audio_hardware_diagnostics_from_playback_state(state),
+            )
+
+        coordinator = AudioHardwareCoordinator(
+            apply_request,
+            initial_snapshot=self._audio_hardware_snapshot,
+        )
+        try:
+            self._audio_hardware_snapshot = coordinator.apply_request(
+                request,
+                request_id=command.command_id,
+                operation_id=accepted.operation_id,
+                generation_id=command.command_id,
+            )
+        except Exception as exc:
+            self._action_gateway.fail(command.command_id, str(exc))
+            raise
+        if (
+            self._audio_hardware_snapshot.operation is not None
+            and self._audio_hardware_snapshot.operation.error
+        ):
+            self._action_gateway.fail(
+                command.command_id,
+                self._audio_hardware_snapshot.operation.error,
+            )
+            return
+        self._action_gateway.complete(command.command_id)
 
     def apply_ma3_osc_runtime_config(self) -> bool:
         return _apply_ma3_osc_runtime_config(self)
@@ -923,6 +1312,28 @@ def build_app_shell(
 
 
 AppShellRuntime = StageZeroRuntimeController
+
+
+def _video_layer_payload_from_imported_video(imported: object, *, existing: dict) -> dict:
+    payload = dict(existing)
+    metadata = getattr(imported, "metadata")
+    payload.update(
+        {
+            "video_file": getattr(imported, "video_file"),
+            "video_hash": getattr(imported, "video_hash"),
+            "duration_seconds": getattr(metadata, "duration_seconds"),
+            "extracted_audio_file": getattr(imported, "extracted_audio_file", None),
+            "extracted_audio_hash": getattr(imported, "extracted_audio_hash", None),
+            "width": getattr(metadata, "width", None),
+            "height": getattr(metadata, "height", None),
+            "fps": getattr(metadata, "fps", None),
+        }
+    )
+    payload.setdefault("video_start_seconds", 0.0)
+    payload.setdefault("video_trim_start_seconds", 0.0)
+    payload.setdefault("video_visible_duration_seconds", None)
+    payload.setdefault("video_loop_enabled", False)
+    return payload
 
 
 def _build_runtime_orchestrator() -> Orchestrator:

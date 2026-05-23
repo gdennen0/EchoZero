@@ -81,7 +81,7 @@ class DemoTimelineApp:
                 self.runtime_audio.pause()
         elif isinstance(intent, Play):
             if self.runtime_audio is not None:
-                self.runtime_audio.build_for_presentation(self.presentation_state)
+                self.runtime_audio.sync_structure_state(self.presentation_state)
                 self.runtime_audio.play()
             self.session.transport_state.is_playing = True
         elif isinstance(intent, Stop):
@@ -108,7 +108,7 @@ class DemoTimelineApp:
                     layers.append(layer)
             self.presentation_state = replace(self.presentation_state, layers=layers)
             if self.runtime_audio is not None:
-                self.runtime_audio.apply_mix_state(self.presentation_state)
+                self.runtime_audio.sync_mix_state(self.presentation_state)
         elif isinstance(intent, SetLayerMute):
             layers = []
             for layer in self.presentation_state.layers:
@@ -118,7 +118,7 @@ class DemoTimelineApp:
                     layers.append(layer)
             self.presentation_state = replace(self.presentation_state, layers=layers)
             if self.runtime_audio is not None:
-                self.runtime_audio.apply_mix_state(self.presentation_state)
+                self.runtime_audio.sync_mix_state(self.presentation_state)
         elif isinstance(intent, SetLayerSolo):
             layers = []
             for layer in self.presentation_state.layers:
@@ -128,7 +128,7 @@ class DemoTimelineApp:
                     layers.append(layer)
             self.presentation_state = replace(self.presentation_state, layers=layers)
             if self.runtime_audio is not None:
-                self.runtime_audio.apply_mix_state(self.presentation_state)
+                self.runtime_audio.sync_mix_state(self.presentation_state)
         elif isinstance(intent, SetLayerOutputBus):
             layers = []
             for layer in self.presentation_state.layers:
@@ -138,7 +138,7 @@ class DemoTimelineApp:
                     layers.append(layer)
             self.presentation_state = replace(self.presentation_state, layers=layers)
             if self.runtime_audio is not None:
-                self.runtime_audio.apply_mix_state(self.presentation_state)
+                self.runtime_audio.sync_mix_state(self.presentation_state)
         elif isinstance(intent, ToggleLayerExpanded):
             layers = []
             for layer in self.presentation_state.layers:

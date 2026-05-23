@@ -66,3 +66,16 @@ class LayerResizeCandidate(TypedDict):
     layer_id: LayerId
     anchor_y: float
     anchor_height: int
+
+
+class VideoDragCandidate(TypedDict):
+    layer_id: LayerId
+    mode: str
+    anchor_x: float
+    anchor_start_seconds: float
+    anchor_trim_start_seconds: float
+    anchor_visible_duration_seconds: float
+    source_duration_seconds: float
+    rect_top: float
+    rect_height: float
+    loop_enabled: bool

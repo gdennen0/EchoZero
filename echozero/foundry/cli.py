@@ -15,6 +15,9 @@ from echozero.foundry.review_server import serve_review_session
 from echozero.foundry.services.project_specialized_model_service import (
     ProjectSpecializedModelService,
 )
+from echozero.foundry.services.shared_review_specialized_model_service import (
+    SharedReviewSpecializedModelService,
+)
 from echozero.foundry.ui import run_foundry_ui
 
 
@@ -175,6 +178,48 @@ def build_parser() -> argparse.ArgumentParser:
     train_grouped_binary.add_argument("--install-runtime", action="store_true")
     train_grouped_binary.add_argument("--models-dir", type=Path)
 
+    train_noah_shared = sub.add_parser("train-noah-kahan-shared-review-models")
+    train_noah_shared.add_argument("--review-sample-root", type=Path)
+    train_noah_shared.add_argument("--artist-name", default="Noah Kahan")
+    train_noah_shared.add_argument("--label", action="append", choices=["kick", "snare"])
+    train_noah_shared.add_argument("--kick-initial-model", type=Path)
+    train_noah_shared.add_argument("--snare-initial-model", type=Path)
+    train_noah_shared.add_argument("--no-warm-start", action="store_true")
+
+    review_sample_doctor = sub.add_parser("review-sample-doctor")
+    review_sample_doctor.add_argument("review_sample_root", type=Path)
+    review_sample_doctor.add_argument("--output-root", type=Path)
+    review_sample_doctor.add_argument(
+        "--label",
+        action="append",
+        help="Limit the doctor run to one class folder. Repeat for multiple labels.",
+    )
+    review_sample_doctor.add_argument(
+        "--conflict-policy",
+        choices=["quarantine", "latest-review-wins", "latest_review_wins"],
+        default="quarantine",
+        help=(
+            "How exact-content conflicts are handled. quarantine keeps the "
+            "conservative default; latest-review-wins recovers the newest "
+            "reviewed row into the clean pool and quarantines superseded rows."
+        ),
+    )
+
+    review_sample_reexport = sub.add_parser("reexport-ez-review-samples")
+    review_sample_reexport.add_argument("project_path", type=Path, nargs="+")
+    review_sample_reexport.add_argument("--output-root", type=Path, required=True)
+    review_sample_reexport.add_argument(
+        "--label",
+        action="append",
+        help="Limit the re-export to one reviewed class. Repeat for multiple labels.",
+    )
+    review_sample_reexport.add_argument(
+        "--include-promoted-events",
+        action="store_true",
+        help="Also export promoted model-detected events that have not been explicitly reviewed.",
+    )
+    review_sample_reexport.add_argument("--overwrite", action="store_true")
+
     run = sub.add_parser("create-run")
     run.add_argument("dataset_version_id")
     run.add_argument("spec_json")
@@ -215,6 +260,35 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "migrate-state":
         result = migrate_foundry_state(args.root)
         print(json.dumps({"migrated": result}, indent=2))
+        return 0
+
+    if args.command == "review-sample-doctor":
+        from echozero.foundry.services.review_sample_doctor_service import (
+            ReviewSampleDoctorService,
+        )
+
+        result = ReviewSampleDoctorService().audit_and_repair(
+            args.review_sample_root,
+            output_root=args.output_root,
+            labels=tuple(args.label) if args.label else None,
+            conflict_policy=args.conflict_policy,
+        )
+        print(json.dumps(result.to_payload(), indent=2))
+        return 0
+
+    if args.command == "reexport-ez-review-samples":
+        from echozero.foundry.services.ez_review_sample_reexport_service import (
+            EzReviewSampleReexportService,
+        )
+
+        result = EzReviewSampleReexportService().reexport(
+            list(args.project_path),
+            output_root=args.output_root,
+            labels=tuple(args.label) if args.label else None,
+            include_promoted_events=args.include_promoted_events,
+            overwrite=args.overwrite,
+        )
+        print(json.dumps(result.to_payload(), indent=2))
         return 0
 
     app = FoundryApp(args.root)
@@ -522,6 +596,54 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
         return 0 if all(item["status"] == "completed" for item in payloads) else 1
+
+    if args.command == "train-noah-kahan-shared-review-models":
+        labels = tuple(args.label or ["kick", "snare"])
+        initial_model_paths = {
+            label: path
+            for label, path in {
+                "kick": args.kick_initial_model,
+                "snare": args.snare_initial_model,
+            }.items()
+            if path is not None
+        }
+        service = SharedReviewSpecializedModelService(args.root)
+        result = service.create_artist_drum_models(
+            artist_name=args.artist_name,
+            review_sample_root=args.review_sample_root,
+            labels=labels,
+            source_labels=None,
+            initial_model_paths=initial_model_paths,
+            warm_start=not args.no_warm_start,
+        )
+        print(
+            json.dumps(
+                {
+                    "artist_name": result.artist_name,
+                    "source_dataset_id": result.source_dataset_id,
+                    "source_dataset_version_id": result.source_dataset_version_id,
+                    "review_sample_root": str(result.review_sample_root),
+                    "promotions": [
+                        {
+                            "label": promotion.label,
+                            "dataset_version_id": promotion.dataset_version_id,
+                            "run_id": promotion.run_id,
+                            "artifact_id": promotion.artifact_id,
+                            "manifest_path": str(promotion.manifest_path),
+                            "weights_path": str(promotion.weights_path),
+                            "initial_model_path": (
+                                None
+                                if promotion.initial_model_path is None
+                                else str(promotion.initial_model_path)
+                            ),
+                        }
+                        for promotion in result.promotions
+                    ],
+                },
+                indent=2,
+            )
+        )
+        return 0
 
     if args.command == "create-run":
         run = app.create_run(args.dataset_version_id, json.loads(args.spec_json))

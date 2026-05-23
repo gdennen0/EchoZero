@@ -7,6 +7,11 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from echozero.application.playback.sync_delta import (
+    PlaybackChangeKind,
+    classify_playback_sync_change,
+)
+from echozero.application.playback.sync_projection import PlaybackSyncPayload
 from echozero.application.presentation.models import LayerPresentation, TimelinePresentation
 from echozero.application.session.models import Session
 from echozero.application.settings import AudioOutputRuntimeConfig, AppSettingsService
@@ -38,15 +43,21 @@ class RuntimeAudioController(Protocol):
 
     def sync_structure_state(self, presentation: TimelinePresentation) -> None: ...
 
-    def sync_presentation(self, presentation: TimelinePresentation) -> None: ...
+    def enqueue_structure_prepare(self, presentation: TimelinePresentation) -> int: ...
+
+    def enqueue_structure(
+        self,
+        generation: int,
+        presentation: TimelinePresentation,
+    ) -> int: ...
 
     def sync_mix_state(self, presentation: TimelinePresentation) -> None: ...
 
-    def build_for_presentation(self, presentation: TimelinePresentation) -> None: ...
-
-    def apply_mix_state(self, presentation: TimelinePresentation) -> None: ...
+    def enqueue_mix(self, presentation: TimelinePresentation) -> None: ...
 
     def drain_pending_structure_sync(self) -> None: ...
+
+    def clear_playback_graph(self, *, reason: str = "clear-playback-graph") -> None: ...
 
     def play(self) -> None: ...
 
@@ -150,19 +161,63 @@ def sync_runtime_audio_from_presentation(
     runtime_audio = shell.runtime_audio
     if runtime_audio is None:
         return
-    if runtime_audio.is_playing():
-        sync_structure_state = getattr(runtime_audio, "sync_structure_state", None)
-        if callable(sync_structure_state):
-            sync_structure_state(presentation)
-        else:
-            sync_presentation = getattr(runtime_audio, "sync_presentation", None)
-            if callable(sync_presentation):
-                sync_presentation(presentation)
-            else:
-                runtime_audio.build_for_presentation(presentation)
+    previous_payload = getattr(shell, "_runtime_audio_sync_payload", None)
+    if previous_payload is not None and not isinstance(previous_payload, PlaybackSyncPayload):
+        previous_payload = None
+    delta = classify_playback_sync_change(previous_payload, presentation)
+    recorder = getattr(runtime_audio, "record_local_sync_decision", None)
+    if callable(recorder):
+        recorder(
+            delta.change_kind.value,
+            projection_build_ms=delta.projection_build_ms,
+            classify_ms=delta.classify_ms,
+        )
+    if delta.change_kind is PlaybackChangeKind.NONE:
+        return
+    if delta.change_kind is PlaybackChangeKind.MIX_ONLY:
+        _sync_runtime_audio_mix(runtime_audio, presentation)
+        setattr(shell, "_runtime_audio_sync_payload", delta.payload)
+        return
+    if delta.change_kind is PlaybackChangeKind.STRUCTURE:
+        _prepare_runtime_audio_structure(runtime_audio, presentation)
+        setattr(shell, "_runtime_audio_sync_payload", delta.payload)
     snapshot_state = getattr(runtime_audio, "snapshot_state", None)
-    if callable(snapshot_state):
+    if callable(snapshot_state) and not callable(getattr(runtime_audio, "latest_timing_snapshot", None)):
         shell.session.playback_state = snapshot_state(presentation)
+
+
+def _prepare_runtime_audio_structure(
+    runtime_audio: RuntimeAudioController,
+    presentation: TimelinePresentation,
+) -> None:
+    sync_structure_state = getattr(runtime_audio, "sync_structure_state", None)
+    if callable(sync_structure_state):
+        sync_structure_state(presentation)
+        return
+    enqueue_structure = getattr(runtime_audio, "enqueue_structure", None)
+    if callable(enqueue_structure):
+        enqueue_structure(0, presentation)
+        return
+    enqueue_structure_prepare = getattr(runtime_audio, "enqueue_structure_prepare", None)
+    if callable(enqueue_structure_prepare):
+        enqueue_structure_prepare(presentation)
+        return
+    raise RuntimeError("Runtime audio backend does not implement sync_structure_state.")
+
+
+def _sync_runtime_audio_mix(
+    runtime_audio: RuntimeAudioController,
+    presentation: TimelinePresentation,
+) -> None:
+    enqueue_mix = getattr(runtime_audio, "enqueue_mix", None)
+    if callable(enqueue_mix):
+        enqueue_mix(presentation)
+        return
+    sync_mix_state = getattr(runtime_audio, "sync_mix_state", None)
+    if callable(sync_mix_state):
+        sync_mix_state(presentation)
+        return
+    raise RuntimeError("Runtime audio backend does not implement sync_mix_state.")
 
 
 def preview_event_clip(
@@ -216,7 +271,14 @@ def apply_audio_output_config(
         if callable(reconfigure_device):
             device_spec: dict[str, object]
             if config is None:
-                device_spec = {}
+                device_spec = {
+                    "output_device": None,
+                    "sample_rate": None,
+                    "channels": None,
+                    "stream_latency": None,
+                    "stream_blocksize": None,
+                    "prime_output_buffers_using_stream_callback": True,
+                }
             else:
                 device_spec = {
                     "output_device": config.output_device,
@@ -257,11 +319,9 @@ def apply_audio_output_config(
         if callable(sync_structure_state):
             sync_structure_state(presentation)
         else:
-            sync_presentation = getattr(next_runtime_audio, "sync_presentation", None)
-            if callable(sync_presentation):
-                sync_presentation(presentation)
-            else:
-                next_runtime_audio.build_for_presentation(presentation)
+            raise RuntimeError(
+                "Runtime audio backend does not implement sync_structure_state."
+            )
         if current_time_seconds > 0.0:
             next_runtime_audio.seek(current_time_seconds)
         if was_playing:

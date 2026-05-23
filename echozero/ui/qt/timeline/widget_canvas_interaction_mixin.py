@@ -27,13 +27,19 @@ from echozero.application.presentation.inspector_contract import (
 from echozero.application.presentation.models import EventPresentation, LayerPresentation
 from echozero.application.shared.ids import EventId, LayerId, TakeId
 from echozero.application.timeline.models import EventRef
+from echozero.application.timeline.video_placement import (
+    VideoPlacement,
+    VideoPlacementEditMode,
+    edit_video_placement,
+)
 from echozero.ui.FEEL import (
     DRAG_THRESHOLD_PX,
+    PLAYHEAD_HEAD_HEIGHT_PX,
+    PLAYHEAD_HEAD_WIDTH_PX,
     MOVE_DRAG_SNAP_LOCK_MULTIPLIER,
     SNAP_MAGNETISM_RADIUS_PX,
 )
 from echozero.ui.qt.timeline.blocks.ruler import (
-    playhead_head_polygon,
     seek_time_for_x,
     timeline_x_for_time,
 )
@@ -101,14 +107,16 @@ class _TimelineCanvasInteractionMixin:
             return
 
         if self._video_drag_candidate is not None and event.buttons() & Qt.MouseButton.LeftButton:
-            _layer_id, anchor_x, anchor_start = self._video_drag_candidate
-            delta_seconds = (float(event.position().x()) - float(anchor_x)) / max(
-                1.0,
-                float(self.presentation.pixels_per_second),
-            )
-            self._move_drag_preview_time = float(anchor_start) + delta_seconds
+            self._update_video_drag_preview(event.position())
             event.accept()
             self.update()
+            return
+
+        if self._dragging_playback_start and event.buttons() & Qt.MouseButton.LeftButton:
+            self.playback_start_drag_requested.emit(
+                self._seek_time_at_x(event.position().x())
+            )
+            event.accept()
             return
 
         if self._dragging_playhead and event.buttons() & Qt.MouseButton.LeftButton:
@@ -181,6 +189,7 @@ class _TimelineCanvasInteractionMixin:
         self._header_resize_candidate = None
         self._layer_row_resize_candidate = None
         self._dragging_playhead = False
+        self._dragging_playback_start = False
         self._drag_candidate = None
         self._video_drag_candidate = None
         self._section_marker_drag_candidate = None
@@ -194,6 +203,7 @@ class _TimelineCanvasInteractionMixin:
         self._snap_indicator_time = None
         self._move_drag_preview_time = None
         self._move_drag_snap_time = None
+        self._video_drag_preview_values = None
         self._sync_cursor()
         QToolTip.hideText()
         self.update()
@@ -212,7 +222,13 @@ class _TimelineCanvasInteractionMixin:
                 return
             self._suppress_next_context_menu_event = False
 
-        if event.button() == Qt.MouseButton.LeftButton and self._playhead_head_contains(pos):
+        if event.button() == Qt.MouseButton.LeftButton and self._playback_start_marker_contains(pos):
+            self._dragging_playback_start = True
+            self.playback_start_drag_requested.emit(self._seek_time_at_x(pos.x()))
+            event.accept()
+            return
+
+        if event.button() == Qt.MouseButton.LeftButton and self._playhead_line_handle_contains(pos):
             self._dragging_playhead = True
             self.playhead_drag_requested.emit(self._seek_time_at_x(pos.x()))
             event.accept()
@@ -240,10 +256,28 @@ class _TimelineCanvasInteractionMixin:
         if event.button() == Qt.MouseButton.LeftButton and self._edit_mode == "select":
             video_hit = self._video_clip_hit(pos)
             if video_hit is not None:
-                _rect, layer_id, start_seconds = video_hit
-                self._video_drag_candidate = (layer_id, float(pos.x()), float(start_seconds))
+                (
+                    rect,
+                    layer_id,
+                    start_seconds,
+                    trim_start_seconds,
+                    visible_duration_seconds,
+                    source_duration_seconds,
+                    loop_enabled,
+                ) = video_hit
+                self._video_drag_candidate = self._build_video_drag_candidate(
+                    pos,
+                    rect=rect,
+                    layer_id=layer_id,
+                    start_seconds=start_seconds,
+                    trim_start_seconds=trim_start_seconds,
+                    visible_duration_seconds=visible_duration_seconds,
+                    source_duration_seconds=source_duration_seconds,
+                    loop_enabled=loop_enabled,
+                )
                 self._move_drag_preview_time = None
                 self._snap_indicator_time = None
+                self._video_drag_preview_values = None
                 event.accept()
                 return
             if self._header_resize_handle_contains(pos):
@@ -637,21 +671,21 @@ class _TimelineCanvasInteractionMixin:
                 self._set_resize_cursor_for_position(event.position())
                 event.accept()
                 return
+            if self._dragging_playback_start:
+                self._dragging_playback_start = False
+                event.accept()
+                return
             self._dragging_playhead = False
             if self._layer_drag_candidate is not None:
                 self._commit_layer_drag(event.modifiers())
                 event.accept()
                 return
             if self._video_drag_candidate is not None:
-                layer_id, anchor_x, anchor_start = self._video_drag_candidate
-                delta_seconds = (float(event.position().x()) - float(anchor_x)) / max(
-                    1.0,
-                    float(self.presentation.pixels_per_second),
-                )
-                self.video_offset_changed.emit(layer_id, float(anchor_start) + delta_seconds)
+                self._commit_video_drag(event.position())
                 self._video_drag_candidate = None
                 self._move_drag_preview_time = None
                 self._snap_indicator_time = None
+                self._video_drag_preview_values = None
                 event.accept()
                 self.update()
                 return
@@ -1463,10 +1497,120 @@ class _TimelineCanvasInteractionMixin:
         return None
 
     def _video_clip_hit(self: Any, pos: QPointF):
-        for rect, layer_id, start_seconds in reversed(self._video_clip_rects):
+        for (
+            rect,
+            layer_id,
+            start_seconds,
+            trim_start_seconds,
+            visible_duration_seconds,
+            source_duration_seconds,
+            loop_enabled,
+        ) in reversed(self._video_clip_rects):
             if rect.contains(pos):
-                return rect, layer_id, start_seconds
+                return (
+                    rect,
+                    layer_id,
+                    start_seconds,
+                    trim_start_seconds,
+                    visible_duration_seconds,
+                    source_duration_seconds,
+                    loop_enabled,
+                )
         return None
+
+    def _build_video_drag_candidate(
+        self: Any,
+        pos: QPointF,
+        *,
+        rect: QRectF,
+        layer_id: LayerId,
+        start_seconds: float,
+        trim_start_seconds: float,
+        visible_duration_seconds: float,
+        source_duration_seconds: float,
+        loop_enabled: bool,
+    ):
+        mode = self._video_drag_mode_for_position(pos, rect)
+        return {
+            "layer_id": layer_id,
+            "mode": mode,
+            "anchor_x": float(pos.x()),
+            "anchor_start_seconds": float(start_seconds),
+            "anchor_trim_start_seconds": float(trim_start_seconds),
+            "anchor_visible_duration_seconds": float(visible_duration_seconds),
+            "source_duration_seconds": float(source_duration_seconds),
+            "rect_top": float(rect.top()),
+            "rect_height": float(rect.height()),
+            "loop_enabled": bool(loop_enabled),
+        }
+
+    def _video_drag_mode_for_position(self: Any, pos: QPointF, rect: QRectF) -> str:
+        edge_px = max(6.0, float(getattr(self, "_resize_handle_hit_padding", 6)) * 2.0)
+        corner_px = min(max(10.0, edge_px * 1.5), max(10.0, float(rect.height()) * 0.35))
+        near_left = abs(float(pos.x()) - float(rect.left())) <= edge_px
+        near_right = abs(float(pos.x()) - float(rect.right())) <= edge_px
+        near_corner_y = (
+            abs(float(pos.y()) - float(rect.top())) <= corner_px
+            or abs(float(pos.y()) - float(rect.bottom())) <= corner_px
+        )
+        if near_left and near_corner_y:
+            return VideoPlacementEditMode.LOOP_FRONT.value
+        if near_right and near_corner_y:
+            return VideoPlacementEditMode.LOOP_BACK.value
+        if near_left:
+            return VideoPlacementEditMode.TRIM_FRONT.value
+        if near_right:
+            return VideoPlacementEditMode.TRIM_BACK.value
+        return VideoPlacementEditMode.MOVE.value
+
+    def _video_drag_values(self: Any, pos: QPointF) -> tuple[float, float, float, bool]:
+        candidate = self._video_drag_candidate
+        if candidate is None:
+            return 0.0, 0.0, 0.0, False
+        delta_seconds = (float(pos.x()) - float(candidate["anchor_x"])) / max(
+            1.0,
+            float(self.presentation.pixels_per_second),
+        )
+        placement = edit_video_placement(
+            VideoPlacement(
+                start_seconds=float(candidate["anchor_start_seconds"]),
+                trim_start_seconds=float(candidate["anchor_trim_start_seconds"]),
+                visible_duration_seconds=float(candidate["anchor_visible_duration_seconds"]),
+                source_duration_seconds=float(candidate["source_duration_seconds"]),
+                loop_enabled=bool(candidate["loop_enabled"]),
+            ),
+            mode=str(candidate["mode"]),
+            delta_seconds=delta_seconds,
+        )
+        return (
+            placement.start_seconds,
+            placement.trim_start_seconds,
+            placement.visible_duration_seconds,
+            placement.loop_enabled,
+        )
+
+    def _update_video_drag_preview(self: Any, pos: QPointF) -> None:
+        preview_values = self._video_drag_values(pos)
+        start, _trim_start, _visible_duration, _loop_enabled = preview_values
+        self._video_drag_preview_values = preview_values
+        self._move_drag_preview_time = float(start)
+        self._snap_indicator_time = float(start)
+
+    def _commit_video_drag(self: Any, pos: QPointF) -> None:
+        candidate = self._video_drag_candidate
+        if candidate is None:
+            return
+        start, trim_start, visible_duration, loop_enabled = self._video_drag_values(pos)
+        if str(candidate["mode"]) == VideoPlacementEditMode.MOVE.value:
+            self.video_offset_changed.emit(candidate["layer_id"], float(start))
+            return
+        self.video_placement_changed.emit(
+            candidate["layer_id"],
+            float(start),
+            float(trim_start),
+            float(visible_duration),
+            bool(loop_enabled),
+        )
 
     def _dispatch_fix_event_click(self: Any, event_rect) -> bool:
         _rect, layer_id, take_id, event_id = event_rect
@@ -2037,14 +2181,32 @@ class _TimelineCanvasInteractionMixin:
                 selected_layer_ids.append(event_ref.layer_id)
         return anchor_layer_id, anchor_take_id, selected_layer_ids
 
-    def _playhead_head_contains(self: Any, pos: QPointF) -> bool:
+    def _playhead_line_handle_contains(self: Any, pos: QPointF) -> bool:
         x = timeline_x_for_time(
             self.presentation.playhead,
             scroll_x=self.presentation.scroll_x,
             pixels_per_second=self.presentation.pixels_per_second,
             content_start_x=self._header_width,
         )
-        return playhead_head_polygon(x, float(self._top_padding)).boundingRect().contains(pos)
+        if x < self._header_width or x > self.width():
+            return False
+        half_width = max(4.0, float(PLAYHEAD_HEAD_WIDTH_PX))
+        top = max(0.0, float(self._top_padding) - float(PLAYHEAD_HEAD_HEIGHT_PX))
+        height = max(12.0, float(PLAYHEAD_HEAD_HEIGHT_PX) + 2.0)
+        return QRectF(x - half_width, top, half_width * 2.0, height).contains(pos)
+
+    def _playback_start_marker_contains(self: Any, pos: QPointF) -> bool:
+        x = timeline_x_for_time(
+            self.presentation.playback_start,
+            scroll_x=self.presentation.scroll_x,
+            pixels_per_second=self.presentation.pixels_per_second,
+            content_start_x=self._header_width,
+        )
+        if x < self._header_width:
+            return False
+        marker_top = max(2.0, float(self._top_padding) + 5.0)
+        hit_rect = QRectF(float(x) - 7.0, marker_top - 5.0, 14.0, 18.0)
+        return hit_rect.contains(pos)
 
     def _seek_time_at_x(self: Any, x: float) -> float:
         return seek_time_for_x(

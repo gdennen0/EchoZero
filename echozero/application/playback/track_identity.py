@@ -57,10 +57,14 @@ def event_slice_signature(events: Sequence[object]) -> str:
             start_seconds = float(getattr(event, "start", 0.0))
         except (TypeError, ValueError):
             start_seconds = 0.0
+        try:
+            end_seconds = float(getattr(event, "end", start_seconds))
+        except (TypeError, ValueError):
+            end_seconds = start_seconds
         muted = int(bool(getattr(event, "muted", False)))
         badges = getattr(event, "badges", ())
         demoted = 0
         if isinstance(badges, (list, tuple, set)):
             demoted = int("demoted" in {str(badge) for badge in badges})
-        tokens.append(f"{start_seconds:.6f}:{muted}:{demoted}")
+        tokens.append(f"{start_seconds:.6f}:{end_seconds:.6f}:{muted}:{demoted}")
     return ",".join(tokens)

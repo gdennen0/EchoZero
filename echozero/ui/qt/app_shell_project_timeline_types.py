@@ -29,7 +29,9 @@ class VideoPresentationFields:
 
     video_path: str
     video_start_seconds: float = 0.0
+    video_trim_start_seconds: float = 0.0
     video_duration_seconds: float = 0.0
+    video_visible_duration_seconds: float = 0.0
     video_loop_enabled: bool = False
 
 

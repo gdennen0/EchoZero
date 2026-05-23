@@ -456,7 +456,9 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
                 layer.source_content_ref = source_take.source_content_ref
                 main_take = source_take
             else:
-                main_take.events = self._clone_events_for_target(source_take.events, main_take)
+                main_take.events = self._clone_events_for_main_overwrite(
+                    source_take.events, main_take
+                )
         elif normalized == "merge_main":
             if source_take.id == main_take.id:
                 return
@@ -1085,6 +1087,25 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
         return clones
 
     @staticmethod
+    def _clone_events_for_main_overwrite(events: list[Event], target_take: Take) -> list[Event]:
+        clones: list[Event] = []
+        for idx, event in enumerate(events, start=1):
+            if TimelineOrchestratorEventEditMixin._is_timeline_fix_added_event(event):
+                continue
+            duplicate = TimelineOrchestratorEventEditMixin._duplicate_event(
+                event,
+                duplicate_id=EventId(f"{target_take.id}:from:{event.id}:{idx}"),
+                target_take_id=target_take.id,
+                start=event.start,
+                end=event.end,
+            )
+            duplicate.metadata = TimelineOrchestratorEventEditMixin._without_review_metadata(
+                duplicate.metadata
+            )
+            clones.append(duplicate)
+        return clones
+
+    @staticmethod
     def _duplicate_event(
         event: Event,
         *,
@@ -1099,8 +1120,8 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
             start=start,
             end=end,
             origin=event.origin,
-            classifications=dict(event.classifications),
-            metadata=dict(event.metadata),
+            classifications=deepcopy(event.classifications),
+            metadata=deepcopy(event.metadata),
             cue_number=event.cue_number,
             source_event_id=event.source_event_id,
             parent_event_id=str(event.id),
@@ -1111,6 +1132,24 @@ class TimelineOrchestratorEventEditMixin(TimelineOrchestratorSelectionStateMixin
             notes=event.notes,
             muted=event.muted,
         )
+
+    @staticmethod
+    def _is_timeline_fix_added_event(event: Event) -> bool:
+        review = event.metadata.get("review")
+        if not isinstance(review, dict):
+            return False
+        decision_kind = str(review.get("decision_kind", "")).strip().lower()
+        return event.origin_kind == "manual_added" and decision_kind == "missed_event_added"
+
+    @staticmethod
+    def _without_review_metadata(metadata: dict[str, object]) -> dict[str, object]:
+        next_metadata = dict(metadata)
+        next_metadata.pop("review", None)
+        next_metadata.pop("promotion_state", None)
+        next_metadata.pop("review_state", None)
+        next_metadata.pop("review_outcome", None)
+        next_metadata.pop("review_decision_kind", None)
+        return next_metadata
 
     @staticmethod
     def _sorted_events(events: list[Event]) -> list[Event]:

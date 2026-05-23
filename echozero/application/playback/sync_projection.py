@@ -22,21 +22,26 @@ class PlaybackSyncEventProjection:
     """Compact event projection needed for event-slice signature and render."""
 
     start: float
+    end: float
     muted: bool
     badges: tuple[str, ...]
 
     @classmethod
     def from_event(cls, event: EventPresentation) -> "PlaybackSyncEventProjection":
+        start = float(getattr(event, "start", 0.0))
         return cls(
-            start=float(getattr(event, "start", 0.0)),
+            start=start,
+            end=float(getattr(event, "end", start)),
             muted=bool(getattr(event, "muted", False)),
             badges=tuple(str(badge) for badge in getattr(event, "badges", ()) or ()),
         )
 
     @classmethod
     def from_dict(cls, payload: dict[str, object]) -> "PlaybackSyncEventProjection":
+        start = float(payload.get("start", 0.0) or 0.0)
         return cls(
-            start=float(payload.get("start", 0.0) or 0.0),
+            start=start,
+            end=float(payload.get("end", start) or start),
             muted=bool(payload.get("muted", False)),
             badges=tuple(str(item) for item in payload.get("badges", ()) or ()),
         )
@@ -44,6 +49,7 @@ class PlaybackSyncEventProjection:
     def to_dict(self) -> dict[str, object]:
         return {
             "start": float(self.start),
+            "end": float(self.end),
             "muted": bool(self.muted),
             "badges": list(self.badges),
         }
@@ -237,16 +243,8 @@ class PlaybackSyncPayload:
             layers=tuple(
                 PlaybackSyncLayerProjection.from_layer(layer) for layer in presentation.layers
             ),
-            selected_layer_id=(
-                str(presentation.selected_layer_id)
-                if presentation.selected_layer_id is not None
-                else None
-            ),
-            selected_take_id=(
-                str(presentation.selected_take_id)
-                if presentation.selected_take_id is not None
-                else None
-            ),
+            selected_layer_id=None,
+            selected_take_id=None,
             playback_output_channels=max(
                 0, int(getattr(presentation, "playback_output_channels", 0) or 0)
             ),
@@ -261,12 +259,8 @@ class PlaybackSyncPayload:
                 for item in layers_payload
                 if isinstance(item, dict)
             ),
-            selected_layer_id=(
-                str(payload.get("selected_layer_id")) if payload.get("selected_layer_id") else None
-            ),
-            selected_take_id=(
-                str(payload.get("selected_take_id")) if payload.get("selected_take_id") else None
-            ),
+            selected_layer_id=None,
+            selected_take_id=None,
             playback_output_channels=max(0, int(payload.get("playback_output_channels", 0) or 0)),
         )
 
@@ -281,8 +275,8 @@ class PlaybackSyncPayload:
     def to_runtime_projection(self) -> "RuntimeSyncProjection":
         return RuntimeSyncProjection(
             layers=[layer.to_runtime_layer() for layer in self.layers],
-            selected_layer_id=self.selected_layer_id,
-            selected_take_id=self.selected_take_id,
+            selected_layer_id=None,
+            selected_take_id=None,
             playback_output_channels=max(0, int(self.playback_output_channels)),
         )
 
@@ -333,6 +327,7 @@ class RuntimeEventProjection:
     """Runtime playback event projection with builder-compatible field names."""
 
     start: float
+    end: float
     muted: bool
     badges: list[str]
 
@@ -361,6 +356,7 @@ def _to_runtime_events(
     return [
         RuntimeEventProjection(
             start=float(event.start),
+            end=float(event.end),
             muted=bool(event.muted),
             badges=list(event.badges),
         )

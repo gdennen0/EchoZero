@@ -14,12 +14,18 @@ from echozero.application.settings import (
     AudioOutputRuntimeConfig,
     SettingsOption,
 )
+from echozero.application.audio_hardware import AudioHardwareHealth
+from echozero.application.playback.models import PlaybackState
 from echozero.application.shared.enums import LayerKind
 from echozero.application.timeline.intents import Play, SelectEvent, SelectLayer, SetLayerMute
 from echozero.audio.engine import AudioEngine
 from echozero.application.playback.process_client import ProcessPlaybackClient
 from echozero.application.playback.unavailable_client import UnavailablePlaybackClient
-from echozero.testing.analysis_mocks import build_mock_analysis_service, write_test_wav
+from echozero.testing.analysis_mocks import (
+    build_mock_analysis_service,
+    write_test_tone_wav,
+    write_test_wav,
+)
 from echozero.ui.qt.app_shell import AppShellRuntime, build_app_shell
 from echozero.ui.qt.app_shell_runtime_services import build_playback_controller
 from echozero.ui.qt.timeline.runtime_audio import TimelineRuntimeAudioController
@@ -43,7 +49,7 @@ class _MemoryAppSettingsStore:
         self._preferences = preferences
 
 
-def test_app_shell_runtime_add_song_from_path_defers_runtime_audio_build_until_playback():
+def test_app_shell_runtime_add_song_from_path_prepares_runtime_audio_off_transport_path():
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(working_dir_root=temp_root / "working")
 
@@ -59,7 +65,8 @@ def test_app_shell_runtime_add_song_from_path_defers_runtime_audio_build_until_p
             "Imported Song", write_test_wav(temp_root / "fixtures" / "import.wav")
         )
 
-        assert counted.build_calls == 0
+        assert counted.build_calls == 1
+        assert counted.prepare_calls == 0
         assert runtime.presentation().layers[0].title == "Imported Song"
     finally:
         runtime.shutdown()
@@ -130,11 +137,46 @@ def test_app_shell_runtime_apply_audio_output_config_reconfigures_runtime_audio_
         assert bool(health.get("ok", False))
         snapshot = reconfigured_runtime_audio.snapshot_state(runtime.presentation())
         assert snapshot.output_sample_rate == 48000
-        assert snapshot.output_channels == 2
+        assert snapshot.output_channels >= 1
+        assert snapshot.diagnostics.requested_output_channels == 2
         assert snapshot.diagnostics.audio_process_connected is True
         assert snapshot.diagnostics.audio_process_pid is not None
         assert snapshot.diagnostics.latency_profile == "low"
         assert snapshot.diagnostics.device_reinit_count == 1
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_apply_audio_output_config_refreshes_system_default_hardware():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(working_dir_root=temp_root / "working")
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        runtime.runtime_audio = TimelineRuntimeAudioController(
+            engine=AudioEngine(stream_factory=_fake_stream_factory),
+        )
+
+        runtime.apply_audio_output_config(
+            AudioOutputRuntimeConfig(
+                output_device=None,
+                sample_rate=None,
+                channels=None,
+            )
+        )
+
+        hardware = runtime.audio_hardware_snapshot
+        assert hardware.requested.device_id is None
+        assert hardware.requested.device_name == "System Default"
+        assert hardware.health is AudioHardwareHealth.HEALTHY
+        assert hardware.resolved is not None
+        assert hardware.resolved.is_default_device
+        assert hardware.resolved.sample_rate > 0
+        assert hardware.resolved.channel_count > 0
+        assert hardware.operation is not None
+        assert hardware.operation.error is None
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -164,7 +206,7 @@ def test_build_playback_controller_degrades_when_process_start_fails(monkeypatch
     assert "native audio unavailable" in str(controller.health()["reason"])
 
 
-def test_app_shell_runtime_add_layer_after_song_defers_runtime_audio_build_while_stopped():
+def test_app_shell_runtime_add_layer_after_song_does_not_build_runtime_audio_while_stopped():
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(working_dir_root=temp_root / "working")
 
@@ -178,17 +220,19 @@ def test_app_shell_runtime_add_layer_after_song_defers_runtime_audio_build_while
             "Imported Song", write_test_wav(temp_root / "fixtures" / "import.wav")
         )
         counted.build_calls = 0
+        counted.prepare_calls = 0
 
         runtime.add_layer(LayerKind.EVENT, "Event Layer")
 
         assert counted.build_calls == 0
+        assert counted.prepare_calls == 0
         assert any(layer.title == "Event Layer" for layer in runtime.presentation().layers)
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
-def test_app_shell_runtime_add_layer_after_song_rebuilds_runtime_audio_while_playing():
+def test_app_shell_runtime_add_layer_after_song_does_not_build_runtime_audio_while_playing():
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(working_dir_root=temp_root / "working")
 
@@ -203,10 +247,12 @@ def test_app_shell_runtime_add_layer_after_song_rebuilds_runtime_audio_while_pla
         )
         runtime.dispatch(Play())
         counted.build_calls = 0
+        counted.prepare_calls = 0
 
         runtime.add_layer(LayerKind.EVENT, "Event Layer")
 
-        assert counted.build_calls == 1
+        assert counted.build_calls == 0
+        assert counted.prepare_calls == 0
         assert any(layer.title == "Event Layer" for layer in runtime.presentation().layers)
     finally:
         runtime.shutdown()
@@ -324,7 +370,7 @@ def test_app_shell_runtime_add_layer_clears_stale_selected_event_refs():
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
-def test_app_shell_runtime_play_dispatch_rebuilds_runtime_audio():
+def test_app_shell_runtime_play_dispatch_does_not_rebuild_runtime_audio():
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(working_dir_root=temp_root / "working")
 
@@ -339,7 +385,7 @@ def test_app_shell_runtime_play_dispatch_rebuilds_runtime_audio():
         )
         counted.build_calls = 0
         runtime.dispatch(Play())
-        assert counted.build_calls == 1
+        assert counted.build_calls == 0
         assert counted.play_calls == 1
         assert runtime.presentation().is_playing is True
         assert runtime.session.transport_state.is_playing is True
@@ -398,7 +444,53 @@ def test_app_shell_runtime_selection_dispatch_does_not_snapshot_runtime_audio():
         shutil.rmtree(temp_root, ignore_errors=True)
 
 
-def test_app_shell_runtime_add_song_syncs_backend_playback_state_metadata():
+def test_app_shell_runtime_system_default_apply_resets_previous_device_request():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(working_dir_root=temp_root / "working")
+
+    class RecordingRuntimeAudio:
+        def __init__(self) -> None:
+            self.device_specs: list[dict[str, object]] = []
+
+        def reconfigure_device(self, *, device_spec: dict[str, object], profile: str = ""):
+            _ = profile
+            self.device_specs.append(dict(device_spec))
+            return {}
+
+        def current_time_seconds(self) -> float:
+            return 0.0
+
+        def is_playing(self) -> bool:
+            return False
+
+        def snapshot_state(self, _presentation):
+            return PlaybackState(output_sample_rate=44100, output_channels=2)
+
+        def shutdown(self) -> None:
+            return None
+
+    assert isinstance(runtime, AppShellRuntime)
+
+    try:
+        recorder = RecordingRuntimeAudio()
+        runtime.runtime_audio = recorder
+
+        runtime.apply_audio_output_config(
+            AudioOutputRuntimeConfig(output_device=4, sample_rate=48000, channels=2)
+        )
+        runtime.apply_audio_output_config(None)
+
+        assert recorder.device_specs[-1]["output_device"] is None
+        assert recorder.device_specs[-1]["sample_rate"] is None
+        assert recorder.device_specs[-1]["channels"] is None
+        assert recorder.device_specs[-1]["stream_latency"] is None
+        assert recorder.device_specs[-1]["stream_blocksize"] is None
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_runtime_backend_playback_state_metadata_is_available_off_hot_path():
     temp_root = _repo_local_temp_root()
     runtime = build_app_shell(working_dir_root=temp_root / "working")
 
@@ -412,18 +504,57 @@ def test_app_shell_runtime_add_song_syncs_backend_playback_state_metadata():
             "Imported Song", write_test_wav(temp_root / "fixtures" / "import.wav")
         )
         runtime.dispatch(Play())
+        state = runtime.runtime_audio.snapshot_state(runtime.presentation())
 
-        assert runtime.session.playback_state.backend_name == "sounddevice"
+        assert state.backend_name == "sounddevice"
         assert (
-            runtime.session.playback_state.active_layer_id
+            state.active_layer_id
             == runtime.presentation().selected_layer_id
         )
-        assert runtime.session.playback_state.active_sources
-        assert runtime.session.playback_state.output_sample_rate > 0
-        assert runtime.session.playback_state.output_channels > 0
-        assert runtime.session.playback_state.diagnostics.output_device == "default"
-        assert runtime.session.playback_state.diagnostics.last_transition == "play"
-        assert runtime.session.playback_state.diagnostics.last_track_sync_reason != ""
+        assert state.active_sources
+        assert state.output_sample_rate > 0
+        assert state.output_channels > 0
+        assert state.diagnostics.output_device == "default"
+        assert state.diagnostics.last_transition == "play"
+        assert state.diagnostics.last_track_sync_reason != ""
+    finally:
+        runtime.shutdown()
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def test_app_shell_process_runtime_publishes_clock_after_play():
+    temp_root = _repo_local_temp_root()
+    runtime = build_app_shell(working_dir_root=temp_root / "working")
+
+    assert isinstance(runtime, AppShellRuntime)
+    assert isinstance(runtime.runtime_audio, ProcessPlaybackClient)
+
+    try:
+        runtime.add_song_from_path(
+            "Clock Song",
+            write_test_tone_wav(
+                temp_root / "fixtures" / "clock-song.wav",
+                duration_seconds=1.5,
+            ),
+        )
+        time.sleep(0.25)
+
+        runtime.dispatch(Play())
+        deadline = time.monotonic() + 2.0
+        latest = None
+        while time.monotonic() < deadline:
+            latest = runtime.runtime_audio.latest_timing_snapshot()
+            if (
+                latest is not None
+                and latest.is_playing
+                and latest.audible_time_seconds > 0.0
+            ):
+                break
+            time.sleep(0.02)
+
+        assert latest is not None
+        assert latest.is_playing is True
+        assert latest.audible_time_seconds > 0.0
     finally:
         runtime.shutdown()
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -453,7 +584,7 @@ def test_app_shell_runtime_canonical_build_starts_with_native_empty_timeline_sta
         assert presentation.selected_layer_id is None
         assert presentation.selected_layer_ids == []
         assert presentation.playhead == 0.0
-        assert presentation.current_time_label == "00:00.00"
+        assert presentation.current_time_label == "00:00:00.00"
         assert presentation.end_time_label == "00:00.00"
     finally:
         runtime.shutdown()

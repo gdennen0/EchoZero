@@ -62,6 +62,8 @@ from echozero.ui.qt.timeline.waveform_cache import clear_waveform_cache, get_cac
 class _CountedRuntimeAudio:
     def __init__(self):
         self.build_calls = 0
+        self.prepare_calls = 0
+        self.mix_calls = 0
         self.play_calls = 0
         self.stop_calls = 0
         self.preview_calls: list[tuple[str, float, float, float]] = []
@@ -71,8 +73,25 @@ class _CountedRuntimeAudio:
     def build_for_presentation(self, _presentation) -> None:
         self.build_calls += 1
 
+    def sync_structure_state(self, _presentation) -> None:
+        self.build_calls += 1
+
+    def enqueue_structure(self, _generation, _presentation) -> int:
+        self.prepare_calls += 1
+        return self.prepare_calls
+
+    def enqueue_structure_prepare(self, _presentation) -> int:
+        self.prepare_calls += 1
+        return self.prepare_calls
+
     def apply_mix_state(self, _presentation) -> None:
         return None
+
+    def sync_mix_state(self, _presentation) -> None:
+        self.mix_calls += 1
+
+    def enqueue_mix(self, _presentation) -> None:
+        self.mix_calls += 1
 
     def play(self) -> None:
         self.play_calls += 1

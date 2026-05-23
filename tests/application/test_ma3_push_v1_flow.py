@@ -1216,6 +1216,68 @@ def test_push_layer_to_ma3_accepts_section_layers():
     assert timeline.layers[0].takes[0].events[0].cue_ref == "Q11A"
 
 
+def test_push_layer_to_ma3_numbers_blank_section_cues_by_full_layer_time_order():
+    sync_service = _CapturePushEventsSyncService()
+    orchestrator, timeline, _session, sync_service = _build_orchestrator(
+        saved_route="tc1_tg2_tr3",
+        sync_service_override=sync_service,
+    )
+    layer = timeline.layers[0]
+    layer.kind = LayerKind.SECTION
+    layer.takes[0].events[0].start = 10.0
+    layer.takes[0].events[0].end = 10.5
+    layer.takes[0].events[1].start = 20.0
+    layer.takes[0].events[1].end = 20.5
+    layer.takes[0].events[0].cue_number = 1
+    layer.takes[0].events[1].cue_number = 1
+
+    orchestrator.handle(
+        timeline,
+        PushLayerToMA3(
+            layer_id="layer_kick",
+            scope=MA3PushScope.SELECTED_EVENTS,
+            target_mode=MA3PushTargetMode.SAVED_ROUTE,
+            selected_event_ids=[EventId("evt_2")],
+        ),
+    )
+
+    assert [event.id for event in sync_service.captured_events] == [EventId("evt_2")]
+    assert [event.cue_number for event in sync_service.captured_events] == [2]
+    assert [event.cue_ref for event in sync_service.captured_events] == ["2"]
+
+
+def test_push_layer_to_ma3_can_skip_section_cue_1_for_timecode():
+    sync_service = _CapturePushEventsSyncService()
+    orchestrator, timeline, _session, sync_service = _build_orchestrator(
+        saved_route="tc1_tg2_tr3",
+        sync_service_override=sync_service,
+    )
+    layer = timeline.layers[0]
+    layer.kind = LayerKind.SECTION
+    layer.takes[0].events[0].cue_number = 1
+    layer.takes[0].events[1].cue_number = 1
+
+    orchestrator.handle(
+        timeline,
+        PushLayerToMA3(
+            layer_id="layer_kick",
+            scope=MA3PushScope.LAYER_MAIN,
+            target_mode=MA3PushTargetMode.SAVED_ROUTE,
+            skip_cue_1=True,
+        ),
+    )
+
+    assert [event.id for event in sync_service.captured_events] == [EventId("evt_2")]
+    assert [event.cue_number for event in sync_service.captured_events] == [2]
+    assert sync_service.push_calls == [
+        {
+            "target_track_coord": "tc1_tg2_tr3",
+            "selected_event_ids": [EventId("evt_2")],
+            "transfer_mode": "merge",
+        }
+    ]
+
+
 def test_push_layer_to_ma3_one_shot_selected_events_does_not_mutate_saved_route():
     orchestrator, timeline, _session, sync_service = _build_orchestrator(saved_route="tc1_tg2_tr3")
 

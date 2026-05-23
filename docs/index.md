@@ -17,6 +17,7 @@ Use this page to find current-truth docs first, then active plans, then historic
 ## Canonical Product Docs
 
 - [Architecture](ARCHITECTURE.md) - system design and core boundaries
+- [Operating Architecture](OPERATING-ARCHITECTURE.md) - operation lanes, truth ownership, performance budgets, and proof rules
 - [Unified Implementation Plan](UNIFIED-IMPLEMENTATION-PLAN.md) - canonical implementation direction
 - [App Delivery Plan](APP-DELIVERY-PLAN.md) - release and app-first delivery path
 - [UI Standard](UI-STANDARD.md) - north-star desktop UI direction

@@ -170,7 +170,11 @@ class TimelineOrchestratorMA3PushMixin:
         self._require_ma3_event_layer(layer, action_name="PushLayerToMA3")
 
         selected_events = self._resolve_push_events_for_layer(timeline, layer, intent)
-        transfer_events = self._prepare_events_for_ma3_push(layer, selected_events)
+        transfer_events = self._prepare_events_for_ma3_push(
+            layer,
+            selected_events,
+            skip_cue_1=intent.skip_cue_1,
+        )
         target_track_coord = self._resolve_push_target_coord(layer, intent)
         ma3_channel_no = self._resolve_push_target_channel_no(layer, intent)
         self._prepare_target_track_for_push_if_needed(
@@ -796,24 +800,45 @@ class TimelineOrchestratorMA3PushMixin:
         return promoted_selected_events
 
     @staticmethod
-    def _prepare_events_for_ma3_push(layer: Layer, selected_events: list[Event]) -> list[Event]:
+    def _prepare_events_for_ma3_push(
+        layer: Layer,
+        selected_events: list[Event],
+        *,
+        skip_cue_1: bool = False,
+    ) -> list[Event]:
         """Translate clean EZ section markers into MA3 cue-addressed events at the boundary."""
 
         if layer.kind is not LayerKind.SECTION:
             return selected_events
+        main_take = layer.takes[0] if layer.takes else None
+        section_events = [
+            event
+            for event in (main_take.events if main_take is not None else selected_events)
+            if event.is_promoted
+        ]
         ordered_events = sorted(
-            selected_events,
+            section_events,
             key=lambda event: (float(event.start), float(event.end), str(event.id)),
         )
+        internal_numbers = {
+            str(event.id): index for index, event in enumerate(ordered_events, start=1)
+        }
         transfer_events: list[Event] = []
-        for index, event in enumerate(ordered_events, start=1):
+        selected_lookup = {str(event.id): event for event in selected_events}
+        selected_ordered_events = [
+            event for event in ordered_events if str(event.id) in selected_lookup
+        ]
+        if not selected_ordered_events:
+            selected_ordered_events = sorted(
+                selected_events,
+                key=lambda event: (float(event.start), float(event.end), str(event.id)),
+            )
+        for fallback_index, event in enumerate(selected_ordered_events, start=1):
             cue_number = cue_number_from_ref_text(event.cue_ref)
-            if cue_number is None and not (
-                event.cue_ref is None and event.cue_number == 1 and index != 1
-            ):
-                cue_number = event.cue_number
             if cue_number is None:
-                cue_number = index
+                cue_number = internal_numbers.get(str(event.id), fallback_index)
+            if cue_number == 1 and skip_cue_1:
+                continue
             cue_ref = event.cue_ref or cue_number_text(cue_number) or str(cue_number)
             transfer_events.append(
                 replace(

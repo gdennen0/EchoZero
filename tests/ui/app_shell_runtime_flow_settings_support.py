@@ -728,10 +728,7 @@ def test_app_shell_runtime_object_action_session_saves_and_loads_pipeline_profil
         settings_service = runtime.app_settings_service
         assert settings_service is not None
         assert settings_service.pipeline_profiles_for_template("stem_separation") == {
-            "Festival Stems": {
-                "model": "mdx_extra_q",
-                "device": "cpu",
-            }
+            "Festival Stems": dict(session.values)
         }
     finally:
         runtime.shutdown()

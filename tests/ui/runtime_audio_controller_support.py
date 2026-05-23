@@ -17,14 +17,14 @@ def test_runtime_controller_updates_mix_state_while_playing():
         engine=engine,
         audio_loader=lambda path: (np.ones(4410, dtype=np.float32), 44100),
     )
-    controller.build_for_presentation(presentation)
+    controller.sync_structure_state(presentation)
     controller.play()
 
     updated = replace(
         presentation,
         layers=[replace(presentation.layers[0], gain_db=-6.0)],
     )
-    controller.apply_mix_state(updated)
+    controller.sync_mix_state(updated)
 
     engine_layer = engine.mixer.get_layer(TimelineRuntimeAudioController._PRIMARY_TRACK_ID)
     assert engine.transport.is_playing is True
@@ -40,7 +40,7 @@ def test_runtime_controller_compensates_for_reported_output_latency_while_playin
         engine=engine,
         audio_loader=lambda path: (np.ones(4410, dtype=np.float32), 44100),
     )
-    controller.build_for_presentation(presentation)
+    controller.sync_structure_state(presentation)
     controller.play()
 
     engine.seek_seconds(1.0)
@@ -56,7 +56,7 @@ def test_runtime_controller_exposes_backend_timing_snapshot(monkeypatch):
         engine=engine,
         audio_loader=lambda path: (np.ones(4410, dtype=np.float32), 44100),
     )
-    controller.build_for_presentation(presentation)
+    controller.sync_structure_state(presentation)
     controller.play()
 
     monotonic_now = {"value": 100.0}
@@ -115,7 +115,7 @@ def test_runtime_controller_snapshot_state_reports_engine_diagnostics():
         audio_loader=lambda path: (np.ones(4410, dtype=np.float32), 44100),
     )
 
-    controller.build_for_presentation(presentation)
+    controller.sync_structure_state(presentation)
     controller.play()
 
     outdata = np.zeros((256, 1), dtype=np.float32)
@@ -143,7 +143,7 @@ def test_runtime_controller_seek_while_playing_keeps_transport_running():
         audio_loader=lambda path: (np.ones(44100, dtype=np.float32), 44100),
     )
 
-    controller.build_for_presentation(presentation)
+    controller.sync_structure_state(presentation)
     controller.play()
     controller.seek(4.25)
 
@@ -176,7 +176,7 @@ def test_runtime_controller_playing_mix_sync_never_triggers_structural_decode_re
 
     controller = TimelineRuntimeAudioController(audio_loader=_loader)
     try:
-        controller.build_for_presentation(presentation)
+        controller.sync_structure_state(presentation)
         controller.play()
         assert set(load_calls) == {"bed.wav", "kick.wav"}
         assert len(load_calls) == 2
@@ -199,7 +199,7 @@ def test_runtime_controller_playing_mix_sync_never_triggers_structural_decode_re
                 ),
             ],
         )
-        controller.apply_mix_state(changed)
+        controller.sync_mix_state(changed)
 
         assert set(load_calls) == {"bed.wav", "kick.wav"}
         assert len(load_calls) == 2
@@ -221,7 +221,7 @@ def test_runtime_controller_paused_mix_structure_mismatch_rebuilds_current_state
 
     controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
     try:
-        controller.build_for_presentation(presentation)
+        controller.sync_structure_state(presentation)
         changed = replace(
             presentation,
             layers=[
@@ -241,7 +241,7 @@ def test_runtime_controller_paused_mix_structure_mismatch_rebuilds_current_state
             ],
         )
 
-        controller.apply_mix_state(changed)
+        controller.sync_mix_state(changed)
 
         routed_bed = engine.mixer.get_layer("__ez_route__bed")
         assert routed_bed is not None
@@ -296,7 +296,7 @@ def test_runtime_controller_decodes_selected_audio_source_on_build():
 
         assert load_calls == []
 
-        controller.build_for_presentation(presentation)
+        controller.sync_structure_state(presentation)
 
         assert signature == (("runtime_audio", "audio:demo.wav|outputs_1_2"),)
         assert load_calls == ["demo.wav"]
@@ -322,7 +322,10 @@ def test_runtime_controller_state_queries_do_not_decode_or_raise_for_missing_eve
 
         assert signature == (
             ("bed", "audio:bed.wav|outputs_1_2"),
-            ("kick_lane", "event:kick.wav:0.500000:0:0,1.000000:0:0|outputs_1_2"),
+            (
+                "kick_lane",
+                "event:kick.wav:0.500000:0.600000:0:0,1.000000:1.100000:0:0|outputs_1_2",
+            ),
         )
         assert {(source.layer_id, source.source_ref) for source in state.active_sources} == {
             ("bed", "bed.wav"),
@@ -333,16 +336,16 @@ def test_runtime_controller_state_queries_do_not_decode_or_raise_for_missing_eve
         controller.shutdown()
 
 
-def test_runtime_controller_defaults_to_v2_backend_for_audio_layers():
+def test_runtime_controller_defaults_to_stable_backend_for_audio_layers():
     presentation = _audio_presentation()
     controller = TimelineRuntimeAudioController(
         audio_loader=lambda _path: (np.ones(4410, dtype=np.float32), 44100),
     )
     try:
-        controller.build_for_presentation(presentation)
+        controller.sync_structure_state(presentation)
         state = controller.snapshot_state(presentation)
 
-        assert state.backend_name == "audio_engine_v2"
+        assert state.backend_name == "sounddevice"
         assert (
             controller.engine.get_layer(TimelineRuntimeAudioController._PRIMARY_TRACK_ID)
             is not None
@@ -365,7 +368,7 @@ def test_runtime_controller_preserves_stereo_audio_layer_channels():
         audio_loader=lambda _path: (stereo, 44100),
     )
 
-    controller.build_for_presentation(presentation)
+    controller.sync_structure_state(presentation)
     mixed = engine.mixer.read_mix(0, 128, channels=2)
 
     assert mixed.shape == (128, 2)
@@ -404,7 +407,7 @@ def test_runtime_controller_routes_song_and_timecode_layers_to_separate_output_p
         raise AssertionError(path)
 
     controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
-    controller.build_for_presentation(presentation)
+    controller.sync_structure_state(presentation)
 
     mixed = engine.mixer.read_mix(0, 2, channels=4)
     np.testing.assert_array_equal(
@@ -440,7 +443,7 @@ def test_runtime_controller_reconfigure_device_rebuilds_and_restores_playback_st
         engine_factory=lambda: engines.pop(0),
         audio_loader=lambda _path: (np.ones(44100, dtype=np.float32), 44100),
     )
-    controller.build_for_presentation(presentation)
+    controller.sync_structure_state(presentation)
     controller.play()
     controller.seek(1.25)
 
@@ -496,7 +499,7 @@ def test_runtime_controller_recomputes_routing_after_device_channel_changes():
         engine_factory=lambda: engines.pop(0),
         audio_loader=_loader,
     )
-    controller.build_for_presentation(presentation)
+    controller.sync_structure_state(presentation)
     wide_mix = controller.engine.mixer.read_mix(0, 2, channels=4)
 
     controller.reconfigure_device(device_spec={"channels": 2})
@@ -519,7 +522,7 @@ def test_runtime_controller_recomputes_routing_after_device_channel_changes():
     controller.shutdown()
 
 
-def test_runtime_controller_routes_active_take_when_multichannel_mode_is_enabled():
+def test_runtime_controller_ignores_selected_take_when_multichannel_mode_is_enabled():
     base = build_demo_app().presentation()
     alt_take = TakeLanePresentation(
         take_id=TakeId("take_alt"),
@@ -561,15 +564,15 @@ def test_runtime_controller_routes_active_take_when_multichannel_mode_is_enabled
         raise AssertionError(path)
 
     controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
-    controller.build_for_presentation(presentation)
+    controller.sync_structure_state(presentation)
 
     mixed = engine.mixer.read_mix(0, 2, channels=4)
     np.testing.assert_array_equal(
         mixed,
         np.array(
             [
-                [0.5, 0.5, 0.75, 0.75],
-                [-0.5, -0.5, -0.75, -0.75],
+                [0.25, 0.25, 0.75, 0.75],
+                [-0.25, -0.25, -0.75, -0.75],
             ],
             dtype=np.float32,
         ),
@@ -598,7 +601,7 @@ def test_runtime_controller_routes_layer_to_wide_output_span():
         engine=engine,
         audio_loader=lambda _path: (np.array([0.25, -0.25], dtype=np.float32), 44100),
     )
-    controller.build_for_presentation(presentation)
+    controller.sync_structure_state(presentation)
 
     mixed = engine.mixer.read_mix(0, 2, channels=4)
     np.testing.assert_array_equal(
@@ -638,7 +641,7 @@ def test_runtime_controller_preserves_explicit_route_when_device_channel_count_s
         engine=engine,
         audio_loader=lambda _path: (np.array([0.25, -0.25], dtype=np.float32), 44100),
     )
-    controller.build_for_presentation(presentation)
+    controller.sync_structure_state(presentation)
 
     primary = engine.mixer.get_layer(TimelineRuntimeAudioController._PRIMARY_TRACK_ID)
     assert primary is None
@@ -691,7 +694,7 @@ def test_runtime_controller_does_not_leak_ltc_to_main_pair_when_presentation_cha
         raise AssertionError(path)
 
     controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
-    controller.build_for_presentation(presentation)
+    controller.sync_structure_state(presentation)
 
     mixed = engine.mixer.read_mix(0, 2, channels=2)
     np.testing.assert_array_equal(
@@ -730,7 +733,7 @@ def test_runtime_controller_keeps_active_event_lane_when_routed_layers_are_prese
         raise AssertionError(path)
 
     controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
-    controller.build_for_presentation(presentation)
+    controller.sync_structure_state(presentation)
 
     mixed = engine.mixer.read_mix(int(0.5 * 44100), 2, channels=4)
     np.testing.assert_array_equal(
@@ -901,7 +904,7 @@ def test_runtime_controller_mixes_all_playable_layers_by_default():
         raise AssertionError(path)
 
     controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
-    controller.build_for_presentation(presentation)
+    controller.sync_structure_state(presentation)
 
     mixed = engine.mixer.read_mix(int(0.5 * 44100), 2)
 
@@ -961,7 +964,7 @@ def test_runtime_controller_keeps_song_and_stems_sample_aligned_at_shared_anchor
         return buffer, 100
 
     controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
-    controller.build_for_presentation(presentation)
+    controller.sync_structure_state(presentation)
 
     expected_mix = np.zeros(9, dtype=np.float32)
     expected_mix[4] = sum(amplitudes.values())
@@ -1017,7 +1020,7 @@ def test_runtime_controller_resamples_mixed_sample_rate_layers_before_engine_mix
         raise AssertionError(path)
 
     controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
-    controller.build_for_presentation(presentation)
+    controller.sync_structure_state(presentation)
 
     routed_song = engine.mixer.get_layer("__ez_route__song_layer")
     routed_stem = engine.mixer.get_layer("__ez_route__stem_layer")
@@ -1044,7 +1047,7 @@ def test_runtime_controller_plays_layers_without_explicit_playback_target():
         raise AssertionError(path)
 
     controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
-    controller.build_for_presentation(presentation)
+    controller.sync_structure_state(presentation)
 
     mixed = engine.mixer.read_mix(int(0.5 * 44100), 2)
     assert engine.mixer.get_layer("__ez_route__bed") is not None
@@ -1068,10 +1071,10 @@ def test_runtime_controller_switches_playback_target_without_stopping_transport(
         raise AssertionError(path)
 
     controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
-    controller.build_for_presentation(base)
+    controller.sync_structure_state(base)
     controller.play()
     before = engine.mixer.read_mix(int(0.5 * 44100), 2)
-    controller.apply_mix_state(
+    controller.sync_mix_state(
         replace(
             base,
             selected_layer_id=LayerId("kick_lane"),
@@ -1099,7 +1102,7 @@ def test_runtime_controller_mute_and_solo_controls_update_effective_mix_without_
         raise AssertionError(path)
 
     controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
-    controller.build_for_presentation(base)
+    controller.sync_structure_state(base)
     mixed_default = engine.mixer.read_mix(int(0.5 * 44100), 32)
 
     muted_bed = replace(
@@ -1109,7 +1112,7 @@ def test_runtime_controller_mute_and_solo_controls_update_effective_mix_without_
             base.layers[1],
         ],
     )
-    controller.apply_mix_state(muted_bed)
+    controller.sync_mix_state(muted_bed)
     _ = engine.mixer.read_mix(int(0.5 * 44100), 1024)
     mixed_bed_muted = engine.mixer.read_mix(int(0.5 * 44100), 32)
 
@@ -1120,7 +1123,7 @@ def test_runtime_controller_mute_and_solo_controls_update_effective_mix_without_
             replace(base.layers[1], soloed=True),
         ],
     )
-    controller.apply_mix_state(soloed_kick)
+    controller.sync_mix_state(soloed_kick)
     _ = engine.mixer.read_mix(int(0.5 * 44100), 1024)
     mixed_kick_solo = engine.mixer.read_mix(int(0.5 * 44100), 32)
 
@@ -1176,7 +1179,7 @@ def test_runtime_controller_solo_monitor_overrides_muted_generated_audio_layer()
         raise AssertionError(path)
 
     controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
-    controller.build_for_presentation(presentation)
+    controller.sync_structure_state(presentation)
 
     mixed = engine.mixer.read_mix(0, 32)
 
@@ -1206,7 +1209,7 @@ def test_runtime_controller_route_change_applies_immediately_during_mix_sync():
         raise AssertionError(path)
 
     controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
-    controller.build_for_presentation(presentation)
+    controller.sync_structure_state(presentation)
 
     rerouted = replace(
         presentation,
@@ -1215,7 +1218,7 @@ def test_runtime_controller_route_change_applies_immediately_during_mix_sync():
             presentation.layers[1],
         ],
     )
-    controller.apply_mix_state(rerouted)
+    controller.sync_mix_state(rerouted)
 
     assert controller._last_track_sync_reason == "mix-state-applied"
     routed = engine.mixer.get_layer("__ez_route__bed")
@@ -1224,7 +1227,7 @@ def test_runtime_controller_route_change_applies_immediately_during_mix_sync():
     controller.shutdown()
 
 
-def test_runtime_controller_uses_selected_take_audio_for_monitored_layer():
+def test_runtime_controller_uses_main_audio_for_selected_take_without_audition():
     base = build_demo_app().presentation()
     alt_take = TakeLanePresentation(
         take_id=TakeId("take_alt"),
@@ -1257,12 +1260,12 @@ def test_runtime_controller_uses_selected_take_audio_for_monitored_layer():
         raise AssertionError(path)
 
     controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
-    controller.build_for_presentation(presentation)
+    controller.sync_structure_state(presentation)
 
     engine_layer = engine.mixer.get_layer(TimelineRuntimeAudioController._PRIMARY_TRACK_ID)
     assert engine_layer is not None
     np.testing.assert_array_almost_equal(
-        engine_layer.buffer[:2], np.array([0.8, -0.4], dtype=np.float32)
+        engine_layer.buffer[:2], np.array([0.1, 0.2], dtype=np.float32)
     )
     controller.shutdown()
 
@@ -1337,7 +1340,7 @@ def test_runtime_controller_structural_sync_queues_async_while_playing(monkeypat
         raise AssertionError(path)
 
     controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
-    controller.build_for_presentation(base)
+    controller.sync_structure_state(base)
     controller.play()
 
     started = threading.Event()
@@ -1404,7 +1407,7 @@ def test_runtime_controller_structural_sync_does_not_relatch_transport_while_pla
         raise AssertionError(path)
 
     controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
-    controller.build_for_presentation(base)
+    controller.sync_structure_state(base)
     controller.play()
     controller.seek(1.25)
 
@@ -1496,7 +1499,7 @@ def test_runtime_controller_structural_sync_latest_wins_and_drops_stale(monkeypa
         raise AssertionError(path)
 
     controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
-    controller.build_for_presentation(base)
+    controller.sync_structure_state(base)
     controller.play()
 
     first_started = threading.Event()
@@ -1529,7 +1532,7 @@ def test_runtime_controller_structural_sync_latest_wins_and_drops_stale(monkeypa
 
     expected_engine = AudioEngine(stream_factory=_fake_stream_factory)
     expected = TimelineRuntimeAudioController(engine=expected_engine, audio_loader=_loader)
-    expected.build_for_presentation(changed_v2)
+    expected.sync_structure_state(changed_v2)
     expected_track = expected_engine.mixer.get_layer("__ez_route__kick_lane")
     applied_track = engine.mixer.get_layer("__ez_route__kick_lane")
     assert expected_track is not None
@@ -1570,7 +1573,7 @@ def test_runtime_controller_structural_sync_is_immediate_when_not_playing():
         raise AssertionError(path)
 
     controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
-    controller.build_for_presentation(base)
+    controller.sync_structure_state(base)
     before_track = engine.mixer.get_layer("__ez_route__kick_lane")
     assert before_track is not None
     before_duration = before_track.duration_samples
@@ -1614,7 +1617,7 @@ def test_runtime_controller_shutdown_cancels_async_render_jobs(monkeypatch):
         raise AssertionError(path)
 
     controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
-    controller.build_for_presentation(base)
+    controller.sync_structure_state(base)
     controller.play()
 
     started = threading.Event()
@@ -1649,7 +1652,7 @@ def test_runtime_controller_structural_storm_queues_without_blocking_and_keeps_g
         raise AssertionError(path)
 
     controller = TimelineRuntimeAudioController(engine=engine, audio_loader=_loader)
-    controller.build_for_presentation(base)
+    controller.sync_structure_state(base)
     controller.play()
 
     original_prepare = controller._prepare_structure_track_plan_async
@@ -1699,7 +1702,7 @@ def test_runtime_controller_shutdown_is_idempotent():
         audio_loader=lambda _path: (np.ones(512, dtype=np.float32), 44100),
     )
     presentation = _audio_presentation()
-    controller.build_for_presentation(presentation)
+    controller.sync_structure_state(presentation)
 
     controller.shutdown()
     controller.shutdown()
@@ -1732,7 +1735,7 @@ def test_runtime_controller_ignores_structure_queue_after_shutdown():
         engine=AudioEngine(stream_factory=_fake_stream_factory),
         audio_loader=lambda _path: (np.ones(512, dtype=np.float32), 44100),
     )
-    controller.build_for_presentation(base)
+    controller.sync_structure_state(base)
     controller.shutdown()
 
     controller.sync_structure_state(changed)
@@ -1766,7 +1769,7 @@ def test_runtime_controller_drain_after_shutdown_never_applies_completed_results
         engine=AudioEngine(stream_factory=_fake_stream_factory),
         audio_loader=lambda _path: (np.ones(512, dtype=np.float32), 44100),
     )
-    controller.build_for_presentation(base)
+    controller.sync_structure_state(base)
     controller.play()
 
     started = threading.Event()

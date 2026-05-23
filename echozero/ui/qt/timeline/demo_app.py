@@ -97,7 +97,7 @@ def build_real_data_demo_app(
     app.session.transport_state.is_playing = presentation.is_playing
     app.session.transport_state.playhead = presentation.playhead
     app.runtime_audio = runtime_audio or TimelineRuntimeAudioController()
-    app.runtime_audio.build_for_presentation(presentation)
+    app.runtime_audio.sync_structure_state(presentation)
     return app, summary
 
 

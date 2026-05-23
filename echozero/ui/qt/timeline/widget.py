@@ -15,6 +15,7 @@ from PyQt6.QtGui import (
     QDragEnterEvent,
     QDragMoveEvent,
     QDropEvent,
+    QGuiApplication,
     QKeySequence,
     QPixmap,
     QShortcut,
@@ -54,6 +55,8 @@ from echozero.application.timeline.intents import (
 from echozero.application.settings import AppSettingsService
 from echozero.models.paths import ensure_installed_models_dir
 from echozero.ui.FEEL import (
+    TIMELINE_LAUNCHER_LOGO_CONTAINER_HEIGHT_PX,
+    TIMELINE_LAUNCHER_LOGO_HEIGHT_PX,
     TIMELINE_RULER_TOP_GAP_PX,
     TIMELINE_RUNTIME_TICK_ACTIVE_MS,
     TIMELINE_TRANSPORT_TOP_GAP_PX,
@@ -89,8 +92,6 @@ from echozero.ui.qt.timeline.widget_viewport import (
 from echozero.ui.style.qt import ensure_qt_theme_installed
 
 _LAUNCHER_LOGO_PATH = Path(__file__).resolve().parent / "assets" / "ez_text_icon.png"
-_LAUNCHER_LOGO_HEIGHT_PX = 16
-_LAUNCHER_LOGO_CONTAINER_HEIGHT_PX = 22
 
 
 class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QWidget):
@@ -126,6 +127,7 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self.setWindowTitle(self._style.window_title)
         self._space_play_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Space), self)
         self._space_play_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._space_play_shortcut.setAutoRepeat(False)
         self._space_play_shortcut.activated.connect(self._play_transport_from_spacebar)
         self._space_play_shortcut.setEnabled(True)
         self._shift_space_preview_shortcut = QShortcut(QKeySequence("Shift+Space"), self)
@@ -240,12 +242,14 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
             self._move_selected_events_to_adjacent_layer
         )
         self._canvas.video_offset_changed.connect(self._set_video_reference_offset)
+        self._canvas.video_placement_changed.connect(self._set_video_reference_placement)
         self._canvas.take_action_selected.connect(self._trigger_take_action)
         self._canvas.contract_action_selected.connect(self._handle_contract_action)
         self._canvas.playhead_drag_requested.connect(self._seek)
         self._canvas.horizontal_scroll_requested.connect(self._scroll_horizontally_by_steps)
         self._canvas.zoom_requested.connect(self._zoom_from_input)
         self._canvas.zoom_factor_requested.connect(self._zoom_from_native_factor)
+        self._canvas.playback_start_drag_requested.connect(self._set_playback_start)
         self._canvas.clear_selection_requested.connect(self._clear_selection)
         self._canvas.select_all_requested.connect(self._select_all_events)
         self._canvas.set_selected_events_requested.connect(self._set_selected_events)
@@ -279,6 +283,7 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         )
         self._canvas.header_width_changed.connect(self._on_canvas_header_width_changed)
         self._ruler.seek_requested.connect(self._seek)
+        self._ruler.playback_start_requested.connect(self._set_playback_start)
         self._scroll.setWidget(self._canvas)
         self.setFocusProxy(self._canvas)
         left_layout.addWidget(self._scroll)
@@ -354,6 +359,12 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._song_browser_panel.add_song_version_requested.connect(
             self._action_router.add_song_version
         )
+        self._song_browser_panel.import_song_package_requested.connect(
+            self._action_router.import_song_package
+        )
+        self._song_browser_panel.export_song_package_requested.connect(
+            self._action_router.export_song_package
+        )
         self._song_browser_panel.move_song_up_requested.connect(self._action_router.move_song_up)
         self._song_browser_panel.move_song_down_requested.connect(
             self._action_router.move_song_down
@@ -392,17 +403,22 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         pixmap = QPixmap(_LAUNCHER_LOGO_PATH.as_posix())
         if pixmap.isNull():
             return None
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        screen_ratio = float(screen.devicePixelRatio()) if screen is not None else 1.0
+        ratio = max(1.0, screen_ratio, float(self.devicePixelRatioF()))
         scaled_pixmap = pixmap.scaledToHeight(
-            _LAUNCHER_LOGO_HEIGHT_PX,
+            int(round(TIMELINE_LAUNCHER_LOGO_HEIGHT_PX * ratio)),
             Qt.TransformationMode.SmoothTransformation,
         )
+        scaled_pixmap.setDevicePixelRatio(ratio)
         logo = QLabel(self)
         logo.setObjectName("timelineLauncherMenuLogo")
         logo.setPixmap(scaled_pixmap)
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        logo_width = int(round(scaled_pixmap.width() / ratio))
         logo.setFixedSize(
-            scaled_pixmap.width() + 10,
-            _LAUNCHER_LOGO_CONTAINER_HEIGHT_PX,
+            logo_width + 14,
+            TIMELINE_LAUNCHER_LOGO_CONTAINER_HEIGHT_PX,
         )
         logo.setToolTip("EchoZero")
         return logo
@@ -435,12 +451,49 @@ class TimelineWidget(TimelineWidgetRuntimeMixin, TimelineWidgetContractMixin, QW
         self._preview_selected_event_clip()
 
     def _set_video_reference_offset(self, layer_id: object, offset_seconds: float) -> None:
-        _ = layer_id
         runtime = self._resolve_runtime_shell()
-        setter = getattr(runtime, "set_active_song_video_start_seconds", None)
+        setter = getattr(runtime, "set_video_layer_placement", None)
         if not callable(setter):
             return
-        updated = setter(float(offset_seconds))
+        layer = next(
+            (
+                candidate
+                for candidate in self.presentation.layers
+                if str(candidate.layer_id) == str(layer_id)
+            ),
+            None,
+        )
+        if layer is None:
+            return
+        updated = setter(
+            str(layer_id),
+            start_seconds=float(offset_seconds),
+            trim_start_seconds=float(layer.video_trim_start_seconds),
+            visible_duration_seconds=float(layer.video_visible_duration_seconds),
+            loop_enabled=bool(layer.video_loop_enabled),
+        )
+        if updated is not None:
+            self.set_presentation(updated)
+
+    def _set_video_reference_placement(
+        self,
+        layer_id: object,
+        start_seconds: float,
+        trim_start_seconds: float,
+        visible_duration_seconds: float,
+        loop_enabled: bool,
+    ) -> None:
+        runtime = self._resolve_runtime_shell()
+        setter = getattr(runtime, "set_video_layer_placement", None)
+        if not callable(setter):
+            return
+        updated = setter(
+            str(layer_id),
+            start_seconds=float(start_seconds),
+            trim_start_seconds=float(trim_start_seconds),
+            visible_duration_seconds=float(visible_duration_seconds),
+            loop_enabled=bool(loop_enabled),
+        )
         if updated is not None:
             self.set_presentation(updated)
 

@@ -171,10 +171,18 @@ def _resolve_output_default_details(
 
     try:
         sounddevice = sounddevice_module or __import__("sounddevice")
-        resolved_output_device = (
-            sounddevice.default.device[1] if output_device is None else output_device
-        )
-        device_info = sounddevice.query_devices(resolved_output_device)
+        default_output_device = sounddevice.default.device[1]
+        requested_output_device = output_device
+        resolved_output_device = default_output_device if output_device is None else output_device
+        hardware_reason = "system-default" if output_device is None else "selected-device"
+        try:
+            device_info = sounddevice.query_devices(resolved_output_device)
+        except Exception:
+            if output_device is None:
+                raise
+            resolved_output_device = default_output_device
+            device_info = sounddevice.query_devices(resolved_output_device)
+            hardware_reason = "selected-device-unavailable->system-default"
         device_name = str(device_info.get("name") or "").strip() or None
         max_output_channels = max(
             1,
@@ -229,15 +237,13 @@ def _resolve_output_default_details(
         return _ResolvedOutputDefaults(
             sample_rate=int(sample_rate),
             channels=max(1, int(channels)),
-            requested_output_device=output_device,
+            requested_output_device=requested_output_device,
             resolved_output_device=resolved_output_device,
             resolved_output_device_name=device_name,
             requested_sample_rate=requested_sample_rate,
             requested_channels=preferred_channels,
             device_max_output_channels=max_output_channels,
-            hardware_resolution_reason=(
-                "system-default" if output_device is None else "selected-device"
-            ),
+            hardware_resolution_reason=hardware_reason,
             sample_rate_resolution_reason=sample_rate_reason,
             channel_resolution_reason=channel_reason,
         )
@@ -256,12 +262,12 @@ def _resolve_output_default_details(
             sample_rate=resolved_sample_rate,
             channels=resolved_channels,
             requested_output_device=output_device,
-            resolved_output_device=output_device,
+            resolved_output_device=None,
             resolved_output_device_name=None,
             requested_sample_rate=requested_sample_rate,
             requested_channels=preferred_channels,
             device_max_output_channels=0,
-            hardware_resolution_reason="fallback-query-failed",
+            hardware_resolution_reason="fallback-system-default-query-failed",
             sample_rate_resolution_reason=(
                 "requested" if requested_sample_rate is not None else "fallback-default"
             ),
@@ -382,8 +388,8 @@ class SounddeviceBackend(AudioOutputBackend):
             ),
             "callback": callback,
         }
-        if config.output_device is not None:
-            stream_kwargs["device"] = config.output_device
+        if config.resolved_output_device is not None:
+            stream_kwargs["device"] = config.resolved_output_device
         if self._stream_factory is not None:
             return self._stream_factory(**stream_kwargs)
         return self._sounddevice().OutputStream(**stream_kwargs)

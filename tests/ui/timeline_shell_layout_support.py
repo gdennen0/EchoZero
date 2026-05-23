@@ -295,7 +295,7 @@ def test_timeline_widget_menu_bar_shows_right_aligned_logo():
         assert logo is not None
         assert logo.objectName() == "timelineLauncherMenuLogo"
         assert logo.pixmap() is not None
-        assert logo.pixmap().height() == 16
+        assert logo.height() == 30
         assert widget._launcher_menu_bar.isVisibleTo(widget)
         assert [action.text() for action in widget._launcher_menu_bar.actions()] == [
             "&File",

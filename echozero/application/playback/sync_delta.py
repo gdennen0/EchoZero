@@ -10,13 +10,9 @@ from dataclasses import dataclass
 from enum import StrEnum
 from time import perf_counter
 
+from echozero.application.playback.audible_intent import audible_intent_from_sync_payload
 from echozero.application.playback.sync_projection import PlaybackSyncPayload
-from echozero.application.playback.track_identity import (
-    event_slice_signature,
-    sanitize_output_bus_for_channels,
-)
 from echozero.application.presentation.models import TimelinePresentation
-from echozero.application.shared.enums import LayerKind, PlaybackMode
 
 
 class PlaybackChangeKind(StrEnum):
@@ -80,215 +76,21 @@ def classify_playback_sync_change(
     )
 
 
+def playback_structure_signature(payload: PlaybackSyncPayload) -> tuple[tuple[str, str], ...]:
+    """Return the shared structure signature used for playback graph decisions."""
+
+    return _structure_signature(payload)
+
+
+def playback_mix_signature(payload: PlaybackSyncPayload) -> tuple[tuple[str, str], ...]:
+    """Return the shared mix signature used for playback graph decisions."""
+
+    return _mix_signature(payload)
+
+
 def _structure_signature(payload: PlaybackSyncPayload) -> tuple[tuple[str, str], ...]:
-    tracks = _select_playback_tracks(payload)
-    return tuple((track.track_id, track.source_key) for track in tracks)
+    return audible_intent_from_sync_payload(payload).structure_signature
 
 
 def _mix_signature(payload: PlaybackSyncPayload) -> tuple[tuple[str, str], ...]:
-    tracks = _select_playback_tracks(payload)
-    return tuple(
-        (
-            track.track_id,
-            (
-                f"{int(track.muted)}|{track.gain_db:.6f}|"
-                f"{track.output_bus or 'outputs_1_2'}|{payload.playback_output_channels}"
-            ),
-        )
-        for track in tracks
-    )
-
-
-@dataclass(slots=True, frozen=True)
-class _SyncTrackIdentity:
-    track_id: str
-    source_key: str
-    gain_db: float
-    muted: bool
-    output_bus: str | None
-
-
-def _select_playback_tracks(payload: PlaybackSyncPayload) -> tuple[_SyncTrackIdentity, ...]:
-    playable_layers = [layer for layer in payload.layers if _layer_has_playable_source(layer)]
-    if not playable_layers:
-        return ()
-
-    has_soloed_layers = any(bool(layer.soloed) for layer in playable_layers)
-    selected_layer_id = payload.selected_layer_id
-    selected_take_id = payload.selected_take_id
-    tracks: list[_SyncTrackIdentity] = []
-    seen_track_ids: set[str] = set()
-
-    for layer in playable_layers:
-        if str(layer.layer_id) == str(selected_layer_id) and selected_take_id is not None:
-            identity = _track_identity_for_target(
-                payload,
-                layer_id=str(layer.layer_id),
-                take_id=str(selected_take_id),
-            )
-        else:
-            identity = _track_identity_from_layer(
-                payload,
-                layer,
-            )
-        if identity is None or identity.track_id in seen_track_ids:
-            continue
-        layer_soloed = bool(layer.soloed)
-        layer_muted = bool(layer.muted) and not layer_soloed
-        effective_muted = layer_muted or (has_soloed_layers and not layer_soloed)
-        tracks.append(
-            _SyncTrackIdentity(
-                track_id=identity.track_id,
-                source_key=identity.source_key,
-                gain_db=identity.gain_db,
-                muted=effective_muted,
-                output_bus=identity.output_bus,
-            )
-        )
-        seen_track_ids.add(identity.track_id)
-
-    return tuple(tracks)
-
-
-def _track_identity_for_target(
-    payload: PlaybackSyncPayload,
-    *,
-    layer_id: str,
-    take_id: str | None,
-) -> _SyncTrackIdentity | None:
-    for layer in payload.layers:
-        if str(layer.layer_id) != layer_id:
-            continue
-        if take_id is not None:
-            for take in layer.takes:
-                if str(take.take_id) == take_id:
-                    identity = _track_identity_from_take(payload, layer, take)
-                    if identity is not None:
-                        return identity
-        return _track_identity_from_layer(payload, layer)
-    return None
-
-
-def _track_identity_from_layer(
-    payload: PlaybackSyncPayload,
-    layer,
-) -> _SyncTrackIdentity | None:
-    source_audio_path = _audio_source_ref(layer)
-    if source_audio_path and layer.kind is not LayerKind.EVENT:
-        return _SyncTrackIdentity(
-            track_id=str(layer.layer_id),
-            source_key=f"audio:{source_audio_path}",
-            gain_db=float(layer.gain_db),
-            muted=bool(layer.muted),
-            output_bus=sanitize_output_bus_for_channels(
-                layer.output_bus,
-                playback_output_channels=payload.playback_output_channels,
-            ),
-        )
-    if not _is_event_track_source(layer):
-        return None
-    return _event_track_identity(
-        payload,
-        track_id=str(layer.layer_id),
-        gain_db=float(layer.gain_db),
-        muted=bool(layer.muted),
-        output_bus=layer.output_bus,
-        playback_source_ref=_event_source_ref(layer),
-        events=layer.events,
-    )
-
-
-def _track_identity_from_take(
-    payload: PlaybackSyncPayload,
-    layer,
-    take,
-) -> _SyncTrackIdentity | None:
-    layer_id = str(layer.layer_id)
-    take_id = str(take.take_id)
-    source_audio_path = _audio_source_ref(take)
-    if source_audio_path and layer.kind is not LayerKind.EVENT:
-        return _SyncTrackIdentity(
-            track_id=f"{layer_id}:{take_id}",
-            source_key=f"audio:{source_audio_path}",
-            gain_db=float(layer.gain_db),
-            muted=bool(layer.muted),
-            output_bus=sanitize_output_bus_for_channels(
-                layer.output_bus,
-                playback_output_channels=payload.playback_output_channels,
-            ),
-        )
-    if not _is_event_track_source(take):
-        return None
-    return _event_track_identity(
-        payload,
-        track_id=f"{layer_id}:{take_id}",
-        gain_db=float(layer.gain_db),
-        muted=bool(layer.muted),
-        output_bus=layer.output_bus,
-        playback_source_ref=_event_source_ref(take, fallback_layer=layer),
-        events=take.events,
-    )
-
-
-def _event_track_identity(
-    payload: PlaybackSyncPayload,
-    *,
-    track_id: str,
-    gain_db: float,
-    muted: bool,
-    output_bus: str | None,
-    playback_source_ref: str,
-    events: tuple[object, ...] | list[object],
-) -> _SyncTrackIdentity:
-    source_key = f"event:{playback_source_ref}:{event_slice_signature(list(events))}"
-    return _SyncTrackIdentity(
-        track_id=track_id,
-        source_key=source_key,
-        gain_db=gain_db,
-        muted=muted,
-        output_bus=sanitize_output_bus_for_channels(
-            output_bus,
-            playback_output_channels=payload.playback_output_channels,
-        ),
-    )
-
-
-def _layer_has_playable_source(layer) -> bool:
-    has_continuous_source = bool(_audio_source_ref(layer) and layer.kind is not LayerKind.EVENT)
-    return bool(has_continuous_source or _is_event_track_source(layer))
-
-
-def _is_event_track_source(layer) -> bool:
-    return bool(
-        layer.kind is LayerKind.EVENT
-        and bool(layer.playback_enabled)
-        and layer.playback_mode == PlaybackMode.EVENT_SLICE
-        and bool(_event_source_ref(layer))
-    )
-
-
-def _audio_source_ref(item) -> str | None:
-    source_audio_path = getattr(item, "source_audio_path", None)
-    if source_audio_path:
-        return str(source_audio_path)
-    source_content_ref = getattr(item, "source_content_ref", None)
-    locator = getattr(source_content_ref, "locator", None)
-    if locator:
-        return str(locator)
-    return None
-
-
-def _event_source_ref(item, *, fallback_layer=None) -> str:
-    source_content_ref = getattr(item, "source_content_ref", None)
-    locator = getattr(source_content_ref, "locator", None)
-    if locator:
-        return str(locator)
-    playback_source_ref = getattr(item, "playback_source_ref", None)
-    if playback_source_ref:
-        return str(playback_source_ref)
-    source_audio_path = getattr(item, "source_audio_path", None)
-    if source_audio_path:
-        return str(source_audio_path)
-    if fallback_layer is not None:
-        return _event_source_ref(fallback_layer)
-    return ""
+    return audible_intent_from_sync_payload(payload).mix_signature

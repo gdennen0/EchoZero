@@ -102,6 +102,49 @@ def test_playback_track_builder_ignores_event_layer_source_audio_when_event_play
     assert len(plan.tracks) == 0
 
 
+def test_playback_track_builder_selection_does_not_audition_take() -> None:
+    builder = PlaybackTrackBuilder(
+        lambda path: (
+            np.array([1.0], dtype=np.float32)
+            if str(path) == "main.wav"
+            else np.array([0.5], dtype=np.float32),
+            44100,
+        )
+    )
+    presentation = SimpleNamespace(
+        layers=[
+            SimpleNamespace(
+                layer_id="layer_song",
+                title="Song",
+                kind=LayerKind.AUDIO,
+                source_audio_path="main.wav",
+                output_bus=None,
+                muted=False,
+                soloed=False,
+                takes=[
+                    SimpleNamespace(
+                        take_id="take_alt",
+                        name="Alt",
+                        source_audio_path="alt.wav",
+                        playback_source_ref=None,
+                        events=[],
+                    )
+                ],
+            )
+        ],
+        selected_layer_id="layer_song",
+        selected_take_id="take_alt",
+        playback_output_channels=2,
+    )
+
+    plan = builder.build_track_plan(presentation)
+
+    assert len(plan.tracks) == 1
+    assert plan.tracks[0].source_take_id is None
+    assert plan.tracks[0].source_ref == "main.wav"
+    assert plan.tracks[0].source_key == "audio:main.wav"
+
+
 def test_playback_track_builder_uses_event_slice_mode_for_event_layers() -> None:
     builder = PlaybackTrackBuilder(
         lambda _path: (np.array([0.25, -0.25], dtype=np.float32), 44100)
@@ -132,6 +175,41 @@ def test_playback_track_builder_uses_event_slice_mode_for_event_layers() -> None
 
     assert len(plan.tracks) == 1
     assert plan.tracks[0].source_key.startswith("event:")
+
+
+def test_playback_track_builder_slices_timeline_source_at_event_time() -> None:
+    source = np.zeros(50, dtype=np.float32)
+    source[2:5] = 0.2
+    source[20:25] = 1.0
+    builder = PlaybackTrackBuilder(lambda _path: (source, 10))
+    presentation = SimpleNamespace(
+        layers=[
+            SimpleNamespace(
+                layer_id="layer_event",
+                title="Cymbal",
+                kind="event",
+                source_audio_path="drums-stem.wav",
+                playback_enabled=True,
+                playback_mode=PlaybackMode.EVENT_SLICE,
+                playback_source_ref="drums-stem.wav",
+                events=[SimpleNamespace(start=2.0, end=2.5, muted=False, badges=())],
+                output_bus=None,
+                muted=False,
+                soloed=False,
+                takes=[],
+            )
+        ],
+        selected_layer_id="layer_event",
+        selected_take_id=None,
+        playback_output_channels=2,
+    )
+
+    plan = builder.build_track_plan(presentation)
+
+    rendered = plan.tracks[0].buffer
+    assert rendered is not None
+    assert float(np.max(rendered[20:25])) > 0.5
+    assert float(np.max(rendered[0:5])) == 0.0
 
 
 def test_playback_track_builder_uses_object_source_ref_without_legacy_audio_path() -> None:

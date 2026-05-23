@@ -382,6 +382,8 @@ class ProjectStorage(
                         SongVideoPlacementRecord(
                             song_version_id=version.id,
                             video_start_seconds=0.0,
+                            video_trim_start_seconds=0.0,
+                            video_visible_duration_seconds=None,
                             video_loop_enabled=False,
                         )
                     )
@@ -431,9 +433,60 @@ class ProjectStorage(
             record = SongVideoPlacementRecord(
                 song_version_id=song_version_id,
                 video_start_seconds=float(video_start_seconds),
+                video_trim_start_seconds=(
+                    0.0 if existing is None else float(existing.video_trim_start_seconds)
+                ),
+                video_visible_duration_seconds=(
+                    None if existing is None else existing.video_visible_duration_seconds
+                ),
                 video_loop_enabled=(
                     False if existing is None else bool(existing.video_loop_enabled)
                 ),
+            )
+            self.song_video_placements.upsert(record)
+            self.db.commit()
+            self.dirty_tracker.mark_dirty(version.song_id)
+            return record
+
+    def set_song_video_placement(
+        self,
+        song_version_id: str,
+        *,
+        video_start_seconds: float,
+        video_trim_start_seconds: float,
+        video_visible_duration_seconds: float | None,
+        video_loop_enabled: bool,
+    ) -> SongVideoPlacementRecord:
+        """Persist the active trim, duration, and loop placement for a video reference."""
+
+        with self._lock:
+            self._check_closed()
+            version = self.song_versions.get(song_version_id)
+            if version is None:
+                raise ValueError(f"SongVersionRecord not found: {song_version_id}")
+            attachment = self.song_video_attachments.get_by_song(version.song_id)
+            source_duration = 0.0 if attachment is None else float(attachment.duration_seconds)
+            trim_start = min(
+                max(0.0, float(video_trim_start_seconds)),
+                max(0.0, source_duration),
+            )
+            max_visible_duration = max(0.0, source_duration - trim_start)
+            visible_duration = (
+                None
+                if video_visible_duration_seconds is None
+                else max(0.0, float(video_visible_duration_seconds))
+            )
+            if visible_duration is not None:
+                if bool(video_loop_enabled):
+                    visible_duration = visible_duration or max_visible_duration
+                else:
+                    visible_duration = min(visible_duration, max_visible_duration)
+            record = SongVideoPlacementRecord(
+                song_version_id=song_version_id,
+                video_start_seconds=float(video_start_seconds),
+                video_trim_start_seconds=trim_start,
+                video_visible_duration_seconds=visible_duration,
+                video_loop_enabled=bool(video_loop_enabled),
             )
             self.song_video_placements.upsert(record)
             self.db.commit()
@@ -457,6 +510,12 @@ class ProjectStorage(
                 song_version_id=song_version_id,
                 video_start_seconds=(
                     0.0 if existing is None else float(existing.video_start_seconds)
+                ),
+                video_trim_start_seconds=(
+                    0.0 if existing is None else float(existing.video_trim_start_seconds)
+                ),
+                video_visible_duration_seconds=(
+                    None if existing is None else existing.video_visible_duration_seconds
                 ),
                 video_loop_enabled=bool(enabled),
             )

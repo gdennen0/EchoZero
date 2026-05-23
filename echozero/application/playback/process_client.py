@@ -19,6 +19,11 @@ from pathlib import Path
 from typing import Any
 
 from echozero.application.playback.models import PlaybackState, PlaybackTimingSnapshot
+from echozero.application.playback.coordination import (
+    TransportCommand,
+    TransportCommandAction,
+    TransportSnapshot,
+)
 from echozero.application.playback.process_shared import (
     PLAYBACK_IPC_COMMAND_PATH,
     PLAYBACK_IPC_HEALTH_PATH,
@@ -43,6 +48,8 @@ except ImportError as exc:  # pragma: no cover - environment contract
 class ProcessPlaybackClient:
     """Runtime-audio client that proxies calls to the playback child process."""
 
+    _PUSHED_TIMING_STALE_SECONDS = 0.75
+
     _SHUTDOWN_NOOP_OPERATIONS = frozenset(
         {
             "sync_structure_state",
@@ -58,6 +65,7 @@ class ProcessPlaybackClient:
             "enqueue_mix",
             "enqueue_seek",
             "enqueue_preview",
+            "clear_playback_graph",
             "reconfigure_device",
             "start_audio_diagnostics_capture",
             "stop_audio_diagnostics_capture",
@@ -89,6 +97,9 @@ class ProcessPlaybackClient:
         self._ws_thread: threading.Thread | None = None
         self._audio_config_file: Path | None = None
         self._latest_sync_payload: dict[str, object] | None = None
+        self._latest_timing_snapshot: PlaybackTimingSnapshot | None = None
+        self._latest_transport_snapshot: TransportSnapshot | None = None
+        self._latest_timing_snapshot_received_monotonic = 0.0
 
         self._audio_process_connected = False
         self._audio_process_pid: int | None = None
@@ -164,12 +175,6 @@ class ProcessPlaybackClient:
             self._audio_config_file = None
         self._audio_process_connected = False
 
-    def sync_presentation(self, presentation: TimelinePresentation) -> None:
-        self.sync_structure_state(presentation)
-
-    def build_for_presentation(self, presentation: TimelinePresentation) -> None:
-        self.sync_structure_state(presentation)
-
     def sync_structure_state(self, presentation: TimelinePresentation) -> None:
         payload = PlaybackSyncPayload.from_presentation(presentation).to_dict()
         self._latest_sync_payload = payload
@@ -228,6 +233,7 @@ class ProcessPlaybackClient:
         device_spec: dict[str, object],
         profile: str = "",
     ) -> dict[str, object]:
+        self._clear_latest_timing_snapshot()
         response = self._command(
             "reconfigure_device",
             {
@@ -235,6 +241,7 @@ class ProcessPlaybackClient:
                 "profile": str(profile),
             },
         )
+        self._clear_latest_timing_snapshot()
         return dict(response)
 
     def drain_events(self) -> list[dict[str, object]]:
@@ -274,25 +281,31 @@ class ProcessPlaybackClient:
     def audio_diagnostics_capture_status(self) -> dict[str, object]:
         return dict(self._audio_diagnostics_capture_status)
 
-    def apply_mix_state(self, presentation: TimelinePresentation) -> None:
-        self.sync_mix_state(presentation)
-
     def drain_pending_structure_sync(self) -> None:
         _ = self._command("drain_pending_structure_sync", {})
+
+    def clear_playback_graph(self, *, reason: str = "clear-playback-graph") -> None:
+        self._latest_sync_payload = None
+        self._clear_latest_timing_snapshot()
+        _ = self._command("clear_playback_graph", {"reason": str(reason or "")})
 
     def record_coalesced_structural_edits(self, count: int = 1) -> None:
         _ = self._command("record_coalesced_structural_edits", {"count": int(count)})
 
     def play(self) -> None:
+        self._clear_latest_timing_snapshot()
         _ = self._command("play", {})
 
     def pause(self) -> None:
+        self._clear_latest_timing_snapshot()
         _ = self._command("pause", {})
 
     def stop(self) -> None:
+        self._clear_latest_timing_snapshot()
         _ = self._command("stop", {})
 
     def seek(self, position_seconds: float) -> None:
+        self._clear_latest_timing_snapshot()
         _ = self._command("seek", {"position_seconds": float(position_seconds)})
 
     def preview_clip(
@@ -315,19 +328,72 @@ class ProcessPlaybackClient:
         return bool(response.get("played", False))
 
     def current_time_seconds(self) -> float:
+        snapshot = self.latest_timing_snapshot()
+        if snapshot is not None:
+            return max(0.0, float(snapshot.audible_time_seconds))
         response = self._command("current_time_seconds", {})
         return float(response.get("value", 0.0) or 0.0)
 
     def is_playing(self) -> bool:
+        snapshot = self.latest_timing_snapshot()
+        if snapshot is not None:
+            return bool(snapshot.is_playing)
         response = self._command("is_playing", {})
         return bool(response.get("value", False))
 
     def timing_snapshot(self) -> PlaybackTimingSnapshot:
+        cached = self.latest_timing_snapshot()
+        if cached is not None:
+            return cached
         response = self._command("timing_snapshot", {})
         value = response.get("value")
         if not isinstance(value, dict):
             raise PlaybackIpcError("timing_snapshot response missing value payload")
         return decode_timing_snapshot(value)
+
+    def latest_timing_snapshot(self) -> PlaybackTimingSnapshot | None:
+        """Return the latest pushed timing snapshot without HTTP IPC."""
+
+        if not bool(getattr(self, "_audio_process_connected", False)):
+            return None
+        snapshot = getattr(self, "_latest_timing_snapshot", None)
+        received_at = float(getattr(self, "_latest_timing_snapshot_received_monotonic", 0.0) or 0.0)
+        if snapshot is None or received_at <= 0.0:
+            return None
+        if time.monotonic() - received_at > self._PUSHED_TIMING_STALE_SECONDS:
+            return None
+        return snapshot
+
+    def latest_transport_snapshot(self) -> TransportSnapshot | None:
+        """Return the latest pushed transport snapshot without HTTP IPC."""
+
+        if self.latest_timing_snapshot() is None:
+            return None
+        return getattr(self, "_latest_transport_snapshot", None)
+
+    def enqueue_transport_command(self, command: TransportCommand) -> None:
+        """Apply one transport command through the coordinator-compatible seam."""
+
+        action = command.action
+        if action is TransportCommandAction.PLAY:
+            if command.position_seconds is not None:
+                self.seek(float(command.position_seconds))
+            self.play()
+            return
+        if action is TransportCommandAction.PAUSE:
+            if command.position_seconds is not None:
+                self.seek(float(command.position_seconds))
+            self.pause()
+            return
+        if action is TransportCommandAction.STOP:
+            self.stop()
+            return
+        if action in {
+            TransportCommandAction.SEEK,
+            TransportCommandAction.SCRUB_UPDATE,
+            TransportCommandAction.SCRUB_COMMIT,
+        }:
+            self.seek(float(command.position_seconds or 0.0))
 
     def snapshot_state(self, presentation: TimelinePresentation) -> PlaybackState:
         payload = PlaybackSyncPayload.from_presentation(presentation).to_dict()
@@ -380,6 +446,11 @@ class ProcessPlaybackClient:
         self._last_local_sync_change_kind = str(change_kind or "")
         self._last_local_projection_build_ms = max(0.0, float(projection_build_ms))
         self._last_local_sync_classify_ms = max(0.0, float(classify_ms))
+
+    def _clear_latest_timing_snapshot(self) -> None:
+        self._latest_timing_snapshot = None
+        self._latest_transport_snapshot = None
+        self._latest_timing_snapshot_received_monotonic = 0.0
 
     def _next_command_id(self) -> str:
         self._command_counter += 1
@@ -566,6 +637,7 @@ class ProcessPlaybackClient:
                     ping_interval=10,
                     ping_timeout=10,
                     close_timeout=1,
+                    proxy=None,
                 ) as websocket:
                     self._audio_process_connected = True
                     for message in websocket:
@@ -615,6 +687,22 @@ class ProcessPlaybackClient:
             error_text = body.get("error")
             if error_text is not None:
                 self._last_ipc_error = str(error_text)
+            return
+
+        if event_type == "timing-snapshot":
+            snapshot_payload = body.get("snapshot")
+            if isinstance(snapshot_payload, dict):
+                snapshot = decode_timing_snapshot(snapshot_payload)
+                self._latest_timing_snapshot = snapshot
+                self._latest_timing_snapshot_received_monotonic = time.monotonic()
+                self._latest_transport_snapshot = TransportSnapshot.from_timing_snapshot(
+                    snapshot,
+                    generation_id=(
+                        str(body.get("structural_generation"))
+                        if body.get("structural_generation") is not None
+                        else None
+                    ),
+                )
 
 
 def _build_service_process_command(

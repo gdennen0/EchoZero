@@ -618,7 +618,7 @@ def test_app_shell_runtime_batch_rejected_review_reuses_clip_audio_cache(
         _flush_deferred_review_persistence(runtime)
 
         assert read_count == 1
-        exported = sorted((export_root / "kick").glob("*.wav"))
+        exported = sorted((export_root / "negative" / "kick").glob("*.wav"))
         assert len(exported) >= 2
     finally:
         runtime.shutdown()
@@ -804,7 +804,7 @@ def test_app_shell_runtime_commit_relabel_event_review_updates_label_and_creates
         assert signal.source_provenance["dataset_materialization"]["status"] == "deferred"
         assert runtime_event.metadata["review"]["original_label"] == "kick"
         assert runtime_event.metadata["review"]["corrected_label"] == "snare"
-        exported = sorted((export_root / "snare").glob("*.wav"))
+        exported = sorted((export_root / "positive" / "snare").glob("*.wav"))
         assert exported
         manifest_path = export_root / "manifest.jsonl"
         assert manifest_path.exists()
@@ -862,7 +862,7 @@ def test_app_shell_runtime_commit_boundary_corrected_event_review_updates_timing
             runtime_event.metadata["review"]["corrected_start_ms"]
             == corrected_range.start * 1000.0
         )
-        exported = sorted((export_root / "kick").glob("*.wav"))
+        exported = sorted((export_root / "positive" / "kick").glob("*.wav"))
         assert exported
         manifest_rows = [
             json.loads(line)

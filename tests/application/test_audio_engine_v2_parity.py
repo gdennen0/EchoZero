@@ -120,7 +120,7 @@ def test_shadow_parity_uses_current_app_projection_for_selected_song() -> None:
     assert report.diagnostics == ()
 
 
-def test_shadow_parity_preserves_selected_version_track_identity() -> None:
+def test_shadow_parity_ignores_selected_version_without_audition_intent() -> None:
     take = SimpleNamespace(
         take_id="version_b",
         name="Version B",
@@ -140,10 +140,8 @@ def test_shadow_parity_preserves_selected_version_track_identity() -> None:
         graph_id="selected-version",
     )
 
-    assert report.summary.structure_signature == (
-        ("layer_song:version_b", "audio:song-version-b.wav"),
-    )
-    assert report.summary.tracks[0].name == "Song \u00b7 Version B"
+    assert report.summary.structure_signature == (("layer_song", "audio:layer_song.wav"),)
+    assert report.summary.tracks[0].name == "Song"
 
 
 def test_shadow_parity_preserves_event_slice_route_summary() -> None:

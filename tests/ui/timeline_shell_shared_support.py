@@ -101,11 +101,13 @@ from echozero.application.timeline.intents import (
     SetLayerLiveSyncPauseReason,
     SetLayerLiveSyncState,
     SetLayerSolo,
+    SetPlaybackStart,
     SnapEventsToBeatGrid,
     SetPullImportMode,
     SetPushTransferMode,
     SetSelectedEvents,
     Stop,
+    TimelineIntent,
     ToggleLayerExpanded,
     UpdateEventCueMappings,
 )
@@ -1336,6 +1338,18 @@ def _seek_tracking_widget(presentation: TimelinePresentation) -> tuple[TimelineW
         if isinstance(intent, Seek):
             intents.append(intent)
             return replace(presentation, playhead=intent.position)
+        return presentation
+
+    return TimelineWidget(presentation, on_intent=_on_intent), intents
+
+
+def _intent_tracking_widget(
+    presentation: TimelinePresentation,
+) -> tuple[TimelineWidget, list[TimelineIntent]]:
+    intents: list[TimelineIntent] = []
+
+    def _on_intent(intent):
+        intents.append(intent)
         return presentation
 
     return TimelineWidget(presentation, on_intent=_on_intent), intents

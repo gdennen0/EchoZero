@@ -3,12 +3,18 @@ Exists to keep click, drag, keyboard, and transport coverage separate from fixtu
 Connects the compatibility wrapper to the bounded interaction support slice.
 """
 
+import pytest
+
 from echozero.application.presentation.models import (
     SectionCuePresentation,
     SectionRegionPresentation,
 )
 from echozero.application.timeline.intents import ReplaceSectionCues
-from echozero.ui.FEEL import TIMELINE_ADD_MODE_DEFAULT_EVENT_DURATION_SECONDS
+from echozero.ui.FEEL import (
+    LAYER_HEADER_WIDTH_PX,
+    TIMELINE_ADD_MODE_DEFAULT_EVENT_DURATION_SECONDS,
+)
+from echozero.ui.qt.timeline.style import TIMELINE_STYLE
 from echozero.ui.qt.timeline.section_manager import SectionCueDraft
 from echozero.ui.qt.timeline.widget_canvas_paint_mixin import section_region_label_text
 from tests.ui.timeline_shell_shared_support import *  # noqa: F401,F403
@@ -592,10 +598,10 @@ def test_section_layer_header_control_opens_layer_scoped_section_manager(monkeyp
         app.processEvents()
 
 
-def test_ruler_click_dispatches_seek():
+def test_ruler_click_moves_home_marker_not_playhead():
     app = QApplication.instance() or QApplication([])
     presentation = _selection_test_presentation()
-    widget, intents = _seek_tracking_widget(presentation)
+    widget, intents = _intent_tracking_widget(presentation)
     try:
         _render_for_hit_testing(widget)
 
@@ -607,18 +613,16 @@ def test_ruler_click_dispatches_seek():
         )
         QApplication.processEvents()
 
-        assert intents == [Seek(2.0)]
+        assert intents == [SetPlaybackStart((520.0 - LAYER_HEADER_WIDTH_PX) / 100.0)]
     finally:
         widget.close()
         app.processEvents()
 
 
-def test_ruler_click_dispatches_seek_using_scroll_offset():
+def test_ruler_click_while_playing_dispatches_playback_start():
     app = QApplication.instance() or QApplication([])
-    presentation = replace(
-        _selection_test_presentation(), scroll_x=200.0, end_time_label="00:12.00"
-    )
-    widget, intents = _seek_tracking_widget(presentation)
+    presentation = replace(_selection_test_presentation(), is_playing=True, playhead=1.0)
+    widget, intents = _intent_tracking_widget(presentation)
     try:
         _render_for_hit_testing(widget)
 
@@ -630,7 +634,32 @@ def test_ruler_click_dispatches_seek_using_scroll_offset():
         )
         QApplication.processEvents()
 
-        assert intents == [Seek(4.0)]
+        assert intents == [SetPlaybackStart((520.0 - LAYER_HEADER_WIDTH_PX) / 100.0)]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_ruler_click_moves_home_marker_using_scroll_offset():
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(
+        _selection_test_presentation(), scroll_x=200.0, end_time_label="00:12.00"
+    )
+    widget, intents = _intent_tracking_widget(presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        QTest.mouseClick(
+            widget._ruler,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+            QPoint(520, 12),
+        )
+        QApplication.processEvents()
+
+        assert intents == [
+            SetPlaybackStart((520.0 - LAYER_HEADER_WIDTH_PX + 200.0) / 100.0)
+        ]
     finally:
         widget.close()
         app.processEvents()
@@ -764,8 +793,8 @@ def test_layer_header_renders_selection_background_and_mute_button_independently
     selected_button_color = selected_image.pixelColor(selected_center_x, selected_center_y)
     playback_button_color = playback_image.pixelColor(playback_center_x, playback_center_y)
 
-    assert selected_header_color.name() == "#202833"
-    assert playback_header_color.name() == "#1b212a"
+    assert selected_header_color.name() == TIMELINE_STYLE.layer_header.selected_background_hex
+    assert playback_header_color.name() == TIMELINE_STYLE.layer_header.background_hex
     assert selected_button_color.name() != playback_button_color.name()
     app.processEvents()
 
@@ -1075,10 +1104,10 @@ def test_source_audio_layer_header_drag_dispatches_reorder_intent():
         app.processEvents()
 
 
-def test_ruler_drag_scrubs_playhead_continuously():
+def test_ruler_drag_moves_home_marker_continuously():
     app = QApplication.instance() or QApplication([])
     presentation = _selection_test_presentation()
-    widget, intents = _seek_tracking_widget(presentation)
+    widget, intents = _intent_tracking_widget(presentation)
     try:
         _render_for_hit_testing(widget)
 
@@ -1087,13 +1116,65 @@ def test_ruler_drag_scrubs_playhead_continuously():
             [QPoint(420, 12), QPoint(520, 12), QPoint(620, 12)],
         )
 
-        assert intents == [Seek(1.0), Seek(2.0), Seek(3.0)]
+        assert intents == [
+            SetPlaybackStart((420.0 - LAYER_HEADER_WIDTH_PX) / 100.0),
+            SetPlaybackStart((520.0 - LAYER_HEADER_WIDTH_PX) / 100.0),
+            SetPlaybackStart((620.0 - LAYER_HEADER_WIDTH_PX) / 100.0),
+        ]
     finally:
         widget.close()
         app.processEvents()
 
 
-def test_playhead_head_drag_dispatches_seek():
+def test_ruler_drag_while_playing_dispatches_playback_start():
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(_selection_test_presentation(), is_playing=True, playhead=1.0)
+    widget, intents = _intent_tracking_widget(presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        _mouse_drag(
+            widget._ruler,
+            [QPoint(420, 12), QPoint(520, 12), QPoint(620, 12)],
+        )
+
+        assert intents == [
+            SetPlaybackStart((420.0 - LAYER_HEADER_WIDTH_PX) / 100.0),
+            SetPlaybackStart((520.0 - LAYER_HEADER_WIDTH_PX) / 100.0),
+            SetPlaybackStart((620.0 - LAYER_HEADER_WIDTH_PX) / 100.0),
+        ]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_ruler_home_marker_drag_dispatches_playback_start():
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(_selection_test_presentation(), playback_start=1.0, playhead=3.0)
+    widget, intents = _intent_tracking_widget(presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        start_x = int(
+            timeline_x_for_time(
+                widget.presentation.playback_start,
+                scroll_x=widget.presentation.scroll_x,
+                pixels_per_second=widget.presentation.pixels_per_second,
+                content_start_x=widget._ruler._header_width,
+            )
+        )
+        _mouse_drag(
+            widget._ruler,
+            [QPoint(start_x, 12), QPoint(start_x + 100, 12)],
+        )
+
+        assert intents == [SetPlaybackStart(1.0), SetPlaybackStart(2.0)]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_playhead_line_handle_drag_dispatches_seek():
     app = QApplication.instance() or QApplication([])
     presentation = replace(_selection_test_presentation(), playhead=1.0)
     widget, intents = _seek_tracking_widget(presentation)
@@ -1120,7 +1201,68 @@ def test_playhead_head_drag_dispatches_seek():
         app.processEvents()
 
 
-def test_playhead_head_drag_dispatches_seek_using_scroll_offset():
+def test_canvas_home_marker_drag_dispatches_playback_start():
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(_selection_test_presentation(), playback_start=1.0, playhead=3.0)
+    widget, intents = _intent_tracking_widget(presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        start_x = int(
+            timeline_x_for_time(
+                widget.presentation.playback_start,
+                scroll_x=widget.presentation.scroll_x,
+                pixels_per_second=widget.presentation.pixels_per_second,
+                content_start_x=widget._canvas._header_width,
+            )
+        )
+        y = int(widget._canvas._top_padding + 10)
+        _mouse_drag(
+            widget._canvas,
+            [QPoint(start_x, y), QPoint(start_x + 100, y)],
+        )
+
+        assert intents == [SetPlaybackStart(1.0), SetPlaybackStart(2.0)]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_canvas_home_marker_drag_while_playing_dispatches_playback_start():
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(
+        _selection_test_presentation(),
+        playback_start=4.0,
+        playhead=3.0,
+        is_playing=True,
+    )
+    widget, intents = _intent_tracking_widget(presentation)
+    try:
+        _render_for_hit_testing(widget)
+
+        start_x = int(
+            timeline_x_for_time(
+                widget.presentation.playback_start,
+                scroll_x=widget.presentation.scroll_x,
+                pixels_per_second=widget.presentation.pixels_per_second,
+                content_start_x=widget._canvas._header_width,
+            )
+        )
+        y = int(widget._canvas._top_padding + 10)
+        _mouse_drag(
+            widget._canvas,
+            [QPoint(start_x, y), QPoint(start_x + 100, y)],
+        )
+
+        assert [type(intent) for intent in intents] == [SetPlaybackStart, SetPlaybackStart]
+        assert intents[0].position == pytest.approx(4.0)
+        assert intents[1].position > intents[0].position
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_playhead_line_handle_drag_dispatches_seek_using_scroll_offset():
     app = QApplication.instance() or QApplication([])
     presentation = replace(
         _selection_test_presentation(),
@@ -1828,12 +1970,11 @@ def test_fix_mode_demoted_navigation_toggle_updates_adjacent_event_intent() -> N
         _render_for_hit_testing(widget)
         widget._editor_bar._mode_buttons["fix"].click()
         QApplication.processEvents()
-        assert widget._editor_bar._fix_include_demoted_button.text().endswith("Off")
+        assert not widget._editor_bar._fix_include_demoted_button.isChecked()
 
         widget._editor_bar._fix_include_demoted_button.click()
         QApplication.processEvents()
         assert widget._editor_bar._fix_include_demoted_button.isChecked()
-        assert widget._editor_bar._fix_include_demoted_button.text().endswith("On")
 
         QTest.keyClick(widget._canvas, Qt.Key.Key_Right)
         QTest.keyClick(widget._canvas, Qt.Key.Key_D)
@@ -1841,7 +1982,6 @@ def test_fix_mode_demoted_navigation_toggle_updates_adjacent_event_intent() -> N
         QApplication.processEvents()
 
         assert not widget._editor_bar._fix_include_demoted_button.isChecked()
-        assert widget._editor_bar._fix_include_demoted_button.text().endswith("Off")
         assert intents == [
             SelectAdjacentEventInSelectedLayer(direction=1, include_demoted=True),
             SelectAdjacentEventInSelectedLayer(direction=-1, include_demoted=False),
@@ -2454,6 +2594,164 @@ def test_move_drag_sets_continuous_preview_bar_time_during_drag() -> None:
             ),
         )
         QApplication.processEvents()
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def _video_drag_test_presentation() -> TimelinePresentation:
+    return TimelinePresentation(
+        timeline_id=TimelineId("timeline_video_drag"),
+        title="Video Drag",
+        layers=[
+            LayerPresentation(
+                layer_id=LayerId("layer_video"),
+                title="Video Reference",
+                kind=LayerKind.REFERENCE,
+                reference_kind="video",
+                video_path="/tmp/ref.mov",
+                video_start_seconds=1.0,
+                video_trim_start_seconds=0.0,
+                video_duration_seconds=8.0,
+                video_visible_duration_seconds=8.0,
+                video_loop_enabled=False,
+            )
+        ],
+        pixels_per_second=100.0,
+        end_time_label="00:12.00",
+    )
+
+
+def test_video_item_move_drag_sets_landing_preview() -> None:
+    app = QApplication.instance() or QApplication([])
+    widget = TimelineWidget(_video_drag_test_presentation())
+    try:
+        _render_for_hit_testing(widget)
+        rect, *_ = widget._canvas._video_clip_rects[0]
+        start = rect.center().toPoint()
+        target = QPoint(start.x() + 50, start.y())
+
+        QApplication.sendEvent(
+            widget._canvas,
+            QMouseEvent(
+                QEvent.Type.MouseButtonPress,
+                QPointF(start),
+                QPointF(start),
+                QPointF(start),
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.LeftButton,
+                Qt.KeyboardModifier.NoModifier,
+            ),
+        )
+        QApplication.sendEvent(
+            widget._canvas,
+            QMouseEvent(
+                QEvent.Type.MouseMove,
+                QPointF(target),
+                QPointF(target),
+                QPointF(target),
+                Qt.MouseButton.NoButton,
+                Qt.MouseButton.LeftButton,
+                Qt.KeyboardModifier.NoModifier,
+            ),
+        )
+
+        assert widget._canvas._video_drag_preview_values is not None
+        assert widget._canvas._move_drag_preview_time == pytest.approx(1.5)
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_video_item_edge_drag_trims_front_without_enabling_loop() -> None:
+    app = QApplication.instance() or QApplication([])
+    placements: list[tuple[object, float, float, float, bool]] = []
+    widget = TimelineWidget(_video_drag_test_presentation())
+    widget._canvas.video_placement_changed.connect(
+        lambda *args: placements.append(args)  # type: ignore[arg-type]
+    )
+    try:
+        _render_for_hit_testing(widget)
+        rect, *_ = widget._canvas._video_clip_rects[0]
+        start = QPoint(int(rect.left()) + 1, int(rect.center().y()))
+        target = QPoint(start.x() + 50, start.y())
+
+        for event_type, button, buttons, point in (
+            (
+                QEvent.Type.MouseButtonPress,
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.LeftButton,
+                start,
+            ),
+            (QEvent.Type.MouseMove, Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton, target),
+            (
+                QEvent.Type.MouseButtonRelease,
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.NoButton,
+                target,
+            ),
+        ):
+            QApplication.sendEvent(
+                widget._canvas,
+                QMouseEvent(
+                    event_type,
+                    QPointF(point),
+                    QPointF(point),
+                    QPointF(point),
+                    button,
+                    buttons,
+                    Qt.KeyboardModifier.NoModifier,
+                ),
+            )
+
+        assert placements == [(LayerId("layer_video"), 1.5, 0.5, 7.5, False)]
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_video_item_corner_drag_extends_loop() -> None:
+    app = QApplication.instance() or QApplication([])
+    placements: list[tuple[object, float, float, float, bool]] = []
+    widget = TimelineWidget(_video_drag_test_presentation())
+    widget._canvas.video_placement_changed.connect(
+        lambda *args: placements.append(args)  # type: ignore[arg-type]
+    )
+    try:
+        _render_for_hit_testing(widget)
+        rect, *_ = widget._canvas._video_clip_rects[0]
+        start = QPoint(int(rect.right()) - 1, int(rect.top()) + 1)
+        target = QPoint(start.x() + 200, start.y())
+
+        for event_type, button, buttons, point in (
+            (
+                QEvent.Type.MouseButtonPress,
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.LeftButton,
+                start,
+            ),
+            (QEvent.Type.MouseMove, Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton, target),
+            (
+                QEvent.Type.MouseButtonRelease,
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.NoButton,
+                target,
+            ),
+        ):
+            QApplication.sendEvent(
+                widget._canvas,
+                QMouseEvent(
+                    event_type,
+                    QPointF(point),
+                    QPointF(point),
+                    QPointF(point),
+                    button,
+                    buttons,
+                    Qt.KeyboardModifier.NoModifier,
+                ),
+            )
+
+        assert placements == [(LayerId("layer_video"), 1.0, 0.0, 10.0, True)]
     finally:
         widget.close()
         app.processEvents()

@@ -804,6 +804,11 @@ class Seek(TimelineIntent):
 
 
 @dataclass(slots=True)
+class SetPlaybackStart(TimelineIntent):
+    position: float
+
+
+@dataclass(slots=True)
 class SetFollowCursorEnabled(TimelineIntent):
     enabled: bool
 

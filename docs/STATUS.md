@@ -132,6 +132,7 @@ When older docs disagree with current implementation, start here, then verify in
 
 - `AGENTS.md`
 - `docs/AGENT-CONTEXT.md`
+- `docs/OPERATING-ARCHITECTURE.md`
 - `docs/TESTING.md`
 - `docs/SONG-IMPORT-BATCH-LTC-WORKFLOW.md`
 - `echozero/application/timeline/README.md`

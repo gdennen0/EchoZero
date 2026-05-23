@@ -40,7 +40,12 @@ class DetectNoteContourProcessor:
 
     def execute(self, block_id: str, context: ExecutionContext) -> Result[EventData]:
         context.progress_bus.publish(
-            ProgressReport(block_id=block_id, phase="detect_note_contour", percent=0.0)
+            ProgressReport(
+                block_id=block_id,
+                phase="detect_note_contour",
+                percent=0.0,
+                message="Detecting note contour",
+            )
         )
         audio = context.get_input(block_id, "audio_in", AudioData)
         if audio is None:
@@ -61,7 +66,12 @@ class DetectNoteContourProcessor:
             min_note_duration=min_note_duration,
         )
         context.progress_bus.publish(
-            ProgressReport(block_id=block_id, phase="detect_note_contour", percent=1.0)
+            ProgressReport(
+                block_id=block_id,
+                phase="detect_note_contour",
+                percent=1.0,
+                message="Note contour complete",
+            )
         )
         return ok(EventData(layers=(Layer(id=f"{block_id}_notes", name="Notes", events=tuple(events)),)))
 
@@ -116,7 +126,12 @@ def _append_note_event(
             time=float(start),
             duration=duration,
             classifications={"note": _note_label(midi_note)},
-            metadata={"midi_note": midi_note, "frequency_note": _note_label(midi_note)},
+            metadata={
+                "detection": {
+                    "midi_note": midi_note,
+                    "frequency_note": _note_label(midi_note),
+                }
+            },
             origin=block_id,
         )
     )

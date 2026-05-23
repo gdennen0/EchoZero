@@ -35,6 +35,10 @@ from echozero.processors.binary_drum_classify import (
     _apply_assignment_config,
     _apply_label_min_separation,
 )
+from echozero.processors.drum_event_span import (
+    MIN_DRUM_EVENT_DURATION_SECONDS,
+    estimate_drum_event_span,
+)
 from echozero.progress import RuntimeBus
 from echozero.result import Err, Ok
 from echozero.runtime_models.loader import LoadedRuntimeModel
@@ -153,6 +157,56 @@ def _mock_binary_classify(
             )
         ],
     }
+
+
+def _patch_runtime_classifier(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    audio: np.ndarray,
+    sample_rate: int,
+) -> None:
+    monkeypatch.setitem(
+        sys.modules,
+        "librosa",
+        SimpleNamespace(resample=lambda audio, **_: audio),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "soundfile",
+        SimpleNamespace(read=lambda *args, **kwargs: (audio, sample_rate)),
+    )
+
+    def _fake_load_runtime_model(model_path: str, *, device: str) -> LoadedRuntimeModel:
+        label = "kick" if "kick" in model_path else "snare"
+        return LoadedRuntimeModel(
+            model=object(),
+            classes=(label, "other"),
+            sample_rate=sample_rate,
+            max_length=max(1, int(round(sample_rate * 0.12))),
+            n_fft=8,
+            hop_length=4,
+            n_mels=16,
+            fmax=8000,
+            device=device,
+            source_path=Path(f"/tmp/{label}.pth"),
+        )
+
+    monkeypatch.setattr(
+        "echozero.processors.binary_drum_classify.resolve_device",
+        lambda device: device,
+    )
+    monkeypatch.setattr(
+        "echozero.processors.binary_drum_classify.load_runtime_model",
+        _fake_load_runtime_model,
+    )
+    monkeypatch.setattr(
+        "echozero.processors.binary_drum_classify.build_feature_tensor",
+        lambda **kwargs: np.zeros((1, 1, 2, 2), dtype=np.float32),
+    )
+    monkeypatch.setattr(
+        "echozero.processors.binary_drum_classify.predict_probabilities",
+        lambda runtime_model, feature: np.array([0.95, 0.05], dtype=np.float32),
+    )
 
 
 def test_binary_drum_classify_processor_returns_kick_and_snare_layers() -> None:
@@ -693,6 +747,108 @@ def test_default_binary_classify_stamps_structured_model_artifact_provenance(
     assert kick_event.metadata["detection"]["promotion_state"] == "promoted"
     assert "review" not in kick_event.metadata
     assert snare_event.metadata["model_artifact"]["artifactIdentity"]["artifactId"] == "art_snare"
+
+
+def test_default_binary_classify_estimates_long_drum_tail_duration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sample_rate = 1000
+    audio = np.zeros(sample_rate, dtype=np.float32)
+    onset_index = 100
+    tail = 0.6 * np.exp(-np.linspace(0.0, 3.0, 180, endpoint=False))
+    audio[onset_index : onset_index + tail.size] = tail.astype(np.float32)
+    _patch_runtime_classifier(monkeypatch, audio=audio, sample_rate=sample_rate)
+
+    classified = _default_binary_classify(
+        (
+            DrumLabelInferenceInput(
+                label="kick",
+                audio_file="/tmp/kick.wav",
+                events=(
+                    Event(
+                        id="kick_evt",
+                        time=0.1,
+                        duration=0.0,
+                        classifications={},
+                        metadata={},
+                        origin="src",
+                    ),
+                ),
+                model_path="/tmp/kick_model.pth",
+                positive_threshold=0.5,
+            ),
+        ),
+        device="cpu",
+        assignment=BinaryAssignmentConfig(),
+    )
+
+    kick_event = classified["kick"][0][0]
+    assert kick_event.time == pytest.approx(0.1)
+    assert kick_event.duration > 0.08
+    assert kick_event.metadata["detection"]["estimated_duration_seconds"] == pytest.approx(
+        kick_event.duration
+    )
+    span_estimate = kick_event.metadata["detection"]["span_estimate"]
+    assert span_estimate["consensus_method"] == "agreement"
+    assert set(span_estimate["method_durations"]) == {
+        "relative_rms_decay",
+        "relative_peak_decay",
+        "cumulative_energy",
+    }
+
+
+def test_drum_event_span_estimate_requires_method_agreement() -> None:
+    sample_rate = 1000
+    audio = np.zeros(sample_rate, dtype=np.float32)
+    tail = 0.7 * np.exp(-np.linspace(0.0, 4.0, 220, endpoint=False))
+    audio[100 : 100 + tail.size] = tail.astype(np.float32)
+
+    estimate = estimate_drum_event_span(
+        audio=audio,
+        onset_seconds=0.1,
+        sample_rate=sample_rate,
+    )
+
+    assert estimate.duration_seconds > 0.08
+    assert estimate.consensus_method == "agreement"
+    assert len(estimate.method_durations) == 3
+    assert estimate.agreement_seconds <= 0.06
+
+
+def test_default_binary_classify_clamps_short_transient_duration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sample_rate = 1000
+    audio = np.zeros(sample_rate, dtype=np.float32)
+    audio[100] = 0.8
+    _patch_runtime_classifier(monkeypatch, audio=audio, sample_rate=sample_rate)
+
+    classified = _default_binary_classify(
+        (
+            DrumLabelInferenceInput(
+                label="snare",
+                audio_file="/tmp/snare.wav",
+                events=(
+                    Event(
+                        id="snare_evt",
+                        time=0.1,
+                        duration=0.0,
+                        classifications={},
+                        metadata={},
+                        origin="src",
+                    ),
+                ),
+                model_path="/tmp/snare_model.pth",
+                positive_threshold=0.5,
+            ),
+        ),
+        device="cpu",
+        assignment=BinaryAssignmentConfig(),
+    )
+
+    snare_event = classified["snare"][0][0]
+    assert snare_event.time == pytest.approx(0.1)
+    assert snare_event.duration == pytest.approx(MIN_DRUM_EVENT_DURATION_SECONDS)
 
 
 def test_default_binary_classify_strips_inherited_review_semantics_from_source_events(

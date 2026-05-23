@@ -10,6 +10,10 @@ from dataclasses import dataclass, replace
 from typing import Callable
 
 from echozero.application.presentation.models import TimelinePresentation
+from echozero.application.playback.coordination import (
+    TransportCommand,
+    TransportCommandAction,
+)
 from echozero.application.playback.timecode import format_transport_clock_label
 from echozero.application.session.models import Session
 from echozero.application.sync.models import SyncState
@@ -20,10 +24,7 @@ from echozero.application.timeline.intents import (
     Pause,
     Play,
     Seek,
-    SetGain,
-    SetLayerMute,
-    SetLayerOutputBus,
-    SetLayerSolo,
+    SetPlaybackStart,
     Stop,
     TimelineIntent,
 )
@@ -176,22 +177,33 @@ class TimelineApplication:
             return
 
         if isinstance(intent, Play):
-            sync_structure_state = getattr(runtime_audio, "sync_structure_state", None)
-            if callable(sync_structure_state):
-                sync_structure_state(self.presentation())
-            else:
-                sync_presentation = getattr(runtime_audio, "sync_presentation", None)
-                if callable(sync_presentation):
-                    sync_presentation(self.presentation())
-                else:
-                    runtime_audio.build_for_presentation(self.presentation())
-            runtime_audio.play()
+            self._reconcile_transport_playing_from_runtime(runtime_audio)
+            start_seconds = None
+            if not bool(self.session.transport_state.is_playing):
+                start_seconds = self.session.transport_state.playback_start_seconds
+            self._enqueue_runtime_transport(
+                runtime_audio,
+                TransportCommandAction.PLAY,
+                position_seconds=start_seconds,
+            )
         elif isinstance(intent, Pause):
-            runtime_audio.pause()
+            self._enqueue_runtime_transport(runtime_audio, TransportCommandAction.PAUSE)
         elif isinstance(intent, Stop):
-            runtime_audio.stop()
+            self._enqueue_runtime_transport(runtime_audio, TransportCommandAction.STOP)
         elif isinstance(intent, Seek):
-            runtime_audio.seek(intent.position)
+            self._enqueue_runtime_transport(
+                runtime_audio,
+                TransportCommandAction.SEEK,
+                position_seconds=float(intent.position),
+            )
+        elif isinstance(intent, SetPlaybackStart):
+            self._reconcile_transport_playing_from_runtime(runtime_audio)
+            if bool(self.session.transport_state.is_playing):
+                self._enqueue_runtime_transport(
+                    runtime_audio,
+                    TransportCommandAction.SEEK,
+                    position_seconds=float(intent.position),
+                )
 
     def _apply_runtime_audio_after_dispatch(
         self,
@@ -201,21 +213,59 @@ class TimelineApplication:
         runtime_audio = self.runtime_audio
         if runtime_audio is None:
             return
+        _ = intent
+        _ = presentation
 
-        if isinstance(
-            intent,
-            (
-                SetGain,
-                SetLayerMute,
-                SetLayerSolo,
-                SetLayerOutputBus,
-            ),
-        ):
-            sync_mix_state = getattr(runtime_audio, "sync_mix_state", None)
-            if callable(sync_mix_state):
-                sync_mix_state(presentation)
-            else:
-                runtime_audio.apply_mix_state(presentation)
+    @staticmethod
+    def _enqueue_runtime_transport(
+        runtime_audio: object,
+        action: TransportCommandAction,
+        *,
+        position_seconds: float | None = None,
+    ) -> None:
+        enqueue_transport_command = getattr(runtime_audio, "enqueue_transport_command", None)
+        if callable(enqueue_transport_command):
+            enqueue_transport_command(
+                TransportCommand(
+                    action=action,
+                    position_seconds=position_seconds,
+                    source="timeline-app",
+                )
+            )
+            return
+        if action is TransportCommandAction.PLAY and hasattr(runtime_audio, "play"):
+            if position_seconds is not None and hasattr(runtime_audio, "seek"):
+                runtime_audio.seek(float(position_seconds))
+            runtime_audio.play()
+            return
+        if action is TransportCommandAction.PAUSE and hasattr(runtime_audio, "pause"):
+            if position_seconds is not None and hasattr(runtime_audio, "seek"):
+                runtime_audio.seek(float(position_seconds))
+            runtime_audio.pause()
+            return
+        if action is TransportCommandAction.STOP and hasattr(runtime_audio, "stop"):
+            runtime_audio.stop()
+            return
+        if action is TransportCommandAction.SEEK and hasattr(runtime_audio, "seek"):
+            runtime_audio.seek(float(position_seconds or 0.0))
+
+    def _reconcile_transport_playing_from_runtime(self, runtime_audio: object) -> None:
+        runtime_playing = self._runtime_audio_playing_state(runtime_audio)
+        if runtime_playing is None:
+            return
+        self.session.transport_state.is_playing = bool(runtime_playing)
+
+    @staticmethod
+    def _runtime_audio_playing_state(runtime_audio: object) -> bool | None:
+        latest_timing_snapshot = getattr(runtime_audio, "latest_timing_snapshot", None)
+        if callable(latest_timing_snapshot):
+            snapshot = latest_timing_snapshot()
+            if snapshot is not None and hasattr(snapshot, "is_playing"):
+                return bool(snapshot.is_playing)
+        is_playing = getattr(runtime_audio, "is_playing", None)
+        if callable(is_playing):
+            return bool(is_playing())
+        return None
 
     def _sync_runtime_state_for_transport_intent(
         self,
@@ -226,6 +276,8 @@ class TimelineApplication:
         if runtime_audio is None:
             return
         if not isinstance(intent, (Play, Pause, Stop, Seek)):
+            return
+        if callable(getattr(runtime_audio, "latest_timing_snapshot", None)):
             return
         if hasattr(runtime_audio, "snapshot_state"):
             self.session.playback_state = runtime_audio.snapshot_state(presentation)

@@ -70,6 +70,7 @@ from echozero.application.timeline.intents import (
     SetLayerMute,
     SetLayerOutputBus,
     SetLayerSolo,
+    SetPlaybackStart,
     SelectAdjacentEventInSelectedLayer,
     SetSelectedEvents,
     SnapEventsToBeatGrid,
@@ -132,6 +133,12 @@ _STRUCTURAL_INTENT_TYPES = (
     CommitRejectedEventsReview,
     CommitRelabeledEventReview,
     CommitBoundaryCorrectedEventReview,
+)
+_LIVE_REVIEW_STATE_INTENT_TYPES = (
+    CommitVerifiedEventReview,
+    CommitVerifiedEventsReview,
+    CommitRejectedEventReview,
+    CommitRejectedEventsReview,
 )
 _SELECTION_ONLY_INTENT_TYPES = (
     SelectLayer,
@@ -375,7 +382,7 @@ class TimelineWidgetRuntimeMixin:
         if callable(sync_mix_state):
             sync_mix_state(presentation)
         else:
-            runtime_audio.apply_mix_state(presentation)
+            raise RuntimeError("Runtime audio backend does not implement sync_mix_state.")
         self._runtime_sync_payload = resolved_delta.payload
         self._runtime_mix_sync_pending_presentation = None
         timer = getattr(self, "_runtime_mix_sync_timer", None)
@@ -394,15 +401,18 @@ class TimelineWidgetRuntimeMixin:
             return
         resolved_delta = delta or self._classify_runtime_audio_change(presentation)
         self._record_runtime_audio_sync_decision(resolved_delta)
+        if resolved_delta.change_kind is PlaybackChangeKind.NONE:
+            self._runtime_structural_sync_pending_presentation = None
+            timer = getattr(self, "_runtime_structural_sync_timer", None)
+            if timer is not None and hasattr(timer, "stop"):
+                timer.stop()
+            _ = reason
+            return
         sync_structure_state = getattr(runtime_audio, "sync_structure_state", None)
         if callable(sync_structure_state):
             sync_structure_state(presentation)
         else:
-            sync_presentation = getattr(runtime_audio, "sync_presentation", None)
-            if callable(sync_presentation):
-                sync_presentation(presentation)
-            else:
-                runtime_audio.build_for_presentation(presentation)
+            raise RuntimeError("Runtime audio backend does not implement sync_structure_state.")
         self._runtime_sync_payload = resolved_delta.payload
         self._runtime_structural_sync_pending_presentation = None
         mix_timer = getattr(self, "_runtime_mix_sync_timer", None)
@@ -806,9 +816,6 @@ class TimelineWidgetRuntimeMixin:
     def _dispatch(self: _TimelineWidgetRuntimeHost, intent: TimelineIntent) -> None:
         if self._on_intent is None:
             return
-        if isinstance(intent, Play) and self._runtime_audio is not None:
-            self._flush_pending_mix_runtime_sync()
-            self._flush_pending_structural_runtime_sync(reason="transport-boundary")
         updated = self._on_intent(intent)
         if updated is None:
             return
@@ -820,12 +827,33 @@ class TimelineWidgetRuntimeMixin:
             runtime_time, runtime_playing = self._sample_runtime_playhead()
             if isinstance(intent, Seek):
                 runtime_time = max(0.0, float(intent.position))
+                runtime_playing = bool(updated.is_playing)
                 self._runtime_timing_snapshot = None
                 self._runtime_playhead_floor = runtime_time if runtime_playing else None
-            elif isinstance(intent, Stop):
-                runtime_time = 0.0
+            elif isinstance(intent, Play):
+                runtime_time = max(0.0, float(updated.playhead))
+                runtime_playing = True
+                self._runtime_timing_snapshot = None
+                self._runtime_playhead_floor = runtime_time
+            elif isinstance(intent, Pause):
+                runtime_time = max(0.0, float(updated.playhead))
+                runtime_playing = False
                 self._runtime_timing_snapshot = None
                 self._runtime_playhead_floor = None
+            elif isinstance(intent, Stop):
+                runtime_time = 0.0
+                runtime_playing = False
+                self._runtime_timing_snapshot = None
+                self._runtime_playhead_floor = None
+            elif isinstance(intent, SetPlaybackStart):
+                runtime_playing = bool(updated.is_playing)
+                if runtime_playing:
+                    runtime_time = max(0.0, float(updated.playhead))
+                    self._runtime_timing_snapshot = None
+                    self._runtime_playhead_floor = runtime_time
+                else:
+                    runtime_time = max(0.0, float(updated.playhead))
+                    self._runtime_playhead_floor = None
             else:
                 runtime_time = self._stabilize_runtime_playhead(
                     runtime_time,
@@ -840,7 +868,7 @@ class TimelineWidgetRuntimeMixin:
             if (
                 not runtime_playing
                 and not was_playing
-                and not isinstance(intent, (Play, Pause, Seek, Stop))
+                and not isinstance(intent, (Play, Pause, Seek, Stop, SetPlaybackStart))
             ):
                 runtime_time = max(0.0, float(self.presentation.playhead))
                 runtime_label = self.presentation.current_time_label
@@ -876,16 +904,14 @@ class TimelineWidgetRuntimeMixin:
         runtime_audio = self._runtime_audio
         if runtime_audio is None:
             return
-        if was_playing and self._is_structural_intent(intent):
-            self._queue_structural_runtime_sync(presentation)
+        if isinstance(intent, (Play, Pause, Stop, Seek, SetPlaybackStart)):
             return
         delta = self._classify_runtime_audio_change(presentation)
         self._record_runtime_audio_sync_decision(delta)
-        if isinstance(intent, (Play, Pause, Stop, Seek)):
-            self._flush_pending_mix_runtime_sync()
-            self._flush_pending_structural_runtime_sync(reason="transport-boundary")
-            return
         if delta.change_kind is PlaybackChangeKind.NONE:
+            return
+        if was_playing and self._is_structural_intent(intent):
+            self._queue_structural_runtime_sync(presentation)
             return
         if delta.change_kind is PlaybackChangeKind.MIX_ONLY:
             self._queue_mix_runtime_sync(presentation)
@@ -1113,19 +1139,34 @@ class TimelineWidgetRuntimeMixin:
         if runtime_audio is None:
             return 0.0, False
         snapshot = self._current_runtime_timing_snapshot()
-        playing = snapshot.is_playing if snapshot is not None else runtime_audio.is_playing()
+        cache_only_runtime = callable(getattr(runtime_audio, "latest_timing_snapshot", None))
+        if snapshot is not None:
+            playing = snapshot.is_playing
+        elif cache_only_runtime:
+            playing = bool(self.presentation.is_playing)
+        else:
+            playing = runtime_audio.is_playing()
         current_time = self._resolve_runtime_time(snapshot)
-        if snapshot is None:
+        if snapshot is None and cache_only_runtime:
+            current_time = max(0.0, float(self.presentation.playhead))
+        elif snapshot is None:
             current_time = max(0.0, float(runtime_audio.current_time_seconds()))
         return current_time, playing
 
     def _current_runtime_timing_snapshot(
         self: _TimelineWidgetRuntimeHost,
     ) -> RuntimeAudioTimingSnapshot | None:
-        if self._runtime_audio is None or not hasattr(self._runtime_audio, "timing_snapshot"):
+        if self._runtime_audio is None:
             self._runtime_timing_snapshot = None
             return None
-        snapshot = self._runtime_audio.timing_snapshot()
+        latest_snapshot = getattr(self._runtime_audio, "latest_timing_snapshot", None)
+        snapshot = latest_snapshot() if callable(latest_snapshot) else None
+        if (
+            snapshot is None
+            and not callable(latest_snapshot)
+            and hasattr(self._runtime_audio, "timing_snapshot")
+        ):
+            snapshot = self._runtime_audio.timing_snapshot()
         if not isinstance(snapshot, RuntimeAudioTimingSnapshot):
             self._runtime_timing_snapshot = None
             return None

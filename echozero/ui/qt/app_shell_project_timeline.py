@@ -25,6 +25,7 @@ from echozero.application.timeline.models import (
     Timeline,
     derive_section_cues_from_layers,
 )
+from echozero.application.timeline.video_placement import VideoPlacement
 from echozero.application.timeline.object_content_persistence import (
     imported_song_content_id,
     imported_song_object_id,
@@ -173,7 +174,15 @@ def build_project_native_baseline_timeline(
         )
     }
     layer_video: dict[LayerId, VideoPresentationFields] = {}
-    video_attachment = project_storage.song_video_attachments.get_by_song(active_song.id)
+    storage_layer_records = project_storage.layers.list_by_version(version.id)
+    video_layer_records = [
+        layer_record
+        for layer_record in storage_layer_records
+        if _layer_record_is_video_reference(layer_record)
+    ]
+    video_attachment = None
+    if not video_layer_records:
+        video_attachment = project_storage.song_video_attachments.get_by_song(active_song.id)
     if video_attachment is not None:
         video_layer_id = LayerId(f"layer_video_{active_song.id}")
         layers.append(
@@ -193,7 +202,21 @@ def build_project_native_baseline_timeline(
         )
         placement = project_storage.song_video_placements.get(version.id)
         video_start_seconds = 0.0 if placement is None else float(placement.video_start_seconds)
+        video_trim_start_seconds = (
+            0.0 if placement is None else float(placement.video_trim_start_seconds)
+        )
         video_loop_enabled = False if placement is None else bool(placement.video_loop_enabled)
+        video_placement = VideoPlacement(
+            start_seconds=video_start_seconds,
+            trim_start_seconds=video_trim_start_seconds,
+            visible_duration_seconds=(
+                0.0
+                if placement is None or placement.video_visible_duration_seconds is None
+                else float(placement.video_visible_duration_seconds)
+            ),
+            source_duration_seconds=float(video_attachment.duration_seconds),
+            loop_enabled=video_loop_enabled,
+        ).normalized()
         video_path = resolve_project_video_path(
             project_storage.working_dir,
             video_attachment.video_file,
@@ -216,11 +239,13 @@ def build_project_native_baseline_timeline(
             )
         layer_video[video_layer_id] = VideoPresentationFields(
             video_path=str(video_path),
-            video_start_seconds=video_start_seconds,
+            video_start_seconds=video_placement.start_seconds,
+            video_trim_start_seconds=video_placement.trim_start_seconds,
             video_duration_seconds=float(video_attachment.duration_seconds),
-            video_loop_enabled=video_loop_enabled,
+            video_visible_duration_seconds=video_placement.visible_duration_seconds,
+            video_loop_enabled=video_placement.loop_enabled,
         )
-    for layer_record in project_storage.layers.list_by_version(version.id):
+    for layer_record in storage_layer_records:
         layer, layer_fields, take_fields = build_storage_layer(
             project_storage, timeline_id, layer_record
         )
@@ -230,6 +255,15 @@ def build_project_native_baseline_timeline(
             layers.append(layer)
             layer_audio[layer.id] = layer_fields
             take_audio.update(take_fields)
+            video_fields, video_audio_fields = _video_fields_for_storage_layer(
+                project_storage,
+                layer_id=layer.id,
+                object_id=layer.object_id,
+            )
+            if video_fields is not None:
+                layer_video[layer.id] = video_fields
+            if video_audio_fields is not None:
+                layer_audio[layer.id] = video_audio_fields
     _expand_synthetic_source_layer_groups(layers)
     timeline = Timeline(
         id=timeline_id,
@@ -285,6 +319,68 @@ def build_empty_project_timeline(project_storage: ProjectStorage) -> Timeline:
         id=timeline_id,
         song_version_id=SongVersionId("song_version_empty"),
         layers=[],
+    )
+
+
+def _layer_record_is_video_reference(layer_record) -> bool:
+    state_flags = getattr(layer_record, "state_flags", {}) or {}
+    return (
+        str(state_flags.get("reference_kind") or "").strip().lower() == "video"
+        or bool(state_flags.get("package_video_layer"))
+    )
+
+
+def _video_fields_for_storage_layer(
+    project_storage: ProjectStorage,
+    *,
+    layer_id: LayerId,
+    object_id: TimelineObjectId | None,
+) -> tuple[VideoPresentationFields | None, AudioPresentationFields | None]:
+    if object_id is None:
+        return None, None
+    object_record = project_storage.timeline_objects.get(str(object_id))
+    if object_record is None:
+        return None, None
+    content = project_storage.object_contents.get(object_record.main_content_id)
+    if content is None or content.content_kind != "video_clip":
+        return None, None
+    payload = content.payload if isinstance(content.payload, dict) else {}
+    video_file = str(payload.get("video_file") or "").strip()
+    if not video_file:
+        return None, None
+    duration_seconds = float(payload.get("duration_seconds") or 0.0)
+    placement = VideoPlacement(
+        start_seconds=float(payload.get("video_start_seconds") or 0.0),
+        trim_start_seconds=float(payload.get("video_trim_start_seconds") or 0.0),
+        visible_duration_seconds=float(payload.get("video_visible_duration_seconds") or 0.0),
+        source_duration_seconds=duration_seconds,
+        loop_enabled=bool(payload.get("video_loop_enabled", False)),
+    ).normalized()
+    video_path = resolve_project_video_path(project_storage.working_dir, video_file)
+    audio_fields: AudioPresentationFields | None = None
+    extracted_audio_file = str(payload.get("extracted_audio_file") or "").strip()
+    if extracted_audio_file:
+        video_audio_path = resolve_project_audio_path(project_storage, extracted_audio_file)
+        waveform_key = ensure_registered_waveform(
+            "video-layer-audio-"
+            f"{layer_id}-{payload.get('extracted_audio_hash') or content.revision_id}",
+            video_audio_path,
+        )
+        audio_fields = AudioPresentationFields(
+            waveform_key=waveform_key,
+            source_audio_path=str(video_audio_path),
+            playback_source_ref=None,
+        )
+    return (
+        VideoPresentationFields(
+            video_path=str(video_path),
+            video_start_seconds=placement.start_seconds,
+            video_trim_start_seconds=placement.trim_start_seconds,
+            video_duration_seconds=duration_seconds,
+            video_visible_duration_seconds=placement.visible_duration_seconds,
+            video_loop_enabled=placement.loop_enabled,
+        ),
+        audio_fields,
     )
 
 

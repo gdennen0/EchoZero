@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import echozero.ui.qt.launcher_surface as launcher_surface
 import pytest
 import run_echozero
-from echozero.application.settings import AppSettingsLaunchOverrides
+from echozero.application.settings import AppSettingsLaunchOverrides, AppSettingsUpdateResult
 from PyQt6.QtWidgets import QMessageBox
 
 
@@ -329,6 +329,7 @@ def _install_launcher_fakes(
         dispatch=lambda intent: intent,
         runtime_audio=runtime_audio,
         shutdown=lambda: runtime_audio.shutdown(),
+        shutdown_dialog_calls=[],
     )
     build_calls: list[dict[str, object]] = []
     surface_calls: list[dict[str, object]] = []
@@ -358,7 +359,9 @@ def _install_launcher_fakes(
                 "open_project": object(),
                 "save_project": object(),
                 "save_project_as": object(),
-            }
+            },
+            begin_shutdown_dialog=lambda: runtime.shutdown_dialog_calls.append("begin"),
+            finish_shutdown_dialog=lambda: runtime.shutdown_dialog_calls.append("finish"),
         )
         widget._launcher_actions = launcher.actions
         return SimpleNamespace(runtime=runtime, widget=widget, controller=launcher)
@@ -422,7 +425,7 @@ def test_run_echozero_main_wires_widget_and_smoke_timer(monkeypatch):
 
 
 def test_run_echozero_main_skips_timer_when_not_requested(monkeypatch):
-    _, runtime_audio, build_calls, log_calls, _, _ = _install_launcher_fakes(
+    runtime, runtime_audio, build_calls, log_calls, _, _ = _install_launcher_fakes(
         monkeypatch, exec_result=5
     )
 
@@ -440,6 +443,7 @@ def test_run_echozero_main_skips_timer_when_not_requested(monkeypatch):
     assert widget.resize_calls == [(1440, 720)]
     assert widget.show_calls == 1
     assert FakeQTimer.shots == []
+    assert runtime.shutdown_dialog_calls == ["begin", "finish"]
     assert runtime_audio.shutdown_calls == 1
 
 
@@ -731,6 +735,63 @@ def test_launcher_sets_window_title_from_project_name(monkeypatch):
     assert widget.window_file_paths[-1] == ""
 
 
+def test_launcher_close_event_closes_video_windows_after_confirming_close():
+    close_calls: list[str] = []
+    runtime = SimpleNamespace(
+        runtime_audio=FakeRuntimeAudio(),
+        project_storage=SimpleNamespace(project=SimpleNamespace(name="Night Set")),
+        is_dirty=False,
+        project_path=None,
+        presentation=lambda: "presentation",
+        dispatch=lambda intent: intent,
+        close_video_windows=lambda: close_calls.append("close_video_windows"),
+    )
+    widget = FakeWidget(
+        runtime.presentation(),
+        on_intent=runtime.dispatch,
+        runtime_audio=runtime.runtime_audio,
+    )
+    launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
+    event = FakeCloseEvent()
+
+    launcher.close_event(event)
+
+    assert close_calls == ["close_video_windows"]
+    assert event.accepted is True
+    assert widget.close_events == [event]
+
+
+def test_launcher_close_event_leaves_video_windows_open_when_close_is_canceled(monkeypatch):
+    close_calls: list[str] = []
+    runtime = SimpleNamespace(
+        runtime_audio=FakeRuntimeAudio(),
+        project_storage=SimpleNamespace(project=SimpleNamespace(name="Night Set")),
+        is_dirty=True,
+        project_path=None,
+        presentation=lambda: "presentation",
+        dispatch=lambda intent: intent,
+        close_video_windows=lambda: close_calls.append("close_video_windows"),
+    )
+    widget = FakeWidget(
+        runtime.presentation(),
+        on_intent=runtime.dispatch,
+        runtime_audio=runtime.runtime_audio,
+    )
+    launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
+    monkeypatch.setattr(
+        launcher_surface.QMessageBox,
+        "question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Cancel,
+    )
+    event = FakeCloseEvent()
+
+    launcher.close_event(event)
+
+    assert close_calls == []
+    assert event.ignored is True
+    assert widget.close_events == []
+
+
 def test_launcher_syncs_native_modified_title_state(monkeypatch):
     runtime = SimpleNamespace(
         runtime_audio=FakeRuntimeAudio(),
@@ -949,6 +1010,60 @@ def test_launcher_open_project_reports_errors(monkeypatch):
     widget._launcher_actions["open_project"].trigger()
 
     assert errors == [("Open Project Failed", "Open Project failed.\n\nbad archive")]
+
+
+def test_launcher_project_load_actions_show_progress_overlay(monkeypatch):
+    overlays: list[tuple[str, str]] = []
+    finished: list[object] = []
+    runtime = SimpleNamespace(
+        runtime_audio=FakeRuntimeAudio(),
+        is_dirty=False,
+        project_path=Path("C:/projects/current.ez"),
+        presentation=lambda: "presentation",
+        dispatch=lambda intent: intent,
+    )
+
+    def new_project() -> None:
+        runtime.project_path = None
+
+    def open_project(path) -> None:
+        runtime.project_path = Path(path)
+
+    def begin_overlay(_parent, *, title: str, message: str):
+        handle = object()
+        overlays.append((title, message))
+        return handle
+
+    runtime.new_project = new_project
+    runtime.open_project = open_project
+
+    monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
+    monkeypatch.setattr(
+        launcher_surface.QFileDialog,
+        "getOpenFileName",
+        lambda *args, **kwargs: ("C:/projects/opened.ez", run_echozero.PROJECT_FILE_FILTER),
+    )
+    monkeypatch.setattr(launcher_surface, "begin_operation_progress_overlay", begin_overlay)
+    monkeypatch.setattr(
+        launcher_surface,
+        "finish_operation_progress_overlay",
+        lambda handle: finished.append(handle),
+    )
+
+    widget = FakeWidget(
+        runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+    )
+    launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
+    launcher.install()
+
+    widget._launcher_actions["new_project"].trigger()
+    widget._launcher_actions["open_project"].trigger()
+
+    assert overlays == [
+        ("New Project", "Preparing a fresh project..."),
+        ("Open Project", "Loading opened.ez..."),
+    ]
+    assert len(finished) == 2
 
 
 def test_launcher_open_project_tracks_recent_projects(monkeypatch):
@@ -1333,6 +1448,43 @@ def test_launcher_audio_settings_rebinds_widget_runtime_audio_controller(monkeyp
     assert widget.runtime_audio is replacement_runtime_audio
 
 
+def test_launcher_no_change_settings_save_refreshes_audio_hardware(monkeypatch):
+    class _Settings:
+        def __init__(self) -> None:
+            self.config = SimpleNamespace(sample_rate=None, output_device=None)
+
+        def resolve_audio_output_config(self):
+            return self.config
+
+    current_runtime_audio = FakeRuntimeAudio()
+    settings = _Settings()
+    apply_calls: list[object] = []
+    runtime = SimpleNamespace(
+        runtime_audio=current_runtime_audio,
+        app_settings_service=settings,
+        is_dirty=False,
+        project_path=None,
+        presentation=lambda: "presentation",
+        dispatch=lambda intent: intent,
+        apply_audio_output_config=lambda config: apply_calls.append(config),
+    )
+
+    monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
+
+    widget = FakeWidget(
+        runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+    )
+    launcher = run_echozero.LauncherController(
+        runtime=runtime, widget=widget, app_settings_service=settings
+    )
+    launcher.install()
+
+    launcher._on_app_settings_saved(AppSettingsUpdateResult(preferences=object()))
+
+    assert apply_calls == [settings.config]
+    assert widget.external_presentation_updates == ["presentation"]
+
+
 def test_launcher_project_settings_action_updates_ma3_push_offset(monkeypatch):
     runtime_audio = FakeRuntimeAudio()
     calls: list[float] = []
@@ -1470,6 +1622,38 @@ def test_launcher_close_prompt_discard_closes(monkeypatch):
 
     widget.closeEvent(event)
 
+    assert event.accepted is True
+    assert event.ignored is False
+    assert len(widget.close_events) == 1
+
+
+def test_launcher_close_event_shows_shutdown_dialog_after_confirmation(monkeypatch):
+    dialog_calls: list[tuple[str, object]] = []
+    runtime = SimpleNamespace(
+        runtime_audio=FakeRuntimeAudio(),
+        is_dirty=False,
+        project_path=Path("C:/projects/current.ez"),
+    )
+    runtime.presentation = lambda: "presentation"
+    runtime.dispatch = lambda intent: intent
+
+    monkeypatch.setattr(launcher_surface, "QAction", FakeAction)
+    monkeypatch.setattr(
+        launcher_surface,
+        "begin_operation_progress_overlay",
+        lambda parent, **_kwargs: dialog_calls.append(("begin", parent)) or "dialog",
+    )
+
+    widget = FakeWidget(
+        runtime.presentation(), on_intent=runtime.dispatch, runtime_audio=runtime.runtime_audio
+    )
+    launcher = run_echozero.LauncherController(runtime=runtime, widget=widget)
+    launcher.install()
+    event = FakeCloseEvent()
+
+    widget.closeEvent(event)
+
+    assert dialog_calls == [("begin", widget)]
     assert event.accepted is True
     assert event.ignored is False
     assert len(widget.close_events) == 1

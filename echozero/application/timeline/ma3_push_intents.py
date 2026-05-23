@@ -323,6 +323,7 @@ class PushLayerToMA3(TimelineIntent):
     ma3_channel_no: int | None = None
     selected_event_ids: list[EventId] = field(default_factory=list)
     sequence_action: MA3TrackSequenceAction | None = None
+    skip_cue_1: bool = False
 
     def __post_init__(self) -> None:
         if self.layer_id is None or not str(self.layer_id).strip():
@@ -341,6 +342,7 @@ class PushLayerToMA3(TimelineIntent):
         )
         self.selected_event_ids = list(dict.fromkeys(self.selected_event_ids))
         self.sequence_action = _coerce_sequence_action(self.sequence_action)
+        self.skip_cue_1 = bool(self.skip_cue_1)
 
         if self.scope is MA3PushScope.SELECTED_EVENTS and not self.selected_event_ids:
             raise ValueError(

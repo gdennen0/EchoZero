@@ -6,6 +6,7 @@ import uuid
 from pathlib import Path
 
 from echozero.application.shared.enums import SyncMode
+import echozero.ui.qt.app_shell as app_shell
 import echozero.ui.qt.launcher_surface as launcher_surface
 from echozero.ui.qt.app_shell import AppShellRuntime, build_app_shell
 from echozero.ui.qt.launcher_surface import LauncherSurface, build_launcher_surface
@@ -88,9 +89,7 @@ def test_build_app_shell_has_no_profile_split():
 
 
 def test_app_shell_module_does_not_route_through_demo_app():
-    source = Path("/Users/march/Documents/GitHub/EchoZero/echozero/ui/qt/app_shell.py").read_text(
-        encoding="utf-8"
-    )
+    source = Path(app_shell.__file__).read_text(encoding="utf-8")
     assert "timeline.demo_app" not in source
 
 

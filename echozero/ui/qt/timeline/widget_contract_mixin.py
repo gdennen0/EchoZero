@@ -48,6 +48,7 @@ from echozero.application.timeline.intents import (
     SelectTake,
     SetLayerMute,
     SetLayerSolo,
+    SetPlaybackStart,
     SetSelectedEvents,
     TimelineIntent,
     ToggleLayerExpanded,
@@ -115,6 +116,9 @@ class _TimelineWidgetContractHost(Protocol):
 class TimelineWidgetContractMixin:
     def _seek(self: _TimelineWidgetContractHost, position: float) -> None:
         self._dispatch(Seek(position))
+
+    def _set_playback_start(self: _TimelineWidgetContractHost, position: float) -> None:
+        self._dispatch(SetPlaybackStart(position))
 
     def _select_layer(
         self: _TimelineWidgetContractHost,

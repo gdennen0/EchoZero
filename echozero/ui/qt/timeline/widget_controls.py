@@ -23,6 +23,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import (
     QButtonGroup,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -53,6 +54,7 @@ from echozero.ui.qt.timeline.blocks.ruler import (
     RulerBlock,
     RulerLayout,
     seek_time_for_x,
+    timeline_x_for_time,
 )
 from echozero.ui.qt.timeline.blocks.transport_bar import TransportLayout
 from echozero.ui.qt.timeline.blocks.transport_bar_block import TransportBarBlock
@@ -94,8 +96,8 @@ class TimelineEditorModeBar(QWidget):
         "osc_settings": "osc",
         "pipeline_settings": "pipeline",
     }
-    _TOOL_BUTTON_SIZE = QSize(28, 22)
-    _COMPACT_TOOL_BUTTON_SIZE = QSize(26, 22)
+    _TOOL_BUTTON_SIZE = QSize(26, 18)
+    _COMPACT_TOOL_BUTTON_SIZE = QSize(24, 18)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -105,11 +107,29 @@ class TimelineEditorModeBar(QWidget):
         self._pending_standalone_width: int | None = None
         self.setProperty("compact", False)
         self._toolbar_labels: list[QLabel] = []
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(
+        outer_layout = QHBoxLayout(self)
+        outer_layout.setContentsMargins(
             TIMELINE_EDITOR_BAR_PADDING_X_PX,
             TIMELINE_EDITOR_BAR_PADDING_Y_PX,
             TIMELINE_EDITOR_BAR_PADDING_X_PX,
+            TIMELINE_EDITOR_BAR_PADDING_Y_PX,
+        )
+        outer_layout.setSpacing(0)
+
+        self._toolbar_container = QFrame(self)
+        self._toolbar_container.setObjectName("timelineEditorToolbarContainer")
+        self._toolbar_container.setFixedHeight(26)
+        self._toolbar_container.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
+        outer_layout.addWidget(self._toolbar_container, 1, Qt.AlignmentFlag.AlignVCenter)
+
+        layout = QHBoxLayout(self._toolbar_container)
+        layout.setContentsMargins(
+            max(6, TIMELINE_EDITOR_BAR_PADDING_X_PX + 4),
+            TIMELINE_EDITOR_BAR_PADDING_Y_PX,
+            max(6, TIMELINE_EDITOR_BAR_PADDING_X_PX + 4),
             TIMELINE_EDITOR_BAR_PADDING_Y_PX,
         )
         layout.setSpacing(TIMELINE_EDITOR_GROUP_SPACING_PX)
@@ -121,7 +141,7 @@ class TimelineEditorModeBar(QWidget):
         self._fix_action_group = QButtonGroup(self)
         self._fix_action_group.setExclusive(True)
         self._fix_action_buttons: dict[str, QPushButton] = {}
-        mode_group = QWidget(self)
+        mode_group = QWidget(self._toolbar_container)
         mode_group.setObjectName("timelineEditorModeGroup")
         mode_group.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         mode_layout = self._create_group_layout(mode_group)
@@ -151,7 +171,7 @@ class TimelineEditorModeBar(QWidget):
             self._mode_buttons[mode] = button
         layout.addWidget(mode_group, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        assist_group = QWidget(self)
+        assist_group = QWidget(self._toolbar_container)
         assist_group.setObjectName("timelineEditorAssistGroup")
         assist_group.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         assist_layout = self._create_group_layout(assist_group)
@@ -267,7 +287,7 @@ class TimelineEditorModeBar(QWidget):
         layout.addWidget(assist_group, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addStretch(1)
 
-        shell_group = QWidget(self)
+        shell_group = QWidget(self._toolbar_container)
         shell_group.setObjectName("timelineEditorShellGroup")
         shell_group.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         shell_layout = self._create_group_layout(shell_group)
@@ -457,7 +477,7 @@ class TimelineEditorModeBar(QWidget):
         )
 
     def _refresh_settings_button_icon(self) -> None:
-        icon_size = max(14, int(round(self._settings_button.fontMetrics().height() * 1.5)))
+        icon_size = max(16, int(round(self._settings_button.fontMetrics().height() * 1.5)))
         self._settings_button.setIcon(self._build_gear_icon(icon_size))
         self._settings_button.setIconSize(QSize(icon_size, icon_size))
 
@@ -622,6 +642,7 @@ class TimelineEditorModeBar(QWidget):
     def _repolish_toolbar_widgets(self) -> None:
         widgets: tuple[QWidget, ...] = (
             self,
+            self._toolbar_container,
             self._snap_button,
             self._grid_button,
             self._settings_button,
@@ -735,6 +756,7 @@ class TransportBar(QWidget):
 
 class TimelineRuler(QWidget):
     seek_requested = pyqtSignal(float)
+    playback_start_requested = pyqtSignal(float)
 
     def __init__(
         self,
@@ -749,6 +771,7 @@ class TimelineRuler(QWidget):
         self._block = RulerBlock()
         self._grid_mode = TimelineGridMode.AUTO
         self._dragging = False
+        self._dragging_playback_start = False
         self.setMinimumHeight(RULER_HEIGHT_PX)
         self.setMaximumHeight(RULER_HEIGHT_PX)
 
@@ -795,15 +818,25 @@ class TimelineRuler(QWidget):
             event.button() == Qt.MouseButton.LeftButton
             and event.position().x() >= self._header_width
         ):
-            self._dragging = True
+            if self._playback_start_marker_contains(event.position()):
+                self._dragging_playback_start = True
+                self.playback_start_requested.emit(self._seek_time_at_x(event.position().x()))
+                event.accept()
+                return
+            self._dragging_playback_start = True
             current_time = self._seek_time_at_x(event.position().x())
-            self.seek_requested.emit(current_time)
+            self.playback_start_requested.emit(current_time)
             event.accept()
             return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent | None) -> None:
         if event is None:
+            return
+        if self._dragging_playback_start and event.buttons() & Qt.MouseButton.LeftButton:
+            current_time = self._seek_time_at_x(event.position().x())
+            self.playback_start_requested.emit(current_time)
+            event.accept()
             return
         if self._dragging and event.buttons() & Qt.MouseButton.LeftButton:
             current_time = self._seek_time_at_x(event.position().x())
@@ -817,7 +850,19 @@ class TimelineRuler(QWidget):
             return
         if event.button() == Qt.MouseButton.LeftButton:
             self._dragging = False
+            self._dragging_playback_start = False
         super().mouseReleaseEvent(event)
+
+    def _playback_start_marker_contains(self, pos: QPointF) -> bool:
+        marker_x = timeline_x_for_time(
+            self.presentation.playback_start,
+            scroll_x=self.presentation.scroll_x,
+            pixels_per_second=self.presentation.pixels_per_second,
+            content_start_x=self._header_width,
+        )
+        if marker_x < self._header_width:
+            return False
+        return abs(float(pos.x()) - float(marker_x)) <= 8.0 and float(pos.y()) <= 20.0
 
     def _seek_time_at_x(self, x: float) -> float:
         return seek_time_for_x(

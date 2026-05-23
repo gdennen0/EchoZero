@@ -395,6 +395,11 @@ class EchoZeroAutomationBackend:
             None,
         )
         playback_state = self._harness.runtime.session.playback_state
+        runtime_audio = getattr(self._harness.runtime, "runtime_audio", None)
+        snapshot_state = getattr(runtime_audio, "snapshot_state", None)
+        if callable(snapshot_state):
+            playback_state = snapshot_state(presentation)
+            self._harness.runtime.session.playback_state = playback_state
         transport_artifact = {
             "is_playing": bool(presentation.is_playing),
             "playhead_seconds": float(presentation.playhead),

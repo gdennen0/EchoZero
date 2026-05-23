@@ -61,6 +61,7 @@ class TimelineAssembler:
                 section_cues=self._assemble_section_cues(timeline),
                 section_regions=self._assemble_section_regions(timeline),
                 playhead=session.transport_state.playhead,
+                playback_start=session.transport_state.playback_start_seconds,
                 is_playing=session.transport_state.is_playing,
                 loop_region=timeline.loop_region,
                 follow_mode=session.transport_state.follow_mode,

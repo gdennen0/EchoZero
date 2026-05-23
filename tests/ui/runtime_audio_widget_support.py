@@ -8,10 +8,13 @@ from echozero.ui.FEEL import TIMELINE_RUNTIME_TICK_IDLE_MS
 from echozero.application.presentation.models import SectionCuePresentation
 from echozero.application.shared.ranges import TimeRange
 from echozero.application.timeline.intents import (
+    CommitRejectedEventsReview,
     CreateEvent,
     ReplaceSectionCues,
     SectionCueEdit,
+    SetPlaybackStart,
     SetSelectedEvents,
+    UpdateEventLabel,
 )
 from echozero.application.timeline.models import EventRef
 from tests.ui.timeline_shell_shared_support import _selection_test_presentation
@@ -113,9 +116,7 @@ def test_widget_dispatch_defers_object_info_refresh_for_live_create_event(monkey
         app.processEvents()
 
 
-def test_widget_live_structural_dispatch_queues_without_hot_path_playback_classify(
-    monkeypatch,
-):
+def test_widget_live_structural_dispatch_queues_after_audible_delta_classification():
     app = QApplication.instance() or QApplication([])
     presentation = replace(
         _event_slice_presentation(),
@@ -147,13 +148,6 @@ def test_widget_live_structural_dispatch_queues_without_hot_path_playback_classi
 
     widget = TimelineWidget(presentation, on_intent=_on_intent, runtime_audio=runtime_audio)
     widget._runtime_timer.stop()
-    monkeypatch.setattr(
-        widget,
-        "_classify_runtime_audio_change",
-        lambda _presentation: (_ for _ in ()).throw(
-            AssertionError("playback classification ran on the gesture hot path")
-        ),
-    )
     try:
         widget.resize(1200, 320)
         widget.show()
@@ -168,6 +162,213 @@ def test_widget_live_structural_dispatch_queues_without_hot_path_playback_classi
         )
 
         assert widget._runtime_structural_sync_pending_presentation is not None
+        assert runtime_audio.local_sync_decisions[-1][0] == "structure"
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_widget_live_event_label_update_does_not_queue_playback_graph_work():
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(
+        _event_slice_presentation(),
+        is_playing=True,
+        playhead=1.0,
+        current_time_label="00:00:01.00",
+    )
+    runtime_audio = FakeRuntimeAudio()
+    runtime_audio.playing = True
+    runtime_audio.current_time = 1.0
+    kick_layer = presentation.layers[1]
+    target_event = kick_layer.events[0]
+
+    def _on_intent(intent):
+        if not isinstance(intent, UpdateEventLabel):
+            return presentation
+        updated_event = replace(target_event, label=str(intent.label))
+        updated_layer = replace(kick_layer, events=[updated_event, *kick_layer.events[1:]])
+        return replace(presentation, layers=[presentation.layers[0], updated_layer])
+
+    widget = TimelineWidget(presentation, on_intent=_on_intent, runtime_audio=runtime_audio)
+    widget._runtime_timer.stop()
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+
+        widget._dispatch(
+            UpdateEventLabel(
+                event_id=target_event.event_id,
+                layer_id=kick_layer.layer_id,
+                label="Snare",
+            )
+        )
+
+        assert widget._runtime_structural_sync_pending_presentation is None
+        assert runtime_audio.local_sync_decisions[-1][0] == "none"
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_widget_live_section_cue_update_does_not_queue_playback_graph_work():
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(
+        _event_slice_presentation(),
+        is_playing=True,
+        playhead=1.0,
+        current_time_label="00:00:01.00",
+    )
+    runtime_audio = FakeRuntimeAudio()
+    runtime_audio.playing = True
+    runtime_audio.current_time = 1.0
+
+    def _on_intent(intent):
+        if not isinstance(intent, ReplaceSectionCues):
+            return presentation
+        return replace(
+            presentation,
+            section_cues=[
+                SectionCuePresentation(
+                    cue_id="cue_intro",
+                    start=0.0,
+                    name="Intro",
+                )
+            ],
+        )
+
+    widget = TimelineWidget(presentation, on_intent=_on_intent, runtime_audio=runtime_audio)
+    widget._runtime_timer.stop()
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+
+        widget._dispatch(
+            ReplaceSectionCues(
+                cues=[SectionCueEdit(cue_id=None, start=0.0, name="Intro")]
+            )
+        )
+
+        assert widget._runtime_structural_sync_pending_presentation is None
+        assert runtime_audio.local_sync_decisions[-1][0] == "none"
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_widget_transport_dispatch_skips_hot_path_playback_classify(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(
+        _event_slice_presentation(),
+        is_playing=True,
+        playhead=1.0,
+        current_time_label="00:00:01.00",
+    )
+    runtime_audio = FakeRuntimeAudio()
+    runtime_audio.playing = True
+    runtime_audio.current_time = 1.0
+
+    def _on_intent(intent):
+        if isinstance(intent, Seek):
+            runtime_audio.seek(float(intent.position))
+            return replace(
+                presentation,
+                playhead=float(intent.position),
+                current_time_label="00:00:02.00",
+            )
+        return presentation
+
+    widget = TimelineWidget(presentation, on_intent=_on_intent, runtime_audio=runtime_audio)
+    widget._runtime_timer.stop()
+    monkeypatch.setattr(
+        widget,
+        "_classify_runtime_audio_change",
+        lambda _presentation: (_ for _ in ()).throw(
+            AssertionError("transport intent should not classify playback deltas")
+        ),
+    )
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+
+        widget._dispatch(Seek(2.0))
+
+        assert widget.presentation.playhead == 2.0
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_widget_runtime_tick_prefers_cached_timing_snapshot_without_polling_backend():
+    app = QApplication.instance() or QApplication([])
+    presentation = _audio_presentation()
+
+    class CachedTimingRuntime(FakeRuntimeAudio):
+        def latest_timing_snapshot(self):
+            return RuntimeAudioTimingSnapshot(
+                audible_time_seconds=2.5,
+                clock_time_seconds=2.5,
+                snapshot_monotonic_seconds=None,
+                is_playing=True,
+            )
+
+        def timing_snapshot(self):
+            raise AssertionError("runtime tick should use cached timing snapshot")
+
+    runtime_audio = CachedTimingRuntime()
+    runtime_audio.playing = True
+    widget = TimelineWidget(presentation, on_intent=lambda intent: presentation, runtime_audio=runtime_audio)
+    widget._runtime_timer.stop()
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+
+        widget._on_runtime_tick()
+
+        assert widget.presentation.playhead == 2.5
+        assert widget.presentation.is_playing is True
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_widget_runtime_tick_does_not_poll_process_runtime_when_cache_is_stale():
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(
+        _audio_presentation(),
+        playhead=1.25,
+        is_playing=True,
+        current_time_label="00:01.25",
+    )
+
+    class StaleProcessRuntime(FakeRuntimeAudio):
+        def latest_timing_snapshot(self):
+            return None
+
+        def timing_snapshot(self):
+            raise AssertionError("active tick must not use HTTP timing fallback")
+
+        def current_time_seconds(self):
+            raise AssertionError("active tick must not poll process current time")
+
+        def is_playing(self):
+            raise AssertionError("active tick must not poll process playing state")
+
+    runtime_audio = StaleProcessRuntime()
+    widget = TimelineWidget(presentation, on_intent=lambda intent: presentation, runtime_audio=runtime_audio)
+    widget._runtime_timer.stop()
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+
+        widget._on_runtime_tick()
+
+        assert widget.presentation.playhead == 1.25
+        assert widget.presentation.is_playing is True
     finally:
         widget.close()
         app.processEvents()
@@ -506,7 +707,7 @@ def test_widget_dispatch_preserves_runtime_playhead_on_audio_route_update():
         app.processEvents()
 
 
-def test_widget_dispatch_uses_exact_runtime_clock_time_when_pausing():
+def test_widget_dispatch_uses_app_playback_anchor_when_pausing():
     app = QApplication.instance() or QApplication([])
     presentation = _audio_presentation()
     runtime_audio = FakeRuntimeAudio()
@@ -533,9 +734,81 @@ def test_widget_dispatch_uses_exact_runtime_clock_time_when_pausing():
 
         widget._dispatch(Pause())
 
-        assert widget.presentation.playhead == 4.257
+        assert widget.presentation.playhead == 4.25
         assert widget.presentation.is_playing is False
-        assert widget.presentation.current_time_label == "00:00:04.26"
+        assert widget.presentation.current_time_label == "00:00:04.25"
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_widget_dispatch_moves_paused_home_marker_without_moving_playhead():
+    app = QApplication.instance() or QApplication([])
+    presentation = _audio_presentation()
+    runtime_audio = FakeRuntimeAudio()
+
+    def _on_intent(intent):
+        if isinstance(intent, SetPlaybackStart):
+            return replace(
+                presentation,
+                playback_start=float(intent.position),
+                playhead=1.5,
+                is_playing=False,
+            )
+        return presentation
+
+    widget = TimelineWidget(presentation, on_intent=_on_intent, runtime_audio=runtime_audio)
+    widget._runtime_timer.stop()
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+
+        widget._dispatch(SetPlaybackStart(4.25))
+
+        assert widget.presentation.playback_start == 4.25
+        assert widget.presentation.playhead == 1.5
+        assert widget.presentation.current_time_label == "00:00:01.50"
+    finally:
+        widget.close()
+        app.processEvents()
+
+
+def test_widget_dispatch_moves_home_and_playhead_while_playing():
+    app = QApplication.instance() or QApplication([])
+    presentation = replace(
+        _audio_presentation(),
+        is_playing=True,
+        playhead=1.5,
+        current_time_label="00:00:01.50",
+    )
+    runtime_audio = FakeRuntimeAudio()
+    runtime_audio.playing = True
+    runtime_audio.current_time = 1.5
+
+    def _on_intent(intent):
+        if isinstance(intent, SetPlaybackStart):
+            return replace(
+                presentation,
+                playback_start=float(intent.position),
+                playhead=float(intent.position),
+                is_playing=True,
+            )
+        return presentation
+
+    widget = TimelineWidget(presentation, on_intent=_on_intent, runtime_audio=runtime_audio)
+    widget._runtime_timer.stop()
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+
+        widget._dispatch(SetPlaybackStart(4.25))
+
+        assert widget.presentation.playback_start == 4.25
+        assert widget.presentation.playhead == 4.25
+        assert widget.presentation.current_time_label == "00:00:04.25"
+        assert widget.presentation.is_playing is True
     finally:
         widget.close()
         app.processEvents()
@@ -872,6 +1145,69 @@ def test_widget_dispatch_flushes_pending_structural_sync_on_pause():
         app.processEvents()
 
 
+def test_widget_dispatch_defers_live_review_state_sync_until_pause():
+    app = QApplication.instance() or QApplication([])
+    base = replace(
+        _event_slice_presentation(),
+        is_playing=True,
+        playhead=1.0,
+        current_time_label="00:01.00",
+    )
+    runtime_audio = CountingRuntimeAudio()
+    runtime_audio.playing = True
+    runtime_audio.current_time = 1.0
+
+    event_ref = EventRef(LayerId("kick_lane"), None, EventId("kick_1"))
+    state = {"presentation": base}
+
+    def _on_intent(intent):
+        current = state["presentation"]
+        if isinstance(intent, CommitRejectedEventsReview):
+            target = current.layers[1]
+            updated_events = [
+                replace(event, badges=[*event.badges, "demoted"])
+                if event.event_id == EventId("kick_1")
+                else event
+                for event in target.events
+            ]
+            updated = replace(
+                current,
+                layers=[
+                    current.layers[0],
+                    replace(target, events=updated_events),
+                ],
+            )
+            state["presentation"] = updated
+            return updated
+        if isinstance(intent, Pause):
+            runtime_audio.pause()
+            updated = replace(current, is_playing=False, current_time_label="00:01.00")
+            state["presentation"] = updated
+            return updated
+        return current
+
+    widget = TimelineWidget(base, on_intent=_on_intent, runtime_audio=runtime_audio)
+    widget._runtime_timer.stop()
+    try:
+        widget.resize(1200, 320)
+        widget.show()
+        app.processEvents()
+
+        assert runtime_audio.build_calls == 1
+        widget._dispatch(CommitRejectedEventsReview(event_refs=[event_ref]))
+        assert runtime_audio.build_calls == 1
+        assert widget._runtime_structural_sync_pending_presentation is not None
+
+        widget._on_runtime_structural_sync_timeout()
+        assert runtime_audio.build_calls == 1
+
+        widget._dispatch(Pause())
+        assert runtime_audio.build_calls == 2
+    finally:
+        widget.close()
+        app.processEvents()
+
+
 def test_widget_dispatch_coalesces_mix_only_intents_while_playing():
     app = QApplication.instance() or QApplication([])
     base = replace(
@@ -921,7 +1257,7 @@ def test_widget_dispatch_coalesces_mix_only_intents_while_playing():
         app.processEvents()
 
 
-def test_widget_dispatch_flushes_pending_paused_mix_before_play():
+def test_widget_dispatch_keeps_pending_paused_mix_off_play_hot_path():
     app = QApplication.instance() or QApplication([])
     base = _audio_presentation()
 
@@ -973,7 +1309,12 @@ def test_widget_dispatch_flushes_pending_paused_mix_before_play():
 
         widget._dispatch(Play())
 
-        assert runtime_audio.calls[:2] == ["mix", "play"]
+        assert runtime_audio.calls[:1] == ["play"]
+        assert widget._runtime_mix_sync_pending_presentation is not None
+
+        widget._on_runtime_mix_sync_timeout()
+
+        assert runtime_audio.calls[:2] == ["play", "mix"]
         assert runtime_audio.last_mix_state.layers[0].muted is True
         assert widget._runtime_mix_sync_pending_presentation is None
     finally:
@@ -1007,17 +1348,17 @@ def test_audio_engine_keeps_injected_streams_on_low_latency_with_unspecified_cal
     engine.shutdown()
 
 
-def test_runtime_controller_uses_default_v2_backend_for_audio_layers():
+def test_runtime_controller_uses_stable_default_backend_for_audio_layers():
     app = QApplication.instance() or QApplication([])
     presentation = _audio_presentation()
     controller = TimelineRuntimeAudioController(
         audio_loader=lambda _path: (np.ones(4410, dtype=np.float32), 44100),
     )
     try:
-        controller.build_for_presentation(presentation)
+        controller.sync_structure_state(presentation)
         state = controller.snapshot_state(presentation)
 
-        assert state.backend_name == "audio_engine_v2"
+        assert state.backend_name == "sounddevice"
         assert (
             controller.engine.get_layer(TimelineRuntimeAudioController._PRIMARY_TRACK_ID)
             is not None

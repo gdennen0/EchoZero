@@ -5,7 +5,9 @@ Connects process lifecycle, IPC envelope behavior, and diagnostics metadata to r
 
 from __future__ import annotations
 
+import json
 import sys
+import time
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -74,7 +76,7 @@ def test_process_runtime_audio_accepts_compact_sync_and_signature(
     assert isinstance(signature, tuple)
 
 
-def test_process_runtime_audio_snapshot_state_uses_request_payload_authoritatively(
+def test_process_runtime_audio_snapshot_state_ignores_selection_payload(
     process_runtime_audio: ProcessPlaybackClient,
 ) -> None:
     presentation = build_demo_app().presentation()
@@ -92,13 +94,16 @@ def test_process_runtime_audio_snapshot_state_uses_request_payload_authoritative
     state_base = process_runtime_audio.snapshot_state(base)
     state_updated = process_runtime_audio.snapshot_state(updated)
 
-    assert state_base.active_layer_id == base.selected_layer_id
-    assert state_updated.active_layer_id == updated.selected_layer_id
+    assert state_base.active_layer_id is None
+    assert state_updated.active_layer_id is None
+    assert state_base.active_sources == state_updated.active_sources
 
 
 def test_process_client_transport_ipc_updates_timing_snapshots(monkeypatch) -> None:
     client = ProcessPlaybackClient.__new__(ProcessPlaybackClient)
     client._shutdown = False
+    client._audio_process_connected = False
+    client._latest_timing_snapshot_received_monotonic = 0.0
     commands: list[tuple[str, dict[str, object]]] = []
     state = {"playing": False, "seconds": 0.0}
 
@@ -149,9 +154,128 @@ def test_process_client_transport_ipc_updates_timing_snapshots(monkeypatch) -> N
     assert playing_snapshot.display_label == "00:00:00:15"
 
 
+def test_process_client_uses_pushed_timing_snapshot_without_http_poll(monkeypatch) -> None:
+    client = ProcessPlaybackClient.__new__(ProcessPlaybackClient)
+    client._shutdown = False
+    client._audio_process_connected = True
+    client._latest_timing_snapshot = None
+    client._latest_transport_snapshot = None
+    client._latest_timing_snapshot_received_monotonic = 0.0
+
+    def _unexpected_command(operation: str, params: dict[str, object]) -> dict[str, object]:
+        raise AssertionError(f"unexpected HTTP command: {operation} {params}")
+
+    monkeypatch.setattr(client, "_command", _unexpected_command)
+    client._handle_ws_event(
+        json.dumps(
+            {
+                "type": "timing-snapshot",
+                "payload": {
+                    "structural_generation": 7,
+                    "snapshot": encode_timing_snapshot(
+                        PlaybackTimingSnapshot(
+                            audible_time_seconds=3.25,
+                            clock_time_seconds=3.5,
+                            snapshot_monotonic_seconds=11.0,
+                            is_playing=True,
+                            sample_position=156000,
+                            display_label="00:00:03:07",
+                        )
+                    ),
+                },
+            }
+        )
+    )
+
+    snapshot = client.timing_snapshot()
+    transport_snapshot = client.latest_transport_snapshot()
+
+    assert snapshot.audible_time_seconds == 3.25
+    assert snapshot.is_playing is True
+    assert transport_snapshot is not None
+    assert transport_snapshot.generation_id == "7"
+
+
+def test_process_client_http_timing_snapshot_does_not_seed_pushed_cache(monkeypatch) -> None:
+    client = ProcessPlaybackClient.__new__(ProcessPlaybackClient)
+    client._shutdown = False
+    client._audio_process_connected = False
+    client._latest_timing_snapshot = None
+    client._latest_transport_snapshot = None
+    client._latest_timing_snapshot_received_monotonic = 0.0
+
+    def _fake_command(operation: str, params: dict[str, object]) -> dict[str, object]:
+        assert operation == "timing_snapshot"
+        return {
+            "value": encode_timing_snapshot(
+                PlaybackTimingSnapshot(
+                    audible_time_seconds=4.0,
+                    clock_time_seconds=4.0,
+                    snapshot_monotonic_seconds=10.0,
+                    is_playing=False,
+                    sample_position=192000,
+                    display_label="00:00:04:00",
+                )
+            )
+        }
+
+    monkeypatch.setattr(client, "_command", _fake_command)
+
+    snapshot = client.timing_snapshot()
+
+    assert snapshot.audible_time_seconds == 4.0
+    assert client.latest_timing_snapshot() is None
+    assert client.latest_transport_snapshot() is None
+
+
+def test_process_client_expires_stale_pushed_timing_snapshot(monkeypatch) -> None:
+    client = ProcessPlaybackClient.__new__(ProcessPlaybackClient)
+    client._shutdown = False
+    client._audio_process_connected = True
+    client._latest_timing_snapshot = PlaybackTimingSnapshot(
+        audible_time_seconds=9.0,
+        clock_time_seconds=9.0,
+        snapshot_monotonic_seconds=10.0,
+        is_playing=True,
+    )
+    client._latest_transport_snapshot = None
+    client._latest_timing_snapshot_received_monotonic = (
+        time.monotonic() - ProcessPlaybackClient._PUSHED_TIMING_STALE_SECONDS - 0.1
+    )
+    commands: list[str] = []
+
+    def _fake_command(operation: str, params: dict[str, object]) -> dict[str, object]:
+        commands.append(operation)
+        return {
+            "value": encode_timing_snapshot(
+                PlaybackTimingSnapshot(
+                    audible_time_seconds=10.0,
+                    clock_time_seconds=10.0,
+                    snapshot_monotonic_seconds=11.0,
+                    is_playing=False,
+                )
+            )
+        }
+
+    monkeypatch.setattr(client, "_command", _fake_command)
+
+    snapshot = client.timing_snapshot()
+
+    assert snapshot.audible_time_seconds == 10.0
+    assert commands == ["timing_snapshot"]
+
+
 def test_process_client_reconfigure_device_serializes_hardware_settings(monkeypatch) -> None:
     client = ProcessPlaybackClient.__new__(ProcessPlaybackClient)
     client._shutdown = False
+    client._latest_timing_snapshot = PlaybackTimingSnapshot(
+        audible_time_seconds=1.0,
+        clock_time_seconds=1.0,
+        snapshot_monotonic_seconds=1.0,
+        is_playing=True,
+    )
+    client._latest_transport_snapshot = None
+    client._latest_timing_snapshot_received_monotonic = time.monotonic()
     commands: list[tuple[str, dict[str, object]]] = []
 
     def _fake_command(operation: str, params: dict[str, object]) -> dict[str, object]:
@@ -173,6 +297,7 @@ def test_process_client_reconfigure_device_serializes_hardware_settings(monkeypa
     )
 
     assert response == {"latency_profile": "balanced", "device_reinit_count": 2}
+    assert client.latest_timing_snapshot() is None
     assert commands == [
         (
             "reconfigure_device",
@@ -321,6 +446,57 @@ def test_process_service_reconfigure_device_restores_projection_time_and_play_st
     assert service._controller.synced_projection is projection
     assert service._controller.seek_seconds == 12.5
     assert service._controller.play_called is True
+
+
+def test_process_service_reconfigure_device_keeps_old_controller_when_new_build_fails(
+    monkeypatch,
+) -> None:
+    service = PlaybackProcessService.__new__(PlaybackProcessService)
+    previous_config = AudioOutputRuntimeConfig(output_device="old-device", sample_rate=44100)
+    service._base_audio_config = previous_config
+    service._latest_projection = object()
+    old_controller = _FakeDeviceReconfigureController(seconds=3.0, playing=True)
+    service._controller = old_controller
+    service._device_reinit_count = 4
+
+    def _build_controller(self):
+        raise RuntimeError("device unavailable")
+
+    monkeypatch.setattr(PlaybackProcessService, "_build_controller", _build_controller)
+
+    with pytest.raises(RuntimeError, match="device unavailable"):
+        service._reconfigure_device({"output_device": "missing-device", "sample_rate": 96000})
+
+    assert service._controller is old_controller
+    assert old_controller.shutdown_called is False
+    assert service._base_audio_config == previous_config
+    assert service._device_reinit_count == 4
+
+
+def test_process_service_reconfigure_device_clears_selected_device_for_system_default(
+    monkeypatch,
+) -> None:
+    service = PlaybackProcessService.__new__(PlaybackProcessService)
+    service._base_audio_config = AudioOutputRuntimeConfig(
+        output_device="old-device",
+        sample_rate=44100,
+    )
+    service._latest_projection = None
+    old_controller = _FakeDeviceReconfigureController(seconds=0.0, playing=False)
+    service._controller = old_controller
+    service._device_reinit_count = 0
+
+    def _build_controller(self):
+        return _FakeDeviceReconfigureController(seconds=0.0, playing=False)
+
+    monkeypatch.setattr(PlaybackProcessService, "_build_controller", _build_controller)
+
+    service._reconfigure_device({"output_device": None, "sample_rate": None, "channels": None})
+
+    assert service._base_audio_config.output_device is None
+    assert service._base_audio_config.sample_rate is None
+    assert service._base_audio_config.channels is None
+    assert service._device_reinit_count == 1
 
 
 class _FakeDeviceReconfigureController:

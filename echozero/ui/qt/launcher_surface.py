@@ -12,7 +12,7 @@ from typing import Callable
 
 from PyQt6.QtCore import QObject
 from PyQt6.QtGui import QAction, QKeySequence
-from PyQt6.QtWidgets import QFileDialog, QMessageBox
+from PyQt6.QtWidgets import QDialog, QFileDialog, QMessageBox
 
 from echozero.application.settings import (
     AppSettingsService,
@@ -67,6 +67,7 @@ class LauncherController:
         self._recent_menu_actions: dict[str, QAction] = {}
         self._session_recent_paths: list[Path] = []
         self._original_close_event = getattr(widget, "closeEvent", None)
+        self._shutdown_progress_dialog: QDialog | None = None
 
     def install(self) -> None:
         self.actions = {
@@ -230,11 +231,14 @@ class LauncherController:
         set_layer_header_width(int(runtime_state.layer_header_width_px))
 
     def _on_app_settings_saved(self, result: AppSettingsUpdateResult) -> None:
-        if result.audio_changed:
+        should_refresh_audio = result.audio_changed or not (
+            result.audio_changed or result.osc_changed or result.song_import_changed
+        )
+        if should_refresh_audio:
             self._apply_runtime_audio_settings()
         if result.osc_changed:
             self._apply_runtime_osc_settings()
-        if result.audio_changed or result.osc_changed:
+        if should_refresh_audio or result.osc_changed:
             self._refresh_presentation()
 
     def _apply_runtime_audio_settings(self) -> None:
@@ -315,12 +319,20 @@ class LauncherController:
             if callable(recover):
                 return (
                     "opened"
-                    if self._run_action("Open Project", lambda: recover(target_path))
+                    if self._run_project_load_action(
+                        "Open Project",
+                        f"Recovering {target_path.name}...",
+                        lambda: recover(target_path),
+                    )
                     else "failed"
                 )
         return (
             "opened"
-            if self._run_action("Open Project", lambda: self.runtime.open_project(target_path))
+            if self._run_project_load_action(
+                "Open Project",
+                f"Loading {target_path.name}...",
+                lambda: self.runtime.open_project(target_path),
+            )
             else "failed"
         )
 
@@ -499,6 +511,28 @@ class LauncherController:
         self._refresh_presentation()
         return True
 
+    def _run_project_load_action(self, action_name: str, message: str, callback) -> bool:
+        progress = begin_operation_progress_overlay(
+            self.widget if isinstance(self.widget, TimelineWidget) else None,
+            title=action_name,
+            message=message,
+        )
+        try:
+            callback()
+        except Exception as exc:
+            finish_operation_progress_overlay(progress)
+            progress = None
+            QMessageBox.critical(
+                self.widget,
+                f"{action_name} Failed",
+                f"{action_name} failed.\n\n{exc}",
+            )
+            return False
+        finally:
+            finish_operation_progress_overlay(progress)
+        self._refresh_presentation()
+        return True
+
     def _run_save_action(self, action_name: str, message: str, callback) -> bool:
         progress = begin_operation_progress_overlay(
             self.widget if isinstance(self.widget, TimelineWidget) else None,
@@ -544,7 +578,11 @@ class LauncherController:
             return False
         if not self._confirm_unsaved_changes("Save changes before creating a new project?"):
             return False
-        if not self._run_action("New Project", self.runtime.new_project):
+        if not self._run_project_load_action(
+            "New Project",
+            "Preparing a fresh project...",
+            self.runtime.new_project,
+        ):
             return False
         self._apply_project_runtime_header_width()
         return True
@@ -734,10 +772,29 @@ class LauncherController:
     def confirm_close(self) -> bool:
         return self._confirm_unsaved_changes("Save changes before closing?")
 
+    def begin_shutdown_dialog(self) -> None:
+        """Show the shutdown progress dialog while graceful teardown is active."""
+        if self._shutdown_progress_dialog is not None:
+            return
+        self._shutdown_progress_dialog = begin_operation_progress_overlay(
+            self.widget,
+            title="Closing EchoZero",
+            message="Shutting down audio and project services...",
+        )
+
+    def finish_shutdown_dialog(self) -> None:
+        """Dismiss the shutdown progress dialog after teardown completes."""
+        finish_operation_progress_overlay(self._shutdown_progress_dialog)
+        self._shutdown_progress_dialog = None
+
     def close_event(self, event) -> None:
         if not self.confirm_close():
             event.ignore()
             return
+        self.begin_shutdown_dialog()
+        close_video_windows = getattr(self.runtime, "close_video_windows", None)
+        if callable(close_video_windows):
+            close_video_windows()
         if callable(self._original_close_event):
             self._original_close_event(event)
             return

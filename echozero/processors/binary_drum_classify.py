@@ -16,6 +16,7 @@ from echozero.domain.types import AudioData, Event, EventData, Layer
 from echozero.errors import ExecutionError, ValidationError
 from echozero.execution import ExecutionContext
 from echozero.progress import ProgressReport
+from echozero.processors.drum_event_span import DrumEventSpanEstimate, estimate_drum_event_span
 from echozero.result import Result, err, ok
 
 if TYPE_CHECKING:
@@ -188,6 +189,11 @@ def _default_binary_classify(
             )
             if event_peak < label_input.min_event_peak and event_rms < label_input.min_event_rms:
                 continue
+            span_estimate = estimate_drum_event_span(
+                audio=audio,
+                onset_seconds=float(event.time),
+                sample_rate=runtime_model.sample_rate,
+            )
             feature = build_feature_tensor(
                 audio=audio,
                 event_time=float(event.time),
@@ -214,6 +220,7 @@ def _default_binary_classify(
                 min_separation_seconds=label_input.min_separation_seconds,
                 event_peak=event_peak,
                 event_rms=event_rms,
+                span_estimate=span_estimate,
             )
             classified[label_input.label].append((classified_event, score))
     assigned = _apply_assignment_config(classified, assignment)
@@ -636,7 +643,19 @@ def _build_classified_event(
     min_separation_seconds: float,
     event_peak: float,
     event_rms: float,
+    span_estimate: DrumEventSpanEstimate,
 ) -> Event:
+    resolved_duration = max(float(event.duration), float(span_estimate.duration_seconds))
+    span_metadata = {
+        "schema": "echozero.drum_event_span_estimate.v1",
+        "duration_seconds": round(resolved_duration, 6),
+        "consensus_method": span_estimate.consensus_method,
+        "agreement_seconds": span_estimate.agreement_seconds,
+        "method_durations": {
+            method: round(duration, 6)
+            for method, duration in span_estimate.method_durations.items()
+        },
+    }
     threshold_passed = score >= positive_threshold
     promotion_state = "promoted" if threshold_passed else "demoted"
     detection_metadata = {
@@ -654,6 +673,8 @@ def _build_classified_event(
         "min_event_peak": round(min_event_peak, 6),
         "min_event_rms": round(min_event_rms, 6),
         "min_separation_ms": round(min_separation_seconds * 1000.0, 3),
+        "estimated_duration_seconds": round(resolved_duration, 6),
+        "span_estimate": span_metadata,
     }
     classifications = dict(event.classifications)
     classifications.update(
@@ -679,11 +700,14 @@ def _build_classified_event(
             "min_event_peak": round(min_event_peak, 6),
             "min_event_rms": round(min_event_rms, 6),
             "min_separation_ms": round(min_separation_seconds * 1000.0, 3),
+            "estimated_duration_seconds": round(resolved_duration, 6),
+            "span_estimate": span_metadata,
             "detection": detection_metadata,
         }
     )
     return replace(
         event,
+        duration=resolved_duration,
         classifications=classifications,
         metadata=metadata,
         origin=f"binary_drum_classify:{label}",

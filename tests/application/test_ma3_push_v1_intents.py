@@ -30,6 +30,7 @@ def test_push_layer_to_ma3_coerces_string_enums():
         target_track_coord=" tc1_tg2_tr3 ",
         ma3_channel_no="2",
         selected_event_ids=[EventId("evt_1"), EventId("evt_1")],
+        skip_cue_1=1,
         sequence_action=CreateMA3Sequence(
             creation_mode="next_available",
             preferred_name=" Kick - Snare ",
@@ -42,6 +43,7 @@ def test_push_layer_to_ma3_coerces_string_enums():
     assert intent.target_track_coord == "tc1_tg2_tr3"
     assert intent.ma3_channel_no == 2
     assert intent.selected_event_ids == [EventId("evt_1")]
+    assert intent.skip_cue_1 is True
     assert isinstance(intent.sequence_action, CreateMA3Sequence)
     assert intent.sequence_action.creation_mode is MA3SequenceCreationMode.NEXT_AVAILABLE
     assert intent.sequence_action.preferred_name == "Kick - Snare"

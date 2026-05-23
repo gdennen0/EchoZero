@@ -52,6 +52,7 @@ from echozero.ui.qt.timeline.widget_canvas_types import (
     SelectionDragCandidate as _SelectionDragCandidate,
     TakeActionRect as _TakeActionRect,
     TakeRect as _TakeRect,
+    VideoDragCandidate as _VideoDragCandidate,
 )
 
 _FIX_CURSOR_SIZE_PX: Final[int] = 24
@@ -128,6 +129,7 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
     zoom_requested = pyqtSignal(float, float)
     zoom_factor_requested = pyqtSignal(float, float)
     playhead_drag_requested = pyqtSignal(float)
+    playback_start_drag_requested = pyqtSignal(float)
     clear_selection_requested = pyqtSignal()
     select_all_requested = pyqtSignal()
     set_selected_events_requested = pyqtSignal(object, object, object, object, object)
@@ -156,6 +158,7 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
     section_boundary_double_clicked = pyqtSignal(object)
     section_marker_move_requested = pyqtSignal(object, object, float)
     video_offset_changed = pyqtSignal(object, float)
+    video_placement_changed = pyqtSignal(object, float, float, float, bool)
     header_width_changed = pyqtSignal(int)
 
     def __init__(
@@ -209,13 +212,14 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
         self._row_body_select_rects: list[tuple[object, LayerId, TakeId | None]] = []
         self._header_hover_rects: list[tuple[object, LayerPresentation]] = []
         self._event_drop_rects: list[tuple[object, LayerId]] = []
-        self._video_clip_rects: list[tuple[object, LayerId, float]] = []
-        self._video_drag_candidate: tuple[LayerId, float, float] | None = None
+        self._video_clip_rects: list[tuple[object, LayerId, float, float, float, float, bool]] = []
+        self._video_drag_candidate: _VideoDragCandidate | None = None
         self._layer_drag_candidate: _LayerDragCandidate | None = None
         self._dragging_layer_reorder = False
         self._layer_drag_target_y: float | None = None
         self._hovered_layer_id: LayerId | None = None
         self._dragging_playhead = False
+        self._dragging_playback_start = False
         self._drag_candidate: _EventDragCandidate | None = None
         self._section_marker_drag_candidate: _SectionMarkerDragCandidate | None = None
         self._dragging_section_marker = False
@@ -229,6 +233,7 @@ class TimelineCanvas(_TimelineCanvasPaintMixin, _TimelineCanvasInteractionMixin,
         self._snap_indicator_time: float | None = None
         self._move_drag_preview_time: float | None = None
         self._move_drag_snap_time: float | None = None
+        self._video_drag_preview_values: tuple[float, float, float, bool] | None = None
         self._edit_mode = "select"
         self._fix_action = "select"
         self._fix_nav_include_demoted = False
